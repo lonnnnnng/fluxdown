@@ -1,0 +1,319 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  rust:
+    name: Rust core and CLI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact-name: fluxdown-cli-linux
+            binary-name: fluxdown
+            staged-name: fluxdown
+          - os: windows-latest
+            artifact-name: fluxdown-cli-windows
+            binary-name: fluxdown.exe
+            staged-name: fluxdown.exe
+          - os: macos-latest
+            artifact-name: fluxdown-cli-macos
+            binary-name: fluxdown
+            staged-name: fluxdown
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test Rust core and CLI
+        run: cargo test -p fluxdown-core -p fluxdown-cli
+      - name: Build CLI
+        run: cargo build -p fluxdown-cli --release
+      - name: Stage CLI artifact
+        shell: bash
+        run: |
+          mkdir -p dist/cli
+          cp "target/release/${{ matrix.binary-name }}" "dist/cli/${{ matrix.staged-name }}"
+      - name: Verify CLI artifact
+        run: node scripts/verify-artifacts.mjs file "dist/cli/${{ matrix.staged-name }}"
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: dist/cli/${{ matrix.staged-name }}
+
+  desktop:
+    name: Desktop GUI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact-name: fluxdown-desktop-linux
+            artifact-path: |
+              target/release/bundle/deb/*.deb
+              target/release/bundle/rpm/*.rpm
+              target/release/fluxdown-desktop
+          - os: windows-latest
+            artifact-name: fluxdown-desktop-windows
+            artifact-path: |
+              target/release/bundle/msi/*.msi
+              target/release/bundle/nsis/*.exe
+              target/release/fluxdown-desktop.exe
+              target/release/WebView2Loader.dll
+          - os: macos-latest
+            artifact-name: fluxdown-desktop-macos
+            artifact-path: |
+              target/release/bundle/macos/FluxDown.app
+              target/release/bundle/dmg/*.dmg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install Linux WebKit dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            rpm
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Build Linux desktop app
+        if: runner.os == 'Linux'
+        run: npm run desktop:build
+        env:
+          TAURI_BUNDLES: deb,rpm
+      - name: Build desktop app
+        if: runner.os != 'Linux'
+        run: npm run desktop:build
+      - name: Build macOS DMG
+        if: runner.os == 'macOS'
+        run: npm run desktop:dmg
+      - name: Verify Linux desktop artifact
+        if: runner.os == 'Linux'
+        run: node scripts/verify-artifacts.mjs linux-gui-ci
+      - name: Verify Windows desktop artifact
+        if: runner.os == 'Windows'
+        run: node scripts/verify-artifacts.mjs desktop-windows-ci
+      - name: Verify macOS desktop artifacts
+        if: runner.os == 'macOS'
+        run: node scripts/verify-artifacts.mjs desktop-macos
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-path }}
+          if-no-files-found: error
+
+  android:
+    name: Android app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install Flutter dependencies
+        working-directory: apps/mobile
+        run: flutter pub get
+      - name: Analyze mobile app
+        working-directory: apps/mobile
+        run: flutter analyze
+      - name: Test mobile app
+        working-directory: apps/mobile
+        run: flutter test
+      - name: Configure Android release signing
+        working-directory: apps/mobile/android
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "ANDROID_KEYSTORE_BASE64 is not set; release builds will use debug signing for install testing."
+            exit 0
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > upload-keystore.jks
+          printf '%s\n' \
+            "storePassword=$ANDROID_KEYSTORE_PASSWORD" \
+            "keyPassword=$ANDROID_KEY_PASSWORD" \
+            "keyAlias=$ANDROID_KEY_ALIAS" \
+            "storeFile=upload-keystore.jks" \
+            > key.properties
+      - name: Build Android APK
+        working-directory: apps/mobile
+        run: flutter build apk --debug
+      - name: Build Android release APK
+        working-directory: apps/mobile
+        run: flutter build apk --release
+      - name: Build Android App Bundle
+        working-directory: apps/mobile/android
+        run: ./gradlew bundleRelease
+      - name: Verify Android release artifacts
+        run: node scripts/verify-artifacts.mjs android
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-android-debug-apk
+          path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
+      - name: Upload Android release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-android-release-apk
+          path: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+      - name: Upload Android App Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-android-release-aab
+          path: apps/mobile/build/app/outputs/bundle/release/app-release.aab
+
+  ios:
+    name: iOS app
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install Flutter dependencies
+        working-directory: apps/mobile
+        run: flutter pub get
+      - name: Build iOS debug frameworks
+        working-directory: apps/mobile
+        env:
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
+        run: flutter build ios-framework --no-profile --no-release
+      - name: Verify iOS debug frameworks
+        run: node scripts/verify-artifacts.mjs ios-framework
+      - name: Upload iOS debug frameworks
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-ios-debug-frameworks
+          path: apps/mobile/build/ios/framework/Debug
+      - name: Build iOS simulator app
+        working-directory: apps/mobile
+        run: flutter build ios --simulator
+      - name: Verify iOS simulator app
+        run: node scripts/verify-artifacts.mjs ios-simulator
+      - name: Upload iOS simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-ios-simulator
+          path: apps/mobile/build/ios/iphonesimulator/Runner.app
+      - name: Build unsigned iOS device app
+        working-directory: apps/mobile
+        env:
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
+        run: flutter build ios --no-codesign
+      - name: Verify unsigned iOS device app
+        run: node scripts/verify-artifacts.mjs ios-device-unsigned
+      - name: Upload unsigned iOS device app
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-ios-device-unsigned
+          path: apps/mobile/build/ios/iphoneos/Runner.app
+      - name: Configure iOS release signing
+        id: ios_signing
+        working-directory: apps/mobile
+        shell: bash
+        env:
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$IOS_CERTIFICATE_BASE64" ] || [ -z "$IOS_PROVISIONING_PROFILE_BASE64" ] || [ -z "$APPLE_TEAM_ID" ] || [ -z "$IOS_KEYCHAIN_PASSWORD" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "iOS release signing secrets are not set; skipping signed IPA build."
+            exit 0
+          fi
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/fluxdown-signing.keychain-db"
+          CERTIFICATE_PATH="$RUNNER_TEMP/ios-signing.p12"
+          PROFILE_PATH="$RUNNER_TEMP/ios-profile.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/ios-profile.plist"
+
+          echo "$IOS_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+
+          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/[ "]//g')
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$PROFILE_PLIST")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' "$PROFILE_PLIST")
+          APP_IDENTIFIER=$(/usr/libexec/PlistBuddy -c 'Print Entitlements:application-identifier' "$PROFILE_PLIST")
+          if [ "$APP_IDENTIFIER" != "$APPLE_TEAM_ID.dev.fluxdown.mobile" ]; then
+            echo "Provisioning profile application identifier '$APP_IDENTIFIER' does not match '$APPLE_TEAM_ID.dev.fluxdown.mobile'."
+            exit 1
+          fi
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+          /usr/libexec/PlistBuddy -c 'Clear dict' ios/ExportOptions.ci.plist
+          /usr/libexec/PlistBuddy -c 'Add :method string app-store' ios/ExportOptions.ci.plist
+          /usr/libexec/PlistBuddy -c 'Add :signingStyle string manual' ios/ExportOptions.ci.plist
+          /usr/libexec/PlistBuddy -c "Add :teamID string $APPLE_TEAM_ID" ios/ExportOptions.ci.plist
+          /usr/libexec/PlistBuddy -c 'Add :provisioningProfiles dict' ios/ExportOptions.ci.plist
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:dev.fluxdown.mobile string $PROFILE_NAME" ios/ExportOptions.ci.plist
+          /usr/libexec/PlistBuddy -c 'Add :stripSwiftSymbols bool true' ios/ExportOptions.ci.plist
+          /usr/libexec/PlistBuddy -c 'Add :uploadSymbols bool true' ios/ExportOptions.ci.plist
+          plutil -lint ios/ExportOptions.ci.plist
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+      - name: Build signed iOS IPA
+        if: steps.ios_signing.outputs.enabled == 'true'
+        working-directory: apps/mobile
+        env:
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
+        run: flutter build ipa --export-options-plist=ios/ExportOptions.ci.plist
+      - name: Verify signed iOS IPA
+        if: steps.ios_signing.outputs.enabled == 'true'
+        run: node scripts/verify-artifacts.mjs file apps/mobile/build/ios/ipa/*.ipa
+      - name: Upload signed iOS IPA
+        if: steps.ios_signing.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-ios-release-ipa
+          path: apps/mobile/build/ios/ipa/*.ipa

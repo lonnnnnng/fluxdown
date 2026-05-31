@@ -1,0 +1,230 @@
+use crate::{DownloadRequest, DownloadState, DownloadTask};
+use serde::{Deserialize, Serialize};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
+use tempfile::NamedTempFile;
+use thiserror::Error;
+use tokio::fs;
+use tokio::sync::Mutex;
+
+static TASK_STORE_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+#[derive(Debug, Error)]
+pub enum TaskStoreError {
+    #[error("task `{0}` was not found")]
+    NotFound(String),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+}
+
+#[derive(Debug, Clone)]
+pub struct TaskStore {
+    path: PathBuf,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+struct TaskStoreFile {
+    tasks: Vec<DownloadTask>,
+}
+
+impl TaskStore {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub async fn list(&self) -> Result<Vec<DownloadTask>, TaskStoreError> {
+        let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        Ok(self.read_file().await?.tasks)
+    }
+
+    pub async fn enqueue(&self, request: DownloadRequest) -> Result<DownloadTask, TaskStoreError> {
+        let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        let mut file = self.read_file().await?;
+        let task = DownloadTask::from_request(request);
+        file.tasks.insert(0, task.clone());
+        self.write_file(&file).await?;
+        Ok(task)
+    }
+
+    pub async fn update(&self, task: DownloadTask) -> Result<DownloadTask, TaskStoreError> {
+        let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        let mut file = self.read_file().await?;
+        let Some(existing) = file
+            .tasks
+            .iter_mut()
+            .find(|candidate| candidate.id == task.id)
+        else {
+            return Err(TaskStoreError::NotFound(task.id));
+        };
+        *existing = task.clone();
+        self.write_file(&file).await?;
+        Ok(task)
+    }
+
+    pub async fn set_state(
+        &self,
+        id: &str,
+        state: DownloadState,
+    ) -> Result<DownloadTask, TaskStoreError> {
+        let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        let mut file = self.read_file().await?;
+        let Some(task) = file.tasks.iter_mut().find(|candidate| candidate.id == id) else {
+            return Err(TaskStoreError::NotFound(id.to_string()));
+        };
+        task.set_state(state);
+        let updated = task.clone();
+        self.write_file(&file).await?;
+        Ok(updated)
+    }
+
+    pub async fn set_progress_if_running(
+        &self,
+        id: &str,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+    ) -> Result<Option<DownloadTask>, TaskStoreError> {
+        let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        let mut file = self.read_file().await?;
+        let Some(task) = file.tasks.iter_mut().find(|candidate| candidate.id == id) else {
+            return Err(TaskStoreError::NotFound(id.to_string()));
+        };
+        if task.state != DownloadState::Running {
+            return Ok(None);
+        }
+
+        task.set_progress(downloaded_bytes, total_bytes);
+        let updated = task.clone();
+        self.write_file(&file).await?;
+        Ok(Some(updated))
+    }
+
+    pub async fn remove(&self, id: &str) -> Result<DownloadTask, TaskStoreError> {
+        let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        let mut file = self.read_file().await?;
+        let Some(index) = file.tasks.iter().position(|candidate| candidate.id == id) else {
+            return Err(TaskStoreError::NotFound(id.to_string()));
+        };
+        let removed = file.tasks.remove(index);
+        self.write_file(&file).await?;
+        Ok(removed)
+    }
+
+    pub async fn get(&self, id: &str) -> Result<DownloadTask, TaskStoreError> {
+        let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        self.read_file()
+            .await?
+            .tasks
+            .into_iter()
+            .find(|task| task.id == id)
+            .ok_or_else(|| TaskStoreError::NotFound(id.to_string()))
+    }
+
+    async fn read_file(&self) -> Result<TaskStoreFile, TaskStoreError> {
+        if !self.path.exists() {
+            return Ok(TaskStoreFile::default());
+        }
+
+        let bytes = fs::read(&self.path).await?;
+        if bytes.is_empty() {
+            return Ok(TaskStoreFile::default());
+        }
+
+        Ok(serde_json::from_slice(&bytes)?)
+    }
+
+    async fn write_file(&self, file: &TaskStoreFile) -> Result<(), TaskStoreError> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+
+        let bytes = serde_json::to_vec_pretty(file)?;
+        let path = self.path.clone();
+        tokio::task::spawn_blocking(move || persist_atomically(&path, &bytes))
+            .await
+            .map_err(|error| {
+                std::io::Error::other(format!("task store write failed: {error}"))
+            })??;
+        Ok(())
+    }
+}
+
+fn persist_atomically(path: &Path, bytes: &[u8]) -> Result<(), std::io::Error> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut temp_file = NamedTempFile::new_in(parent)?;
+    temp_file.write_all(bytes)?;
+    temp_file.flush()?;
+    temp_file.as_file().sync_all()?;
+    temp_file
+        .persist(path)
+        .map_err(|error| std::io::Error::new(error.error.kind(), error.error))?;
+    Ok(())
+}
+
+pub fn default_store_path() -> PathBuf {
+    let base = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+        .unwrap_or_else(|| PathBuf::from("."));
+    base.join("fluxdown").join("queue.json")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn persists_tasks() {
+        let path =
+            std::env::temp_dir().join(format!("fluxdown-store-{}.json", uuid::Uuid::new_v4()));
+        let store = TaskStore::new(&path);
+        let task = store
+            .enqueue(DownloadRequest::new("https://example.com/file.bin", "/tmp"))
+            .await
+            .unwrap();
+
+        assert_eq!(store.list().await.unwrap().len(), 1);
+        let updated = store
+            .set_state(&task.id, DownloadState::Paused)
+            .await
+            .unwrap();
+        assert_eq!(updated.state, DownloadState::Paused);
+        assert_eq!(
+            store.get(&task.id).await.unwrap().state,
+            DownloadState::Paused
+        );
+        store.remove(&task.id).await.unwrap();
+        assert!(store.list().await.unwrap().is_empty());
+        let _ = fs::remove_file(path).await;
+    }
+
+    #[tokio::test]
+    async fn atomically_replaces_existing_store_file() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("queue.json");
+        fs::write(&path, r#"{"tasks":[]}"#).await.unwrap();
+
+        let store = TaskStore::new(&path);
+        store
+            .enqueue(DownloadRequest::new("https://example.com/file.bin", "/tmp"))
+            .await
+            .unwrap();
+
+        let source = fs::read_to_string(&path).await.unwrap();
+        assert!(source.contains("https://example.com/file.bin"));
+        assert!(serde_json::from_str::<serde_json::Value>(&source).is_ok());
+
+        let mut entries = fs::read_dir(temp_dir.path()).await.unwrap();
+        let mut entry_count = 0;
+        while entries.next_entry().await.unwrap().is_some() {
+            entry_count += 1;
+        }
+        assert_eq!(entry_count, 1);
+    }
+}

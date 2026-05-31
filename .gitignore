@@ -1,0 +1,13 @@
+/target/
+/target-*/
+/node_modules/
+/dist/
+/apps/desktop/node_modules/
+/apps/desktop/dist/
+/apps/desktop/src-tauri/target/
+/apps/mobile/.dart_tool/
+/apps/mobile/build/
+/apps/mobile/ios/signing/
+/apps/mobile/ios/ExportOptions.local.plist
+*.log
+.DS_Store

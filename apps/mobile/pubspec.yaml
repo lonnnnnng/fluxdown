@@ -1,0 +1,31 @@
+name: fluxdown_mobile
+description: "FluxDown mobile downloader for Android and iOS."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  http: ^1.5.0
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  uuid: ^4.5.1
+  dartssh2: ^2.17.1
+  libtorrent_flutter: ^1.8.5
+  dart_smb2: ^0.1.0
+  url_launcher: ^6.3.2
+  pointycastle: ^4.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
