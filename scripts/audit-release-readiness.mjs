@@ -240,7 +240,7 @@ const checks = [
     label: 'Windows CLI and GUI are configured in CI',
     kind: 'source-contains',
     file: '.github/workflows/build.yml',
-    values: ['windows-latest', 'fluxdown-cli-windows', 'fluxdown-desktop-windows', 'desktop-windows-ci', 'WebView2Loader.dll'],
+    values: ['windows-latest', 'fluxdown-cli-windows', 'fluxdown-desktop-windows', 'desktop-windows-ci', 'target/release/fluxdown-desktop.exe'],
   },
   {
     label: 'iPhone simulator artifact is configured in CI',

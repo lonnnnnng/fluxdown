@@ -50,7 +50,6 @@ const profiles = {
   ],
   'desktop-windows-ci': [
     ['file', 'target/release/fluxdown-desktop.exe'],
-    ['file', 'target/release/WebView2Loader.dll'],
     ['glob', 'target/release/bundle/msi/*.msi'],
     ['glob', 'target/release/bundle/nsis/*.exe'],
   ],
@@ -163,6 +162,10 @@ if (profile === 'file') {
 } else if (profile === 'dir') {
   for (const relativePath of extra) {
     verify('dir', relativePath)
+  }
+} else if (profile === 'glob') {
+  for (const relativePattern of extra) {
+    verify('glob', relativePattern)
   }
 } else if (profiles[profile]) {
   for (const [kind, relativePath] of profiles[profile]) {

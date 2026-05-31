@@ -96,7 +96,7 @@ Mobile ed2k handoff depends on platform URL handler visibility. The Android mani
 - `cd apps/mobile && flutter build apk --release` creates `apps/mobile/build/app/outputs/flutter-apk/app-release.apk`.
 - `cd apps/mobile/android && ./gradlew bundleRelease` creates `apps/mobile/build/app/outputs/bundle/release/app-release.aab` for Google Play upload.
 - `cd apps/mobile && flutter build ios --simulator` validates the iOS project without Apple signing when a matching iOS simulator runtime is installed.
-- `cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release` validates the iOS app and plugin compilation into debug frameworks without an Apple signing team.
+- `cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release` creates iOS debug frameworks when Apple signing materials are available. Flutter performs a signing identity check before this command on current macOS runners, so CI only runs it after iOS signing secrets are configured.
 - `cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ipa --export-options-plist=ios/ExportOptions.plist` creates an App Store IPA when Apple signing, team, and provisioning are configured.
 - `npm run mobile:ios:ipa:signed` imports base64-encoded Apple signing materials into a local temporary keychain, generates manual export options, builds a signed App Store IPA, and verifies `apps/mobile/build/ios/ipa/*.ipa`.
 - `cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign` validates a device build up to Apple signing. A deployable iPhone build still requires an Apple Development Team and provisioning profile in Xcode.
@@ -118,7 +118,7 @@ Mobile ed2k handoff depends on platform URL handler visibility. The Android mani
 - `npm run release:prepare` runs staging, manifest generation, staged artifact verification, and manifest verification in one command.
 - `npm run audit:release` checks protocol coverage and available local release artifacts, and reports signing-dependent gaps such as a missing local iPhone IPA as warnings.
 
-Windows CLI and the raw Windows GUI executable can be cross-built locally with Docker. Keep `WebView2Loader.dll` next to the raw Windows GUI executable when distributing or testing it outside an installer. Windows installer packages (`.msi` and NSIS `.exe`) are built and verified on `windows-latest` in CI because the Tauri desktop bundle needs the Windows desktop toolchain; the CI artifact also uploads the raw Windows GUI executable with `WebView2Loader.dll`.
+Windows CLI and the raw Windows GUI executable can be cross-built locally with Docker. Keep `WebView2Loader.dll` next to the Docker cross-built raw Windows GUI executable when distributing or testing it outside an installer. Windows installer packages (`.msi` and NSIS `.exe`) are built and verified on `windows-latest` in CI because the Tauri desktop bundle needs the Windows desktop toolchain; that CI artifact uploads the installers plus the raw Windows GUI executable.
 
 ## Android signing
 

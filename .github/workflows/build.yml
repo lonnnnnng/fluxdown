@@ -70,7 +70,6 @@ jobs:
               target/release/bundle/msi/*.msi
               target/release/bundle/nsis/*.exe
               target/release/fluxdown-desktop.exe
-              target/release/WebView2Loader.dll
           - os: macos-latest
             artifact-name: fluxdown-desktop-macos
             artifact-path: |
@@ -211,42 +210,21 @@ jobs:
       - name: Install Flutter dependencies
         working-directory: apps/mobile
         run: flutter pub get
-      - name: Build iOS debug frameworks
-        working-directory: apps/mobile
+      - name: Check iOS signing secrets
+        id: ios_secrets
+        shell: bash
         env:
-          LANG: en_US.UTF-8
-          LC_ALL: en_US.UTF-8
-        run: flutter build ios-framework --no-profile --no-release
-      - name: Verify iOS debug frameworks
-        run: node scripts/verify-artifacts.mjs ios-framework
-      - name: Upload iOS debug frameworks
-        uses: actions/upload-artifact@v4
-        with:
-          name: fluxdown-ios-debug-frameworks
-          path: apps/mobile/build/ios/framework/Debug
-      - name: Build iOS simulator app
-        working-directory: apps/mobile
-        run: flutter build ios --simulator
-      - name: Verify iOS simulator app
-        run: node scripts/verify-artifacts.mjs ios-simulator
-      - name: Upload iOS simulator app
-        uses: actions/upload-artifact@v4
-        with:
-          name: fluxdown-ios-simulator
-          path: apps/mobile/build/ios/iphonesimulator/Runner.app
-      - name: Build unsigned iOS device app
-        working-directory: apps/mobile
-        env:
-          LANG: en_US.UTF-8
-          LC_ALL: en_US.UTF-8
-        run: flutter build ios --no-codesign
-      - name: Verify unsigned iOS device app
-        run: node scripts/verify-artifacts.mjs ios-device-unsigned
-      - name: Upload unsigned iOS device app
-        uses: actions/upload-artifact@v4
-        with:
-          name: fluxdown-ios-device-unsigned
-          path: apps/mobile/build/ios/iphoneos/Runner.app
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$IOS_CERTIFICATE_BASE64" ] && [ -n "$IOS_PROVISIONING_PROFILE_BASE64" ] && [ -n "$IOS_KEYCHAIN_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "iOS signing secrets are not set; building unsigned iOS artifacts only."
+          fi
       - name: Configure iOS release signing
         id: ios_signing
         working-directory: apps/mobile
@@ -258,7 +236,7 @@ jobs:
           IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -z "$IOS_CERTIFICATE_BASE64" ] || [ -z "$IOS_PROVISIONING_PROFILE_BASE64" ] || [ -z "$APPLE_TEAM_ID" ] || [ -z "$IOS_KEYCHAIN_PASSWORD" ]; then
+          if [ "${{ steps.ios_secrets.outputs.enabled }}" != "true" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "iOS release signing secrets are not set; skipping signed IPA build."
             exit 0
@@ -301,6 +279,45 @@ jobs:
           plutil -lint ios/ExportOptions.ci.plist
 
           echo "enabled=true" >> "$GITHUB_OUTPUT"
+      - name: Build iOS debug frameworks
+        if: steps.ios_signing.outputs.enabled == 'true'
+        working-directory: apps/mobile
+        env:
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
+        run: flutter build ios-framework --no-profile --no-release
+      - name: Verify iOS debug frameworks
+        if: steps.ios_signing.outputs.enabled == 'true'
+        run: node scripts/verify-artifacts.mjs ios-framework
+      - name: Upload iOS debug frameworks
+        if: steps.ios_signing.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-ios-debug-frameworks
+          path: apps/mobile/build/ios/framework/Debug
+      - name: Build iOS simulator app
+        working-directory: apps/mobile
+        run: flutter build ios --simulator
+      - name: Verify iOS simulator app
+        run: node scripts/verify-artifacts.mjs ios-simulator
+      - name: Upload iOS simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-ios-simulator
+          path: apps/mobile/build/ios/iphonesimulator/Runner.app
+      - name: Build unsigned iOS device app
+        working-directory: apps/mobile
+        env:
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
+        run: flutter build ios --no-codesign
+      - name: Verify unsigned iOS device app
+        run: node scripts/verify-artifacts.mjs ios-device-unsigned
+      - name: Upload unsigned iOS device app
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-ios-device-unsigned
+          path: apps/mobile/build/ios/iphoneos/Runner.app
       - name: Build signed iOS IPA
         if: steps.ios_signing.outputs.enabled == 'true'
         working-directory: apps/mobile
@@ -310,7 +327,7 @@ jobs:
         run: flutter build ipa --export-options-plist=ios/ExportOptions.ci.plist
       - name: Verify signed iOS IPA
         if: steps.ios_signing.outputs.enabled == 'true'
-        run: node scripts/verify-artifacts.mjs file apps/mobile/build/ios/ipa/*.ipa
+        run: node scripts/verify-artifacts.mjs glob "apps/mobile/build/ios/ipa/*.ipa"
       - name: Upload signed iOS IPA
         if: steps.ios_signing.outputs.enabled == 'true'
         uses: actions/upload-artifact@v4

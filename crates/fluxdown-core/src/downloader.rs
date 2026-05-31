@@ -1351,15 +1351,40 @@ mod tests {
 
     #[cfg(windows)]
     fn fake_ed2k_command(dir: &Path, log_path: &Path) -> PathBuf {
-        let path = dir.join("ed2k.cmd");
+        let source_path = dir.join("ed2k-fake.rs");
+        let path = dir.join("ed2k.exe");
+        let log_literal = format!("{:?}", log_path.display().to_string());
         std_fs::write(
-            &path,
+            &source_path,
             format!(
-                "@echo off\r\nif \"%1\"==\"--version\" exit /b 0\r\necho %1>{}\r\n",
-                log_path.display()
+                r#"
+fn main() {{
+    let first = match std::env::args().nth(1) {{
+        Some(arg) => arg,
+        None => std::process::exit(1),
+    }};
+
+    if first == "--version" {{
+        return;
+    }}
+
+    std::fs::write({log_literal}, format!("{{first}}\n")).unwrap();
+}}
+"#
             ),
         )
         .unwrap();
+        let output = std::process::Command::new("rustc")
+            .arg(&source_path)
+            .arg("-o")
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "failed to build fake ed2k command: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         path
     }
 
