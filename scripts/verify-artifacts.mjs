@@ -1,16 +1,28 @@
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
 const profile = process.argv[2] ?? 'local'
 const extra = process.argv.slice(3)
+const version = readPackageVersion()
+const releaseDir = `dist/release/FluxDown-${version}`
+const macosDmgName = `FluxDown_${version}_aarch64.dmg`
+const macosReleaseDmgName = `FluxDown-${version}-macos-aarch64.dmg`
+const linuxDebName = `FluxDown-${version}-linux-amd64.deb`
+const linuxRpmName = `FluxDown-${version}-linux-x86_64.rpm`
+const androidApkName = `FluxDown-${version}-android-release.apk`
+const androidAabName = `FluxDown-${version}-android-release.aab`
+const iosSimulatorName = `FluxDown-${version}-ios-simulator-Runner.app.tar.gz`
+const iosDeviceUnsignedName = `FluxDown-${version}-ios-device-unsigned-Runner.app.tar.gz`
+const iosDebugAppFrameworkName = `FluxDown-${version}-ios-debug-App.xcframework.tar.gz`
+const iosDebugFlutterFrameworkName = `FluxDown-${version}-ios-debug-Flutter.xcframework.tar.gz`
 
 const profiles = {
   local: [
     ['file', 'target/release/fluxdown'],
     ['file', 'target/release/fluxdown-desktop'],
     ['dir', 'target/release/bundle/macos/FluxDown.app'],
-    ['file', 'target/release/bundle/dmg/FluxDown_0.1.0_aarch64.dmg'],
+    ['file', `target/release/bundle/dmg/${macosDmgName}`],
     ['file', 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk'],
     ['file', 'apps/mobile/build/app/outputs/bundle/release/app-release.aab'],
     ['dir', 'apps/mobile/build/ios/framework/Debug/App.xcframework'],
@@ -41,7 +53,7 @@ const profiles = {
   'desktop-macos': [
     ['file', 'target/release/fluxdown-desktop'],
     ['dir', 'target/release/bundle/macos/FluxDown.app'],
-    ['file', 'target/release/bundle/dmg/FluxDown_0.1.0_aarch64.dmg'],
+    ['file', `target/release/bundle/dmg/${macosDmgName}`],
   ],
   'desktop-windows': [
     ['file', 'target/release/fluxdown-desktop.exe'],
@@ -73,22 +85,22 @@ const profiles = {
     ['file', 'apps/mobile/ios/ExportOptions.ci.plist'],
   ],
   release: [
-    ['file', 'dist/release/FluxDown-0.1.0/FluxDown-release-manifest.json'],
-    ['file', 'dist/release/FluxDown-0.1.0/desktop/macos/fluxdown-macos-aarch64'],
-    ['file', 'dist/release/FluxDown-0.1.0/desktop/macos/FluxDown-0.1.0-macos-aarch64.dmg'],
-    ['file', 'dist/release/FluxDown-0.1.0/desktop/linux/fluxdown-linux-amd64'],
-    ['file', 'dist/release/FluxDown-0.1.0/desktop/linux/fluxdown-desktop-linux-amd64'],
-    ['file', 'dist/release/FluxDown-0.1.0/desktop/linux/FluxDown-0.1.0-linux-amd64.deb'],
-    ['file', 'dist/release/FluxDown-0.1.0/desktop/linux/FluxDown-0.1.0-linux-x86_64.rpm'],
-    ['file', 'dist/release/FluxDown-0.1.0/desktop/windows/fluxdown-windows-x86_64.exe'],
-    ['file', 'dist/release/FluxDown-0.1.0/desktop/windows/fluxdown-desktop-windows-x86_64.exe'],
-    ['file', 'dist/release/FluxDown-0.1.0/desktop/windows/WebView2Loader.dll'],
-    ['file', 'dist/release/FluxDown-0.1.0/mobile/android/FluxDown-0.1.0-android-release.apk'],
-    ['file', 'dist/release/FluxDown-0.1.0/mobile/android/FluxDown-0.1.0-android-release.aab'],
-    ['file', 'dist/release/FluxDown-0.1.0/mobile/ios/FluxDown-0.1.0-ios-simulator-Runner.app.tar.gz'],
-    ['file', 'dist/release/FluxDown-0.1.0/mobile/ios/FluxDown-0.1.0-ios-device-unsigned-Runner.app.tar.gz'],
-    ['file', 'dist/release/FluxDown-0.1.0/mobile/ios/FluxDown-0.1.0-ios-debug-App.xcframework.tar.gz'],
-    ['file', 'dist/release/FluxDown-0.1.0/mobile/ios/FluxDown-0.1.0-ios-debug-Flutter.xcframework.tar.gz'],
+    ['file', `${releaseDir}/FluxDown-release-manifest.json`],
+    ['file', `${releaseDir}/desktop/macos/fluxdown-macos-aarch64`],
+    ['file', `${releaseDir}/desktop/macos/${macosReleaseDmgName}`],
+    ['file', `${releaseDir}/desktop/linux/fluxdown-linux-amd64`],
+    ['file', `${releaseDir}/desktop/linux/fluxdown-desktop-linux-amd64`],
+    ['file', `${releaseDir}/desktop/linux/${linuxDebName}`],
+    ['file', `${releaseDir}/desktop/linux/${linuxRpmName}`],
+    ['file', `${releaseDir}/desktop/windows/fluxdown-windows-x86_64.exe`],
+    ['file', `${releaseDir}/desktop/windows/fluxdown-desktop-windows-x86_64.exe`],
+    ['file', `${releaseDir}/desktop/windows/WebView2Loader.dll`],
+    ['file', `${releaseDir}/mobile/android/${androidApkName}`],
+    ['file', `${releaseDir}/mobile/android/${androidAabName}`],
+    ['file', `${releaseDir}/mobile/ios/${iosSimulatorName}`],
+    ['file', `${releaseDir}/mobile/ios/${iosDeviceUnsignedName}`],
+    ['file', `${releaseDir}/mobile/ios/${iosDebugAppFrameworkName}`],
+    ['file', `${releaseDir}/mobile/ios/${iosDebugFlutterFrameworkName}`],
   ],
 }
 
@@ -153,6 +165,10 @@ function verifyGlob(relativePattern) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function readPackageVersion() {
+  return JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
 }
 
 if (profile === 'file') {

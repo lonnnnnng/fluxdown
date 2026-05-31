@@ -2,6 +2,9 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
+const version = readPackageVersion()
+const macosDmgName = `FluxDown_${version}_aarch64.dmg`
+const releaseDir = `dist/release/FluxDown-${version}`
 
 const requiredProtocols = [
   'http',
@@ -169,7 +172,7 @@ const checks = [
   {
     label: 'macOS DMG exists',
     kind: 'file',
-    path: 'target/release/bundle/dmg/FluxDown_0.1.0_aarch64.dmg',
+    path: `target/release/bundle/dmg/${macosDmgName}`,
   },
   {
     label: 'Linux CLI artifact exists',
@@ -281,7 +284,7 @@ const checks = [
   {
     label: 'Release manifest artifact exists',
     kind: 'file',
-    path: 'dist/release/FluxDown-0.1.0/FluxDown-release-manifest.json',
+    path: `${releaseDir}/FluxDown-release-manifest.json`,
   },
   {
     label: 'Staged release artifact verification exists',
@@ -424,4 +427,8 @@ function verifySourceContains(relativePath, values) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function readPackageVersion() {
+  return JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
 }

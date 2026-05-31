@@ -6,6 +6,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 const root = resolve(import.meta.dirname, '..')
 const version = readPackageVersion()
 const releaseRoot = resolve(root, 'dist/release', `FluxDown-${version}`)
+const dmgName = `FluxDown_${version}_aarch64.dmg`
 
 const stagedArtifacts = [
   {
@@ -13,8 +14,8 @@ const stagedArtifacts = [
     to: 'desktop/macos/fluxdown-macos-aarch64',
   },
   {
-    from: 'target/release/bundle/dmg/FluxDown_0.1.0_aarch64.dmg',
-    to: 'desktop/macos/FluxDown-0.1.0-macos-aarch64.dmg',
+    from: `target/release/bundle/dmg/${dmgName}`,
+    to: `desktop/macos/FluxDown-${version}-macos-aarch64.dmg`,
   },
   {
     from: 'dist/linux-amd64/fluxdown',
@@ -25,12 +26,12 @@ const stagedArtifacts = [
     to: 'desktop/linux/fluxdown-desktop-linux-amd64',
   },
   {
-    from: 'dist/linux-gui/FluxDown_0.1.0_amd64.deb',
-    to: 'desktop/linux/FluxDown-0.1.0-linux-amd64.deb',
+    from: `dist/linux-gui/FluxDown_${version}_amd64.deb`,
+    to: `desktop/linux/FluxDown-${version}-linux-amd64.deb`,
   },
   {
-    from: 'dist/linux-gui/FluxDown-0.1.0-1.x86_64.rpm',
-    to: 'desktop/linux/FluxDown-0.1.0-linux-x86_64.rpm',
+    from: `dist/linux-gui/FluxDown-${version}-1.x86_64.rpm`,
+    to: `desktop/linux/FluxDown-${version}-linux-x86_64.rpm`,
   },
   {
     from: 'dist/windows-gnu/fluxdown.exe',
@@ -46,30 +47,30 @@ const stagedArtifacts = [
   },
   {
     from: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk',
-    to: 'mobile/android/FluxDown-0.1.0-android-release.apk',
+    to: `mobile/android/FluxDown-${version}-android-release.apk`,
   },
   {
     from: 'apps/mobile/build/app/outputs/bundle/release/app-release.aab',
-    to: 'mobile/android/FluxDown-0.1.0-android-release.aab',
+    to: `mobile/android/FluxDown-${version}-android-release.aab`,
   },
 ]
 
 const directoryArchives = [
   {
     from: 'apps/mobile/build/ios/iphonesimulator/Runner.app',
-    to: 'mobile/ios/FluxDown-0.1.0-ios-simulator-Runner.app.tar.gz',
+    to: `mobile/ios/FluxDown-${version}-ios-simulator-Runner.app.tar.gz`,
   },
   {
     from: 'apps/mobile/build/ios/iphoneos/Runner.app',
-    to: 'mobile/ios/FluxDown-0.1.0-ios-device-unsigned-Runner.app.tar.gz',
+    to: `mobile/ios/FluxDown-${version}-ios-device-unsigned-Runner.app.tar.gz`,
   },
   {
     from: 'apps/mobile/build/ios/framework/Debug/App.xcframework',
-    to: 'mobile/ios/FluxDown-0.1.0-ios-debug-App.xcframework.tar.gz',
+    to: `mobile/ios/FluxDown-${version}-ios-debug-App.xcframework.tar.gz`,
   },
   {
     from: 'apps/mobile/build/ios/framework/Debug/Flutter.xcframework',
-    to: 'mobile/ios/FluxDown-0.1.0-ios-debug-Flutter.xcframework.tar.gz',
+    to: `mobile/ios/FluxDown-${version}-ios-debug-Flutter.xcframework.tar.gz`,
   },
 ]
 

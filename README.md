@@ -91,7 +91,7 @@ Mobile ed2k handoff depends on platform URL handler visibility. The Android mani
 ## Build outputs
 
 - `npm run desktop:build` builds the Tauri desktop app bundle. On macOS this produces `target/release/bundle/macos/FluxDown.app`.
-- `npm run desktop:dmg` creates a macOS DMG at `target/release/bundle/dmg/FluxDown_0.1.0_aarch64.dmg` using a Finder-independent `hdiutil` flow. This avoids CI/headless failures from Finder AppleScript timeouts.
+- `npm run desktop:dmg` creates a versioned macOS DMG at `target/release/bundle/dmg/FluxDown_<version>_aarch64.dmg` using a Finder-independent `hdiutil` flow. This avoids CI/headless failures from Finder AppleScript timeouts.
 - `cd apps/mobile && flutter build apk --debug` creates `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`.
 - `cd apps/mobile && flutter build apk --release` creates `apps/mobile/build/app/outputs/flutter-apk/app-release.apk`.
 - `cd apps/mobile/android && ./gradlew bundleRelease` creates `apps/mobile/build/app/outputs/bundle/release/app-release.aab` for Google Play upload.
@@ -111,10 +111,10 @@ Mobile ed2k handoff depends on platform URL handler visibility. The Android mani
 - `npm run verify:windows-gui` checks the Docker-built Windows GUI executable and adjacent WebView2 loader are present and non-empty.
 - `npm run mobile:ios:simulator:verify` checks the local iPhone simulator app bundle built by Flutter.
 - `npm run mobile:ios:verify` checks the local unsigned iPhone device app bundle built by Flutter.
-- `npm run release:stage` copies and archives local release outputs into platform folders under `dist/release/FluxDown-0.1.0`.
+- `npm run release:stage` copies and archives local release outputs into platform folders under `dist/release/FluxDown-<version>`.
 - `npm run verify:release` checks the staged release directory contains the expected desktop CLI, desktop GUI, Android, and unsigned iPhone/simulator/framework artifacts.
-- `npm run release:manifest` writes `dist/release/FluxDown-0.1.0/FluxDown-release-manifest.json` with platform, surface, size, and SHA-256 entries for raw build outputs plus the staged release artifacts. Directory artifacts such as `.app` and `.xcframework` are represented by deterministic aggregate hashes over their files.
-- `npm run release:manifest:verify` recalculates the current local artifacts and checks them against `dist/release/FluxDown-0.1.0/FluxDown-release-manifest.json`.
+- `npm run release:manifest` writes `dist/release/FluxDown-<version>/FluxDown-release-manifest.json` with platform, surface, size, and SHA-256 entries for raw build outputs plus the staged release artifacts. Directory artifacts such as `.app` and `.xcframework` are represented by deterministic aggregate hashes over their files.
+- `npm run release:manifest:verify` recalculates the current local artifacts and checks them against `dist/release/FluxDown-<version>/FluxDown-release-manifest.json`.
 - `npm run release:prepare` runs staging, manifest generation, staged artifact verification, and manifest verification in one command.
 - `npm run audit:release` checks protocol coverage and available local release artifacts, and reports signing-dependent gaps such as a missing local iPhone IPA as warnings.
 

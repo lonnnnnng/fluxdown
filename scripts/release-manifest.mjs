@@ -7,6 +7,16 @@ const command = process.argv[2] ?? 'write'
 const version = readPackageVersion()
 const releaseDir = `dist/release/FluxDown-${version}`
 const manifestPath = resolve(root, releaseDir, 'FluxDown-release-manifest.json')
+const macosDmgName = `FluxDown_${version}_aarch64.dmg`
+const macosReleaseDmgName = `FluxDown-${version}-macos-aarch64.dmg`
+const linuxDebName = `FluxDown-${version}-linux-amd64.deb`
+const linuxRpmName = `FluxDown-${version}-linux-x86_64.rpm`
+const androidApkName = `FluxDown-${version}-android-release.apk`
+const androidAabName = `FluxDown-${version}-android-release.aab`
+const iosSimulatorName = `FluxDown-${version}-ios-simulator-Runner.app.tar.gz`
+const iosDeviceUnsignedName = `FluxDown-${version}-ios-device-unsigned-Runner.app.tar.gz`
+const iosDebugAppFrameworkName = `FluxDown-${version}-ios-debug-App.xcframework.tar.gz`
+const iosDebugFlutterFrameworkName = `FluxDown-${version}-ios-debug-Flutter.xcframework.tar.gz`
 
 const artifacts = [
   {
@@ -28,7 +38,7 @@ const artifacts = [
     platform: 'macos',
     surface: 'desktop-gui',
     type: 'file',
-    path: 'target/release/bundle/dmg/FluxDown_0.1.0_aarch64.dmg',
+    path: `target/release/bundle/dmg/${macosDmgName}`,
   },
   {
     id: 'desktop-linux-cli',
@@ -134,7 +144,7 @@ const artifacts = [
     platform: 'macos',
     surface: 'desktop-gui',
     type: 'file',
-    path: `${releaseDir}/desktop/macos/FluxDown-0.1.0-macos-aarch64.dmg`,
+    path: `${releaseDir}/desktop/macos/${macosReleaseDmgName}`,
   },
   {
     id: 'release-desktop-linux-cli',
@@ -155,14 +165,14 @@ const artifacts = [
     platform: 'linux-amd64',
     surface: 'desktop-gui',
     type: 'file',
-    path: `${releaseDir}/desktop/linux/FluxDown-0.1.0-linux-amd64.deb`,
+    path: `${releaseDir}/desktop/linux/${linuxDebName}`,
   },
   {
     id: 'release-desktop-linux-gui-rpm',
     platform: 'linux-amd64',
     surface: 'desktop-gui',
     type: 'file',
-    path: `${releaseDir}/desktop/linux/FluxDown-0.1.0-linux-x86_64.rpm`,
+    path: `${releaseDir}/desktop/linux/${linuxRpmName}`,
   },
   {
     id: 'release-desktop-windows-cli',
@@ -190,28 +200,28 @@ const artifacts = [
     platform: 'android',
     surface: 'mobile-app',
     type: 'file',
-    path: `${releaseDir}/mobile/android/FluxDown-0.1.0-android-release.apk`,
+    path: `${releaseDir}/mobile/android/${androidApkName}`,
   },
   {
     id: 'release-mobile-android-aab',
     platform: 'android',
     surface: 'mobile-app',
     type: 'file',
-    path: `${releaseDir}/mobile/android/FluxDown-0.1.0-android-release.aab`,
+    path: `${releaseDir}/mobile/android/${androidAabName}`,
   },
   {
     id: 'release-mobile-ios-simulator-app-archive',
     platform: 'ios-simulator',
     surface: 'mobile-app',
     type: 'file',
-    path: `${releaseDir}/mobile/ios/FluxDown-0.1.0-ios-simulator-Runner.app.tar.gz`,
+    path: `${releaseDir}/mobile/ios/${iosSimulatorName}`,
   },
   {
     id: 'release-mobile-ios-device-unsigned-app-archive',
     platform: 'ios-device',
     surface: 'mobile-app',
     type: 'file',
-    path: `${releaseDir}/mobile/ios/FluxDown-0.1.0-ios-device-unsigned-Runner.app.tar.gz`,
+    path: `${releaseDir}/mobile/ios/${iosDeviceUnsignedName}`,
     signing: 'unsigned',
   },
   {
@@ -219,14 +229,14 @@ const artifacts = [
     platform: 'ios',
     surface: 'mobile-build-validation',
     type: 'file',
-    path: `${releaseDir}/mobile/ios/FluxDown-0.1.0-ios-debug-App.xcframework.tar.gz`,
+    path: `${releaseDir}/mobile/ios/${iosDebugAppFrameworkName}`,
   },
   {
     id: 'release-mobile-ios-debug-flutter-framework-archive',
     platform: 'ios',
     surface: 'mobile-build-validation',
     type: 'file',
-    path: `${releaseDir}/mobile/ios/FluxDown-0.1.0-ios-debug-Flutter.xcframework.tar.gz`,
+    path: `${releaseDir}/mobile/ios/${iosDebugFlutterFrameworkName}`,
   },
   {
     id: 'release-mobile-ios-ipa',
