@@ -1,5 +1,7 @@
 # FluxDown Mobile
 
+[中文](README.zh-CN.md)
+
 Flutter Android/iOS app for FluxDown.
 
 The app keeps a local JSON queue, lets a user start or pause individual tasks, and can run queued tasks with bounded concurrency from the queue toolbar.

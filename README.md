@@ -1,5 +1,7 @@
 # FluxDown
 
+[中文](README.zh-CN.md)
+
 FluxDown is a cross-platform downloader workspace.
 
 ## Targets
@@ -10,6 +12,17 @@ FluxDown is a cross-platform downloader workspace.
 - Mobile: Android, iPhone
   - App: Flutter
 - Shared engine: Rust core crate
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Requirements](docs/requirements.md)
+- [Business notes](docs/business.md)
+- [Technical architecture](docs/architecture.md)
+- [Protocol support matrix](docs/protocols.md)
+- [Build and release](docs/build-release.md)
+- [Operations and security](docs/operations-security.md)
+- [Roadmap](docs/roadmap.md)
 
 ## Protocol roadmap
 
@@ -137,7 +150,7 @@ Without those secrets, CI still builds release APK/AAB artifacts with debug sign
 
 Local iPhone IPA builds require Apple signing outside the repository: an Apple team, a distribution certificate, and an App Store provisioning profile for bundle id `dev.fluxdown.mobile`. The checked-in `apps/mobile/ios/ExportOptions.plist` is configured for App Store export with automatic signing. `npm run mobile:ios:ipa:signed` uses the same signing inputs as CI, writes decoded credentials under ignored `apps/mobile/ios/signing/`, writes ignored `apps/mobile/ios/ExportOptions.local.plist`, and verifies the generated IPA.
 
-CI always builds unsigned debug iOS frameworks as a compile check. It also builds and uploads a signed IPA when these repository secrets are set:
+CI always builds simulator and unsigned device iOS artifacts as compile checks. It also builds debug frameworks and uploads a signed IPA when these repository secrets are set:
 
 - `IOS_CERTIFICATE_BASE64`: base64-encoded `.p12` distribution certificate.
 - `IOS_CERTIFICATE_PASSWORD`: `.p12` certificate password.
@@ -145,7 +158,7 @@ CI always builds unsigned debug iOS frameworks as a compile check. It also build
 - `IOS_KEYCHAIN_PASSWORD`: temporary CI keychain password.
 - `APPLE_TEAM_ID`: Apple Developer Team ID that owns the provisioning profile.
 
-Without those secrets, CI skips the IPA step and still validates the Flutter iPhone project plus plugin compilation through debug frameworks.
+Without those secrets, CI skips the IPA step and still validates the Flutter iPhone project through simulator and unsigned device builds. The debug framework build is also gated on the iOS signing secret set because current macOS/Flutter runners perform signing identity checks before that command completes.
 
 ## CI artifacts
 

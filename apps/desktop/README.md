@@ -1,5 +1,7 @@
 # FluxDown Desktop
 
+[中文](README.zh-CN.md)
+
 Tauri + React desktop GUI for FluxDown.
 
 ## Commands

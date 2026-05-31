@@ -1,0 +1,29 @@
+# FluxDown 文档索引
+
+本目录记录 FluxDown 当前版本的产品、业务、技术、交付和运维安全信息。文档基于当前代码库编写，描述已经落地的能力、已知限制和下一步建设方向。
+
+## 文档目录
+
+- [需求文档](requirements.md)：产品目标、平台范围、用户流程、验收标准和非目标。
+- [业务文档](business.md)：产品定位、用户场景、价值主张、发布渠道、合规与运营边界。
+- [技术架构](architecture.md)：仓库结构、核心模块、队列模型、协议调度、端侧边界和关键依赖。
+- [协议支持矩阵](protocols.md)：HTTP、FTP、BitTorrent、Magnet、ed2k、m3u8/HLS、SFTP、SMB、IPFS 等协议在桌面端和移动端的支持状态。
+- [构建与发布](build-release.md)：本地构建命令、CI 作业、发布产物、签名配置和版本发布流程。
+- [运维与安全](operations-security.md)：本地数据、凭据处理、第三方后端、许可证、隐私假设和排障入口。
+- [路线图](roadmap.md)：短期、中期和长期改进项。
+
+## 当前产品面
+
+FluxDown 是一个跨平台下载器工作区：
+
+- 桌面端：Windows、macOS、Linux，包含 CLI 和 Tauri + React GUI。
+- 移动端：Android 和 iPhone，使用 Flutter App。
+- 共享核心：Rust core crate 提供协议检测、任务模型、任务存储、队列运行器和桌面下载执行能力。
+
+当前版本号为 `1.0.0`。发布流水线在 `.github/workflows/build.yml` 中定义，标签 `v*` 会触发 GitHub Release 发布。
+
+## 维护原则
+
+- 功能文档以代码事实为准，新增协议或修改实现后同步更新 [协议支持矩阵](protocols.md)。
+- 构建脚本或 CI 作业变化后同步更新 [构建与发布](build-release.md)。
+- 涉及凭据、签名、第三方原生库或许可证变化时同步更新 [运维与安全](operations-security.md)。
