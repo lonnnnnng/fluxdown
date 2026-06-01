@@ -116,6 +116,12 @@ input {
   align-items: flex-start;
 }
 
+.topbarControls {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
 .topbar h1 {
   margin: 0 0 8px;
   font-size: 34px;
@@ -130,6 +136,28 @@ input {
   padding: 8px 11px;
   border-radius: 8px;
   font-size: 13px;
+}
+
+.languageSelect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.languageSelect span {
+  color: #6d7771;
+}
+
+.languageSelect select {
+  min-width: 112px;
+  padding: 8px 10px;
+  border: 1px solid #cfd6cd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #171b1f;
+  font: inherit;
 }
 
 .status.ready {
@@ -357,6 +385,7 @@ input {
   }
 
   .topbar,
+  .topbarControls,
   .actions,
   .queueHeader,
   .task,

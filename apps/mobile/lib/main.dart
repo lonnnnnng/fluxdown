@@ -9,24 +9,183 @@ void main() {
   runApp(const FluxDownMobileApp());
 }
 
-class FluxDownMobileApp extends StatelessWidget {
+enum AppLanguage { zh, en }
+
+class AppStrings {
+  const AppStrings._(this.language);
+
+  final AppLanguage language;
+
+  static const zh = AppStrings._(AppLanguage.zh);
+  static const en = AppStrings._(AppLanguage.en);
+
+  String get languageLabel => language == AppLanguage.zh ? '语言' : 'Language';
+  String get chinese => '中文';
+  String get english => 'English';
+  String get planned => language == AppLanguage.zh ? '规划中' : 'Planned';
+  String get source => language == AppLanguage.zh ? '下载源' : 'Source';
+  String get outputFolder =>
+      language == AppLanguage.zh ? '设备上的输出目录' : 'Output folder on device';
+  String get outputHint => language == AppLanguage.zh
+      ? '/storage/emulated/0/Download 或 App 沙盒路径'
+      : '/storage/emulated/0/Download or app sandbox path';
+  String get fileName => language == AppLanguage.zh ? '文件名' : 'File name';
+  String get detected => language == AppLanguage.zh ? '识别结果' : 'Detected';
+  String get add => language == AppLanguage.zh ? '添加' : 'Add';
+  String get queue => language == AppLanguage.zh ? '队列' : 'Queue';
+  String taskCount(int count) =>
+      language == AppLanguage.zh ? '$count 个任务' : '$count tasks';
+  String get noQueuedTasks =>
+      language == AppLanguage.zh ? '还没有排队任务。' : 'No queued tasks yet.';
+  String get running => language == AppLanguage.zh ? '运行中' : 'Running';
+  String get runQueue => language == AppLanguage.zh ? '运行队列' : 'Run queue';
+  String get remove => language == AppLanguage.zh ? '删除' : 'Remove';
+  String get pause => language == AppLanguage.zh ? '暂停' : 'Pause';
+  String get resume => language == AppLanguage.zh ? '继续' : 'Resume';
+  String get start => language == AppLanguage.zh ? '开始' : 'Start';
+  String get sourceAndOutputRequired => language == AppLanguage.zh
+      ? '下载源和输出目录不能为空。'
+      : 'Source and output folder are required.';
+  String queueComplete(int finished, int failed) => language == AppLanguage.zh
+      ? '队列完成：$finished 个完成，$failed 个失败。'
+      : 'Queue complete: $finished finished, $failed failed.';
+
+  String detectedLine(String protocol, String backend) =>
+      language == AppLanguage.zh
+      ? '$detected：${protocolLabel(protocol)} · $backend'
+      : '$detected: ${protocolLabel(protocol)} · $backend';
+
+  String backendLabel(String protocol) {
+    if (protocol == 'unknown') return planned;
+    if (protocol == 'ed2k') {
+      return language == AppLanguage.zh ? '移动端移交' : 'Mobile handoff';
+    }
+    return language == AppLanguage.zh ? '移动端内建' : 'Built-in mobile';
+  }
+
+  String supportNote(String protocol) {
+    if (protocol == 'http' || protocol == 'https') {
+      return language == AppLanguage.zh
+          ? '原生 HTTP 下载器，支持进度、暂停和 Range 续传。'
+          : 'Native HTTP downloader with progress, pause, and Range resume.';
+    }
+
+    if (protocol == 'webdav' || protocol == 'webdavs') {
+      return language == AppLanguage.zh
+          ? '通过 HTTP/WebDAVS 执行原生 WebDAV 下载，支持进度、暂停和 Range 续传。'
+          : 'Native WebDAV downloader over HTTP/WebDAVS with progress, pause, and Range resume.';
+    }
+
+    if (protocol == 'ipfs') {
+      return language == AppLanguage.zh
+          ? '通过 IPFS 网关下载，复用 HTTP 进度和续传能力。'
+          : 'Native IPFS gateway downloader with HTTP progress and resume.';
+    }
+
+    if (protocol == 'm3u8') {
+      return language == AppLanguage.zh
+          ? '原生 VOD HLS 下载器，支持主播放列表选择和 AES-128 分片解密。'
+          : 'Native VOD HLS downloader with master playlist selection and AES-128 segment decryption.';
+    }
+
+    if (protocol == 'ftp' || protocol == 'ftps') {
+      return language == AppLanguage.zh
+          ? '原生 FTP/FTPS 下载器，支持被动模式、进度、暂停和 REST 续传。'
+          : 'Native FTP/FTPS downloader with passive mode, progress, pause, and REST resume.';
+    }
+
+    if (protocol == 'sftp') {
+      return language == AppLanguage.zh
+          ? '原生 SFTP 下载器，支持密码认证、进度、暂停和偏移续传。'
+          : 'Native SFTP downloader with password authentication, progress, pause, and offset resume.';
+    }
+
+    if (protocol == 'torrent' || protocol == 'magnet') {
+      return language == AppLanguage.zh
+          ? '通过原生 libtorrent 下载 .torrent 文件和磁力链接。'
+          : 'Native libtorrent downloader for .torrent files and magnet links.';
+    }
+
+    if (protocol == 'ed2k') {
+      return language == AppLanguage.zh
+          ? '将 ed2k 链接移交给已安装的 eMule/aMule 兼容 App。'
+          : 'Hands ed2k links to an installed eMule/aMule-compatible app.';
+    }
+
+    if (protocol == 'smb') {
+      return language == AppLanguage.zh
+          ? '原生 SMB2/3 文件下载后端，支持进度和取消。'
+          : 'Native SMB2/3 file download backend with progress and cancellation.';
+    }
+
+    return language == AppLanguage.zh
+        ? '当前下载源还没有可用后端。'
+        : 'No backend has been configured for this source yet.';
+  }
+
+  String stateLabel(DownloadState state) {
+    return switch (state) {
+      DownloadState.queued => language == AppLanguage.zh ? '排队中' : 'queued',
+      DownloadState.running => language == AppLanguage.zh ? '运行中' : 'running',
+      DownloadState.paused => language == AppLanguage.zh ? '已暂停' : 'paused',
+      DownloadState.finished => language == AppLanguage.zh ? '已完成' : 'finished',
+      DownloadState.failed => language == AppLanguage.zh ? '失败' : 'failed',
+    };
+  }
+}
+
+String protocolLabel(String protocol) {
+  if (protocol == 'unknown') return 'Unknown';
+  return protocol.toUpperCase();
+}
+
+class FluxDownMobileApp extends StatefulWidget {
   const FluxDownMobileApp({super.key});
 
   @override
+  State<FluxDownMobileApp> createState() => _FluxDownMobileAppState();
+}
+
+class _FluxDownMobileAppState extends State<FluxDownMobileApp> {
+  var language = AppLanguage.zh;
+
+  @override
   Widget build(BuildContext context) {
+    final strings = language == AppLanguage.zh ? AppStrings.zh : AppStrings.en;
+
     return MaterialApp(
       title: 'FluxDown',
+      locale: language == AppLanguage.zh
+          ? const Locale('zh', 'CN')
+          : const Locale('en'),
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff38d996)),
         useMaterial3: true,
       ),
-      home: const DownloadHome(),
+      home: DownloadHome(
+        strings: strings,
+        language: language,
+        onLanguageChanged: (value) {
+          setState(() {
+            language = value;
+          });
+        },
+      ),
     );
   }
 }
 
 class DownloadHome extends StatefulWidget {
-  const DownloadHome({super.key});
+  const DownloadHome({
+    required this.strings,
+    required this.language,
+    required this.onLanguageChanged,
+    super.key,
+  });
+
+  final AppStrings strings;
+  final AppLanguage language;
+  final ValueChanged<AppLanguage> onLanguageChanged;
 
   @override
   State<DownloadHome> createState() => _DownloadHomeState();
@@ -42,6 +201,8 @@ class _DownloadHomeState extends State<DownloadHome> {
   var loading = true;
   var runningQueue = false;
   var queueConcurrency = 2;
+
+  AppStrings get strings => widget.strings;
 
   @override
   void initState() {
@@ -78,7 +239,7 @@ class _DownloadHomeState extends State<DownloadHome> {
     final source = sourceController.text.trim();
     final output = outputController.text.trim();
     if (source.isEmpty || output.isEmpty) {
-      _showSnack('Source and output folder are required.');
+      _showSnack(strings.sourceAndOutputRequired);
       return;
     }
 
@@ -109,9 +270,7 @@ class _DownloadHomeState extends State<DownloadHome> {
     });
     try {
       final report = await controller.runQueued(concurrency: queueConcurrency);
-      _showSnack(
-        'Queue complete: ${report.finished} finished, ${report.failed} failed.',
-      );
+      _showSnack(strings.queueComplete(report.finished, report.failed));
     } finally {
       if (mounted) {
         setState(() {
@@ -132,11 +291,43 @@ class _DownloadHomeState extends State<DownloadHome> {
     final protocol = detectProtocol(sourceController.text);
     final support = supportStatus(protocol);
     final colorScheme = Theme.of(context).colorScheme;
+    final backend = support.executable
+        ? strings.backendLabel(protocol)
+        : strings.planned;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('FluxDown'),
         actions: [
+          PopupMenuButton<AppLanguage>(
+            tooltip: strings.languageLabel,
+            initialValue: widget.language,
+            onSelected: widget.onLanguageChanged,
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: AppLanguage.zh,
+                child: Text(strings.chinese),
+              ),
+              PopupMenuItem(
+                value: AppLanguage.en,
+                child: Text(strings.english),
+              ),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.language),
+                  const SizedBox(width: 4),
+                  Text(
+                    widget.language == AppLanguage.zh
+                        ? strings.chinese
+                        : strings.english,
+                  ),
+                ],
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Chip(
@@ -144,9 +335,7 @@ class _DownloadHomeState extends State<DownloadHome> {
                 support.executable ? Icons.check_circle : Icons.pending,
                 size: 18,
               ),
-              label: Text(
-                support.executable ? support.backendLabel : 'Planned',
-              ),
+              label: Text(backend),
             ),
           ),
         ],
@@ -159,27 +348,26 @@ class _DownloadHomeState extends State<DownloadHome> {
                 children: [
                   TextField(
                     controller: sourceController,
-                    decoration: const InputDecoration(
-                      labelText: 'Source',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: strings.source,
+                      border: const OutlineInputBorder(),
                     ),
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: outputController,
-                    decoration: const InputDecoration(
-                      labelText: 'Output folder on device',
-                      border: OutlineInputBorder(),
-                      hintText:
-                          '/storage/emulated/0/Download or app sandbox path',
+                    decoration: InputDecoration(
+                      labelText: strings.outputFolder,
+                      border: const OutlineInputBorder(),
+                      hintText: strings.outputHint,
                     ),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: fileNameController,
                     decoration: InputDecoration(
-                      labelText: 'File name',
+                      labelText: strings.fileName,
                       border: const OutlineInputBorder(),
                       hintText: suggestedFileName(sourceController.text),
                     ),
@@ -198,19 +386,19 @@ class _DownloadHomeState extends State<DownloadHome> {
                           children: [
                             Expanded(
                               child: Text(
-                                'Detected: $protocol · ${support.backendLabel}',
+                                strings.detectedLine(protocol, backend),
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
                             ),
                             FilledButton.icon(
                               onPressed: addTask,
                               icon: const Icon(Icons.add),
-                              label: const Text('Add'),
+                              label: Text(strings.add),
                             ),
                           ],
                         ),
                         const SizedBox(height: 6),
-                        Text(support.note),
+                        Text(strings.supportNote(protocol)),
                       ],
                     ),
                   ),
@@ -237,15 +425,16 @@ class _DownloadHomeState extends State<DownloadHome> {
                     children: [
                       Expanded(
                         child: Text(
-                          'Queue',
+                          strings.queue,
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                       ),
-                      Text('${controller.tasks.length} tasks'),
+                      Text(strings.taskCount(controller.tasks.length)),
                     ],
                   ),
                   const SizedBox(height: 8),
                   QueueRunnerBar(
+                    strings: strings,
                     running: runningQueue,
                     concurrency: queueConcurrency,
                     enabled: controller.hasRunnableTasks,
@@ -258,15 +447,16 @@ class _DownloadHomeState extends State<DownloadHome> {
                   ),
                   const SizedBox(height: 8),
                   if (controller.tasks.isEmpty)
-                    const Card(
+                    Card(
                       child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Center(child: Text('No queued tasks yet.')),
+                        padding: const EdgeInsets.all(24),
+                        child: Center(child: Text(strings.noQueuedTasks)),
                       ),
                     )
                   else
                     ...controller.tasks.map(
                       (task) => DownloadTaskCard(
+                        strings: strings,
                         task: task,
                         onStart: () => startTask(task.id),
                         onPause: () => pauseTask(task.id),
@@ -282,6 +472,7 @@ class _DownloadHomeState extends State<DownloadHome> {
 
 class QueueRunnerBar extends StatelessWidget {
   const QueueRunnerBar({
+    required this.strings,
     required this.running,
     required this.concurrency,
     required this.enabled,
@@ -290,6 +481,7 @@ class QueueRunnerBar extends StatelessWidget {
     super.key,
   });
 
+  final AppStrings strings;
   final bool running;
   final int concurrency;
   final bool enabled;
@@ -324,7 +516,7 @@ class QueueRunnerBar extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.playlist_play),
-              label: Text(running ? 'Running' : 'Run queue'),
+              label: Text(running ? strings.running : strings.runQueue),
             );
 
             if (constraints.maxWidth < 300) {
@@ -361,6 +553,7 @@ class ProtocolChip extends StatelessWidget {
 
 class DownloadTaskCard extends StatelessWidget {
   const DownloadTaskCard({
+    required this.strings,
     required this.task,
     required this.onStart,
     required this.onPause,
@@ -368,6 +561,7 @@ class DownloadTaskCard extends StatelessWidget {
     super.key,
   });
 
+  final AppStrings strings;
   final DownloadTask task;
   final VoidCallback onStart;
   final VoidCallback onPause;
@@ -375,7 +569,6 @@ class DownloadTaskCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final support = supportStatus(task.protocol);
     final progress = task.progress;
     final textTheme = Theme.of(context).textTheme;
 
@@ -403,7 +596,7 @@ class DownloadTaskCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Chip(label: Text(task.protocol)),
+                Chip(label: Text(protocolLabel(task.protocol))),
               ],
             ),
             const SizedBox(height: 10),
@@ -413,7 +606,7 @@ class DownloadTaskCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    '${task.state.name} · ${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)} · ${support.backendLabel}',
+                    '${strings.stateLabel(task.state)} · ${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)} · ${strings.backendLabel(task.protocol)}',
                   ),
                 ),
               ],
@@ -430,7 +623,7 @@ class DownloadTaskCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 IconButton(
-                  tooltip: 'Remove',
+                  tooltip: strings.remove,
                   onPressed: onRemove,
                   icon: const Icon(Icons.delete_outline),
                 ),
@@ -439,14 +632,16 @@ class DownloadTaskCard extends StatelessWidget {
                   FilledButton.tonalIcon(
                     onPressed: onPause,
                     icon: const Icon(Icons.pause),
-                    label: const Text('Pause'),
+                    label: Text(strings.pause),
                   )
                 else
                   FilledButton.icon(
                     onPressed: task.canRun ? onStart : null,
                     icon: const Icon(Icons.play_arrow),
                     label: Text(
-                      task.state == DownloadState.paused ? 'Resume' : 'Start',
+                      task.state == DownloadState.paused
+                          ? strings.resume
+                          : strings.start,
                     ),
                   ),
               ],
