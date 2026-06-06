@@ -20,6 +20,7 @@ FluxDown is a cross-platform downloader workspace.
 - [Business notes](docs/business.md)
 - [Technical architecture](docs/architecture.md)
 - [Protocol support matrix](docs/protocols.md)
+- [Download verification status](docs/download-verification.md)
 - [Build and release](docs/build-release.md)
 - [Operations and security](docs/operations-security.md)
 - [Roadmap](docs/roadmap.md)

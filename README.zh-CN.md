@@ -20,6 +20,7 @@ FluxDown 是一个跨平台下载器工作区。
 - [业务文档](docs/business.md)
 - [技术架构](docs/architecture.md)
 - [协议支持矩阵](docs/protocols.md)
+- [下载验证状态](docs/download-verification.md)
 - [构建与发布](docs/build-release.md)
 - [运维与安全](docs/operations-security.md)
 - [路线图](docs/roadmap.md)
