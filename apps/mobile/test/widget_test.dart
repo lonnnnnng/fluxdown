@@ -57,6 +57,79 @@ void main() {
     expect(restored.outputFolder, '/tmp/downloads');
   });
 
+  test('serializes mobile task download metrics', () {
+    final startedAt = DateTime.utc(2026, 6, 13, 8, 0, 0);
+    final finishedAt = DateTime.utc(2026, 6, 13, 8, 0, 5);
+    final task =
+        DownloadTask.create(
+          source: 'https://example.com/archive.zip',
+          outputFolder: '/tmp/downloads',
+        ).copyWith(
+          state: DownloadState.finished,
+          downloadedBytes: 10 * 1024,
+          totalBytes: 10 * 1024,
+          startedAt: startedAt,
+          finishedAt: finishedAt,
+          currentSpeedBytesPerSecond: 0,
+        );
+
+    final restored = DownloadTask.fromJson(task.toJson());
+
+    expect(restored.startedAt, startedAt);
+    expect(restored.finishedAt, finishedAt);
+    expect(restored.elapsed, const Duration(seconds: 5));
+    expect(restored.averageSpeedBytesPerSecond, 2048);
+  });
+
+  test('freezes mobile task elapsed time while paused', () async {
+    final startedAt = DateTime.utc(2026, 6, 13, 8, 0, 0);
+    final pausedAt = DateTime.utc(2026, 6, 13, 8, 0, 7);
+    final task =
+        DownloadTask.create(
+          source: 'https://example.com/archive.zip',
+          outputFolder: '/tmp/downloads',
+        ).copyWith(
+          state: DownloadState.paused,
+          downloadedBytes: 7 * 1024,
+          startedAt: startedAt,
+          pausedAt: pausedAt,
+          currentSpeedBytesPerSecond: 0,
+        );
+
+    final firstElapsed = task.elapsed;
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+
+    expect(firstElapsed, const Duration(seconds: 7));
+    expect(task.elapsed, firstElapsed);
+  });
+
+  test('migrates legacy paused tasks without pause timestamps', () async {
+    final startedAt = DateTime.utc(2026, 6, 13, 8, 0, 0);
+    final updatedAt = DateTime.utc(2026, 6, 13, 8, 0, 9);
+    final json =
+        DownloadTask.create(
+              source: 'https://example.com/archive.zip',
+              outputFolder: '/tmp/downloads',
+            )
+            .copyWith(
+              state: DownloadState.paused,
+              downloadedBytes: 9 * 1024,
+              startedAt: startedAt,
+              updatedAt: updatedAt,
+              currentSpeedBytesPerSecond: 0,
+            )
+            .toJson()
+          ..remove('pausedAt');
+
+    final restored = DownloadTask.fromJson(json);
+    final firstElapsed = restored.elapsed;
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+
+    expect(restored.pausedAt, updatedAt);
+    expect(firstElapsed, const Duration(seconds: 9));
+    expect(restored.elapsed, firstElapsed);
+  });
+
   test('mobile task store atomically replaces queue files', () async {
     final tempDir = await Directory.systemTemp.createTemp(
       'fluxdown_mobile_store_test_',
@@ -180,9 +253,306 @@ void main() {
     },
   );
 
+  test('mobile controller retries failed downloads when configured', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_retry_test_',
+    );
+    final runner = _FlakyMobileDownloadRunner(failuresBeforeSuccess: 1);
+    final controller = DownloadController(
+      store: TaskStore(baseDirectory: tempDir),
+      runner: runner,
+    );
+
+    try {
+      final task = await controller.add(
+        source: 'https://example.com/retry.bin',
+        outputFolder: tempDir.path,
+      );
+
+      await controller.start(task.id, maxRetries: 1);
+
+      expect(runner.attempts, 2);
+      expect(controller.tasks.single.state, DownloadState.finished);
+      expect(controller.tasks.single.error, isNull);
+    } finally {
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test('mobile controller keeps running state while retrying', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_retry_running_state_test_',
+    );
+    final runner = _FlakyMobileDownloadRunner(failuresBeforeSuccess: 1);
+    late final DownloadController controller;
+    final states = <DownloadState>[];
+    controller = DownloadController(
+      store: TaskStore(baseDirectory: tempDir),
+      runner: runner,
+      onChanged: () {
+        if (controller.tasks.isNotEmpty) {
+          states.add(controller.tasks.single.state);
+        }
+      },
+    );
+
+    try {
+      final task = await controller.add(
+        source: 'https://example.com/retry-running.bin',
+        outputFolder: tempDir.path,
+      );
+      states.clear();
+
+      await controller.start(task.id, maxRetries: 1);
+
+      expect(states, contains(DownloadState.running));
+      expect(states, isNot(contains(DownloadState.queued)));
+      expect(states, isNot(contains(DownloadState.failed)));
+      expect(controller.tasks.single.state, DownloadState.finished);
+    } finally {
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test('mobile controller passes speed limit to downloads', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_speed_limit_test_',
+    );
+    final runner = _FakeMobileDownloadRunner();
+    final controller = DownloadController(
+      store: TaskStore(baseDirectory: tempDir),
+      runner: runner,
+    );
+
+    try {
+      final task = await controller.add(
+        source: 'https://example.com/limited.bin',
+        outputFolder: tempDir.path,
+      );
+
+      await controller.start(task.id, speedLimitKbps: 1024);
+
+      expect(runner.speedLimitKbpsValues, [1024]);
+      expect(controller.tasks.single.state, DownloadState.finished);
+    } finally {
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test('mobile controller passes thread count to downloads', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_thread_count_test_',
+    );
+    final runner = _FakeMobileDownloadRunner();
+    final controller = DownloadController(
+      store: TaskStore(baseDirectory: tempDir),
+      runner: runner,
+    );
+
+    try {
+      final task = await controller.add(
+        source: 'https://example.com/threaded.bin',
+        outputFolder: tempDir.path,
+      );
+
+      await controller.start(task.id, threadCount: 16);
+
+      expect(runner.threadCountValues, [16]);
+      expect(controller.tasks.single.state, DownloadState.finished);
+    } finally {
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test(
+    'mobile controller keeps picking queued tasks added during a run',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'fluxdown_mobile_dynamic_queue_test_',
+      );
+      final runner = _FakeMobileDownloadRunner();
+      final controller = DownloadController(
+        store: TaskStore(baseDirectory: tempDir),
+        runner: runner,
+      );
+
+      try {
+        await controller.add(
+          source: 'https://example.com/first.bin',
+          outputFolder: tempDir.path,
+        );
+
+        final run = controller.runQueued(concurrency: 1);
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        await controller.add(
+          source: 'https://example.com/second.bin',
+          outputFolder: tempDir.path,
+        );
+
+        final report = await run;
+
+        expect(report.totalQueued, 2);
+        expect(report.started, 2);
+        expect(report.finished, 2);
+        expect(runner.maxActive, 1);
+        expect(controller.tasks.map((task) => task.state).toSet(), {
+          DownloadState.finished,
+        });
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
+
+  test('mobile controller fails once retry budget is exhausted', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_retry_exhausted_test_',
+    );
+    final runner = _FlakyMobileDownloadRunner(failuresBeforeSuccess: 2);
+    final controller = DownloadController(
+      store: TaskStore(baseDirectory: tempDir),
+      runner: runner,
+    );
+
+    try {
+      await controller.add(
+        source: 'https://example.com/fails.bin',
+        outputFolder: tempDir.path,
+      );
+
+      final report = await controller.runQueued(concurrency: 1, maxRetries: 1);
+
+      expect(report.totalQueued, 1);
+      expect(report.started, 1);
+      expect(report.finished, 0);
+      expect(report.failed, 1);
+      expect(runner.attempts, 2);
+      expect(controller.tasks.single.state, DownloadState.failed);
+    } finally {
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test('mobile controller records download timing metrics', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_download_metrics_test_',
+    );
+    final runner = _FakeMobileDownloadRunner();
+    final controller = DownloadController(
+      store: TaskStore(baseDirectory: tempDir),
+      runner: runner,
+    );
+
+    try {
+      final task = await controller.add(
+        source: 'https://example.com/metrics.bin',
+        outputFolder: tempDir.path,
+      );
+
+      await controller.start(task.id);
+
+      final finished = controller.tasks.single;
+      expect(finished.state, DownloadState.finished);
+      expect(finished.startedAt, isNotNull);
+      expect(finished.finishedAt, isNotNull);
+      expect(finished.elapsed, isNotNull);
+      expect(finished.averageSpeedBytesPerSecond, greaterThan(0));
+      expect(finished.currentSpeedBytesPerSecond, 0);
+    } finally {
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test('mobile controller records pause time after cancellation', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_pause_metrics_test_',
+    );
+    final runner = _CancellableMobileDownloadRunner();
+    final controller = DownloadController(
+      store: TaskStore(baseDirectory: tempDir),
+      runner: runner,
+    );
+
+    try {
+      final task = await controller.add(
+        source: 'https://example.com/pause.bin',
+        outputFolder: tempDir.path,
+      );
+
+      final run = controller.start(task.id);
+      await runner.started.future;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await controller.pause(task.id);
+      await run;
+
+      final paused = controller.tasks.single;
+      final elapsed = paused.elapsed;
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+
+      expect(paused.state, DownloadState.paused);
+      expect(paused.pausedAt, isNotNull);
+      expect(paused.currentSpeedBytesPerSecond, 0);
+      expect(paused.elapsed, elapsed);
+    } finally {
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test(
+    'mobile queue starts the next task after pausing an active task',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'fluxdown_mobile_pause_queue_test_',
+      );
+      final runner = _PauseThenFinishMobileDownloadRunner();
+      final controller = DownloadController(
+        store: TaskStore(baseDirectory: tempDir),
+        runner: runner,
+      );
+
+      try {
+        final first = await controller.add(
+          source: 'https://example.com/first-paused.bin',
+          outputFolder: tempDir.path,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+        final second = await controller.add(
+          source: 'https://example.com/second-finished.bin',
+          outputFolder: tempDir.path,
+        );
+
+        final run = controller.runQueued(concurrency: 1);
+        await runner.firstStarted.future;
+        await controller.pause(first.id);
+        final report = await run;
+
+        final firstAfter = controller.tasks.firstWhere(
+          (task) => task.id == first.id,
+        );
+        final secondAfter = controller.tasks.firstWhere(
+          (task) => task.id == second.id,
+        );
+
+        expect(report.started, 2);
+        expect(report.finished, 1);
+        expect(report.failed, 0);
+        expect(firstAfter.state, DownloadState.paused);
+        expect(secondAfter.state, DownloadState.finished);
+        expect(runner.startedSources, [
+          'https://example.com/first-paused.bin',
+          'https://example.com/second-finished.bin',
+        ]);
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
+
   test('parses FTPS transfer specs with implicit TLS defaults', () {
     final spec = FtpTransferSpec.fromUri(
-      Uri.parse('ftps://user:pass@example.com/pub/file.bin'),
+      Uri.parse(
+        'ftps://user:pass@example.com/pub/file.bin?allowBadCertificate=true',
+      ),
     );
 
     expect(spec.host, 'example.com');
@@ -193,6 +563,7 @@ void main() {
     expect(spec.fileName, 'file.bin');
     expect(spec.secure, isTrue);
     expect(spec.implicitTls, isTrue);
+    expect(spec.allowBadCertificate, isTrue);
   });
 
   test('parses SFTP transfer specs with password auth defaults', () {
@@ -297,6 +668,75 @@ void main() {
     }
   });
 
+  test('downloads HTTP files with multiple Range threads', () async {
+    final payload = List<int>.generate(8192, (index) => index % 251);
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_threaded_http_test_',
+    );
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final ranges = <String>[];
+    final serverDone = server.listen((request) async {
+      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      if (request.method == 'HEAD') {
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentLength = payload.length;
+        await request.response.close();
+        return;
+      }
+
+      final range = request.headers.value(HttpHeaders.rangeHeader);
+      if (range != null) {
+        ranges.add(range);
+        final match = RegExp(r'bytes=(\d+)-(\d+)').firstMatch(range);
+        final start = int.parse(match!.group(1)!);
+        final end = int.parse(match.group(2)!);
+        request.response
+          ..statusCode = HttpStatus.partialContent
+          ..headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes $start-$end/${payload.length}',
+          )
+          ..headers.contentLength = end - start + 1;
+        request.response.add(payload.sublist(start, end + 1));
+      } else {
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentLength = payload.length;
+        request.response.add(payload);
+      }
+      await request.response.close();
+    });
+
+    try {
+      final source = 'http://${server.address.host}:${server.port}/file.bin';
+      final task = DownloadTask.create(
+        source: source,
+        outputFolder: tempDir.path,
+        fileName: 'threaded.bin',
+      );
+      final runner = MobileDownloadRunner();
+
+      final finished = await runner.downloadHttp(
+        task,
+        threadCount: 4,
+        onProgress: (_) {},
+      );
+
+      expect(finished.state, DownloadState.finished);
+      expect(finished.downloadedBytes, payload.length);
+      expect(ranges, hasLength(4));
+      expect(
+        await File(p.join(tempDir.path, 'threaded.bin')).readAsBytes(),
+        payload,
+      );
+    } finally {
+      await server.close(force: true);
+      await serverDone.cancel();
+      await tempDir.delete(recursive: true);
+    }
+  });
+
   test('downloads WebDAV files through HTTP transport', () async {
     final payload = utf8Bytes('webdav-payload-data');
     final tempDir = await Directory.systemTemp.createTemp(
@@ -328,6 +768,50 @@ void main() {
       expect(
         await File(p.join(tempDir.path, 'file.bin')).readAsBytes(),
         payload,
+      );
+    } finally {
+      await server.close(force: true);
+      await serverDone.cancel();
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test('downloads IPFS files through a configured gateway', () async {
+    final payload = utf8Bytes('Hello IPFS');
+    final cid = 'bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244';
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_ipfs_test_',
+    );
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final serverDone = server.listen((request) async {
+      expect(request.uri.path, '/ipfs/$cid/readme.txt');
+      expect(request.uri.queryParameters['download'], '1');
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..headers.contentLength = payload.length
+        ..add(payload);
+      await request.response.close();
+    });
+
+    try {
+      final gateway = Uri.encodeComponent(
+        'http://${server.address.host}:${server.port}',
+      );
+      final source = 'ipfs://$cid/readme.txt?gateway=$gateway&download=1';
+      final task = DownloadTask.create(
+        source: source,
+        outputFolder: tempDir.path,
+        fileName: 'ipfs-hello.txt',
+      );
+      final runner = MobileDownloadRunner();
+
+      final finished = await runner.download(task, onProgress: (_) {});
+      expect(finished.state, DownloadState.finished);
+      expect(finished.protocol, 'ipfs');
+      expect(finished.downloadedBytes, payload.length);
+      expect(
+        await File(p.join(tempDir.path, 'ipfs-hello.txt')).readAsString(),
+        'Hello IPFS',
       );
     } finally {
       await server.close(force: true);
@@ -619,12 +1103,18 @@ seg-2.ts
 class _FakeMobileDownloadRunner extends MobileDownloadRunner {
   var active = 0;
   var maxActive = 0;
+  final speedLimitKbpsValues = <int>[];
+  final threadCountValues = <int>[];
 
   @override
   Future<DownloadTask> download(
     DownloadTask task, {
+    int speedLimitKbps = 0,
+    int threadCount = 8,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
+    speedLimitKbpsValues.add(speedLimitKbps);
+    threadCountValues.add(threadCount);
     active += 1;
     if (active > maxActive) {
       maxActive = active;
@@ -643,6 +1133,117 @@ class _FakeMobileDownloadRunner extends MobileDownloadRunner {
     } finally {
       active -= 1;
     }
+  }
+}
+
+class _FlakyMobileDownloadRunner extends MobileDownloadRunner {
+  _FlakyMobileDownloadRunner({required this.failuresBeforeSuccess});
+
+  var failuresBeforeSuccess = 0;
+  var attempts = 0;
+
+  @override
+  Future<DownloadTask> download(
+    DownloadTask task, {
+    int speedLimitKbps = 0,
+    int threadCount = 8,
+    required FutureOr<void> Function(DownloadTask task) onProgress,
+  }) async {
+    attempts += 1;
+    if (failuresBeforeSuccess > 0) {
+      failuresBeforeSuccess -= 1;
+      throw const SocketException('temporary failure');
+    }
+
+    final progress = task.copyWith(
+      state: DownloadState.running,
+      downloadedBytes: 8,
+      totalBytes: 8,
+      clearError: true,
+    );
+    await onProgress(progress);
+    return progress.copyWith(state: DownloadState.finished);
+  }
+}
+
+class _CancellableMobileDownloadRunner extends MobileDownloadRunner {
+  final started = Completer<void>();
+  final cancelled = Completer<void>();
+
+  @override
+  void cancel(String taskId) {
+    if (!cancelled.isCompleted) {
+      cancelled.complete();
+    }
+  }
+
+  @override
+  Future<DownloadTask> download(
+    DownloadTask task, {
+    int speedLimitKbps = 0,
+    int threadCount = 8,
+    required FutureOr<void> Function(DownloadTask task) onProgress,
+  }) async {
+    if (!started.isCompleted) {
+      started.complete();
+    }
+    await onProgress(
+      task.copyWith(
+        state: DownloadState.running,
+        downloadedBytes: 4,
+        totalBytes: 8,
+        clearError: true,
+      ),
+    );
+    await cancelled.future;
+    throw const DownloadCancelled();
+  }
+}
+
+class _PauseThenFinishMobileDownloadRunner extends MobileDownloadRunner {
+  final firstStarted = Completer<void>();
+  final _firstCancelled = Completer<void>();
+  final startedSources = <String>[];
+  var _attempt = 0;
+
+  @override
+  void cancel(String taskId) {
+    if (!_firstCancelled.isCompleted) {
+      _firstCancelled.complete();
+    }
+  }
+
+  @override
+  Future<DownloadTask> download(
+    DownloadTask task, {
+    int speedLimitKbps = 0,
+    int threadCount = 8,
+    required FutureOr<void> Function(DownloadTask task) onProgress,
+  }) async {
+    _attempt += 1;
+    startedSources.add(task.source);
+    if (_attempt == 1) {
+      firstStarted.complete();
+      await onProgress(
+        task.copyWith(
+          state: DownloadState.running,
+          downloadedBytes: 4,
+          totalBytes: 8,
+          clearError: true,
+        ),
+      );
+      await _firstCancelled.future;
+      throw const DownloadCancelled();
+    }
+
+    final progress = task.copyWith(
+      state: DownloadState.running,
+      downloadedBytes: 8,
+      totalBytes: 8,
+      clearError: true,
+    );
+    await onProgress(progress);
+    return progress.copyWith(state: DownloadState.finished);
   }
 }
 

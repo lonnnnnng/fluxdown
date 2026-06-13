@@ -13,6 +13,7 @@ class FtpTransferSpec {
     required this.fileName,
     required this.secure,
     required this.implicitTls,
+    this.allowBadCertificate = false,
   });
 
   factory FtpTransferSpec.fromUri(Uri uri, {String? fileName}) {
@@ -44,6 +45,7 @@ class FtpTransferSpec {
           : Uri.decodeComponent(segment),
       secure: secure,
       implicitTls: secure && port == 990,
+      allowBadCertificate: uri.queryParameters['allowBadCertificate'] == 'true',
     );
   }
 
@@ -55,6 +57,7 @@ class FtpTransferSpec {
   final String fileName;
   final bool secure;
   final bool implicitTls;
+  final bool allowBadCertificate;
 
   String get address => '$host:$port';
 
@@ -78,13 +81,16 @@ class MobileFtpClient {
     this._socket,
     this._lines, {
     required String host,
+    required bool allowBadCertificate,
     required bool secureDataConnections,
   }) : _host = host,
+       _allowBadCertificate = allowBadCertificate,
        _secureDataConnections = secureDataConnections;
 
   Socket _socket;
   StreamIterator<String> _lines;
   final String _host;
+  final bool _allowBadCertificate;
   bool _secureDataConnections;
 
   static Future<MobileFtpClient> connect(FtpTransferSpec spec) async {
@@ -93,6 +99,7 @@ class MobileFtpClient {
             spec.host,
             spec.port,
             timeout: const Duration(seconds: 20),
+            onBadCertificate: spec.allowBadCertificate ? (_) => true : null,
           )
         : await Socket.connect(
             spec.host,
@@ -106,6 +113,7 @@ class MobileFtpClient {
       socket,
       lines,
       host: spec.host,
+      allowBadCertificate: spec.allowBadCertificate,
       secureDataConnections: spec.implicitTls,
     );
     await client.expect([220]);
@@ -179,8 +187,11 @@ class MobileFtpClient {
 
   Future<void> upgradeControlToTls() async {
     await expect([234, 334], command: 'AUTH TLS');
-    await _lines.cancel();
-    _socket = await SecureSocket.secure(_socket, host: _host);
+    _socket = await SecureSocket.secure(
+      _socket,
+      host: _host,
+      onBadCertificate: _allowBadCertificate ? (_) => true : null,
+    );
     _lines = StreamIterator(
       utf8.decoder.bind(_socket).transform(const LineSplitter()),
     );
@@ -250,7 +261,11 @@ class MobileFtpClient {
     if (!_secureDataConnections) {
       return socket;
     }
-    return SecureSocket.secure(socket, host: _host);
+    return SecureSocket.secure(
+      socket,
+      host: _host,
+      onBadCertificate: _allowBadCertificate ? (_) => true : null,
+    );
   }
 }
 
@@ -301,10 +316,16 @@ Future<int> pipeFtpData({
   required IOSink sink,
   required int startingBytes,
   required bool Function() isCancelled,
+  FutureOr<void> Function(int byteCount)? throttleBytes,
   required FutureOr<void> Function(int downloadedBytes) onProgress,
 }) async {
   var downloaded = startingBytes;
   await for (final chunk in dataSocket) {
+    if (isCancelled()) {
+      dataSocket.destroy();
+      throw const FtpException('FTP download was cancelled.');
+    }
+    await throttleBytes?.call(chunk.length);
     if (isCancelled()) {
       dataSocket.destroy();
       throw const FtpException('FTP download was cancelled.');

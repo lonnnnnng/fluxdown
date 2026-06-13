@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'download_task.dart';
@@ -14,11 +15,17 @@ Future<DownloadTask> handOffEd2kTask(
   final running = task.copyWith(state: DownloadState.running, clearError: true);
   await onProgress(running);
 
-  final launched = await launcher(Uri.parse(task.source));
+  late final bool launched;
+  try {
+    launched = await launcher(Uri.parse(task.source));
+  } on PlatformException catch (error) {
+    if (error.code == 'ACTIVITY_NOT_FOUND') {
+      throw StateError(_noEd2kHandlerMessage);
+    }
+    rethrow;
+  }
   if (!launched) {
-    throw StateError(
-      'No installed app can handle this ed2k link. Install an eMule/aMule-compatible client.',
-    );
+    throw StateError(_noEd2kHandlerMessage);
   }
 
   return running.copyWith(
@@ -28,6 +35,9 @@ Future<DownloadTask> handOffEd2kTask(
     clearError: true,
   );
 }
+
+const _noEd2kHandlerMessage =
+    'No installed app can handle this ed2k link. Install an eMule/aMule-compatible client.';
 
 Future<bool> launchEd2kUri(Uri uri) {
   return launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);

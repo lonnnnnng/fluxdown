@@ -6,6 +6,7 @@ import 'package:libtorrent_flutter/libtorrent_flutter.dart';
 import 'package:path/path.dart' as p;
 
 import 'download_task.dart';
+import 'transfer_metrics.dart';
 
 class TorrentDownloadCancelled implements Exception {
   const TorrentDownloadCancelled();
@@ -43,6 +44,7 @@ class MobileTorrentRunner {
       clearError: true,
     );
     await onProgress(current);
+    final speedSampler = TransferSpeedSampler();
 
     StreamSubscription<Map<int, TorrentInfo>>? subscription;
     final completion = Completer<DownloadTask>();
@@ -75,11 +77,16 @@ class MobileTorrentRunner {
         downloadedBytes: info.totalDone,
         totalBytes: total,
         clearTotalBytes: total == null,
+        currentSpeedBytesPerSecond: speedSampler.sample(info.totalDone),
       );
       await onProgress(current);
 
       final doneByBytes = total != null && info.totalDone >= total;
-      if (info.isFinished || info.state.isDone || doneByBytes) {
+      final doneWithoutKnownTotal =
+          total == null &&
+          (info.isFinished || info.state.isDone) &&
+          info.totalDone > 0;
+      if (doneByBytes || doneWithoutKnownTotal) {
         completion.complete(
           current.copyWith(
             state: DownloadState.finished,

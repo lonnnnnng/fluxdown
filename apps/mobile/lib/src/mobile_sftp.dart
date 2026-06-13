@@ -80,12 +80,17 @@ class MobileSftpClient {
     required IOSink sink,
     required int startingBytes,
     required bool Function() isCancelled,
+    FutureOr<void> Function(int byteCount)? throttleBytes,
     required FutureOr<void> Function(int downloadedBytes) onProgress,
   }) async {
     var downloaded = startingBytes;
     final file = await _sftp.open(remotePath, mode: SftpFileOpenMode.read);
     try {
       await for (final chunk in file.read(offset: startingBytes)) {
+        if (isCancelled()) {
+          throw const SftpDownloadCancelled();
+        }
+        await throttleBytes?.call(chunk.length);
         if (isCancelled()) {
           throw const SftpDownloadCancelled();
         }

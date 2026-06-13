@@ -20,9 +20,16 @@ dependencies:
   dart_smb2: ^0.1.0
   url_launcher: ^6.3.2
   pointycastle: ^4.0.0
+  mobile_scanner: ^7.2.0
+  file_picker: ^11.0.2
+  shared_preferences: ^2.5.5
+  open_filex: ^4.7.0
+  share_plus: ^12.0.1
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
 
   flutter_lints: ^6.0.0

@@ -5,6 +5,7 @@ import 'package:dart_smb2/dart_smb2.dart';
 import 'package:path/path.dart' as p;
 
 import 'download_task.dart';
+import 'transfer_metrics.dart';
 
 class SmbDownloadCancelled implements Exception {
   const SmbDownloadCancelled();
@@ -131,6 +132,7 @@ Future<DownloadTask> downloadSmbTask(
     clearError: true,
   );
   await onProgress(current);
+  final speedSampler = TransferSpeedSampler();
 
   try {
     final downloaded = await client.download(
@@ -142,6 +144,7 @@ Future<DownloadTask> downloadSmbTask(
           downloadedBytes: bytes,
           totalBytes: total > 0 ? total : null,
           clearTotalBytes: total <= 0,
+          currentSpeedBytesPerSecond: speedSampler.sample(bytes),
         );
         await onProgress(current);
       },

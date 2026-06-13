@@ -17,6 +17,10 @@ class DownloadTask {
     this.downloadedBytes = 0,
     this.totalBytes,
     this.error,
+    this.startedAt,
+    this.pausedAt,
+    this.finishedAt,
+    this.currentSpeedBytesPerSecond = 0,
   });
 
   factory DownloadTask.create({
@@ -43,18 +47,28 @@ class DownloadTask {
   }
 
   factory DownloadTask.fromJson(Map<String, Object?> json) {
+    final state = DownloadState.values.byName(json['state'] as String);
+    final updatedAt = DateTime.parse(json['updatedAt'] as String);
+    final pausedAt =
+        _dateTimeFromJson(json['pausedAt']) ??
+        (state == DownloadState.paused ? updatedAt : null);
     return DownloadTask(
       id: json['id'] as String,
       source: json['source'] as String,
       outputFolder: json['outputFolder'] as String,
       fileName: json['fileName'] as String,
       protocol: json['protocol'] as String,
-      state: DownloadState.values.byName(json['state'] as String),
+      state: state,
       createdAt: DateTime.parse(json['createdAt'] as String),
-      updatedAt: DateTime.parse(json['updatedAt'] as String),
+      updatedAt: updatedAt,
       downloadedBytes: json['downloadedBytes'] as int? ?? 0,
       totalBytes: json['totalBytes'] as int?,
       error: json['error'] as String?,
+      startedAt: _dateTimeFromJson(json['startedAt']),
+      pausedAt: pausedAt,
+      finishedAt: _dateTimeFromJson(json['finishedAt']),
+      currentSpeedBytesPerSecond:
+          json['currentSpeedBytesPerSecond'] as int? ?? 0,
     );
   }
 
@@ -69,6 +83,10 @@ class DownloadTask {
   final String? error;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final DateTime? startedAt;
+  final DateTime? pausedAt;
+  final DateTime? finishedAt;
+  final int currentSpeedBytesPerSecond;
 
   double? get progress {
     final total = totalBytes;
@@ -81,6 +99,27 @@ class DownloadTask {
       state == DownloadState.paused ||
       state == DownloadState.failed;
   bool get canPause => state == DownloadState.running;
+  Duration? get elapsed {
+    final start = startedAt;
+    if (start == null) return null;
+    final end =
+        finishedAt ??
+        (state == DownloadState.paused ? pausedAt : null) ??
+        DateTime.now().toUtc();
+    if (end.isBefore(start)) return Duration.zero;
+    return end.difference(start);
+  }
+
+  int get averageSpeedBytesPerSecond {
+    final elapsedTime = elapsed;
+    if (elapsedTime == null ||
+        elapsedTime.inMilliseconds <= 0 ||
+        downloadedBytes <= 0) {
+      return 0;
+    }
+    return (downloadedBytes * 1000 / elapsedTime.inMilliseconds).round();
+  }
+
   bool get isBuiltInMobile =>
       protocol == 'http' ||
       protocol == 'https' ||
@@ -108,6 +147,13 @@ class DownloadTask {
     String? error,
     bool clearError = false,
     DateTime? updatedAt,
+    DateTime? startedAt,
+    bool clearStartedAt = false,
+    DateTime? pausedAt,
+    bool clearPausedAt = false,
+    DateTime? finishedAt,
+    bool clearFinishedAt = false,
+    int? currentSpeedBytesPerSecond,
   }) {
     return DownloadTask(
       id: id,
@@ -121,6 +167,11 @@ class DownloadTask {
       error: clearError ? null : error ?? this.error,
       createdAt: createdAt,
       updatedAt: updatedAt ?? DateTime.now().toUtc(),
+      startedAt: clearStartedAt ? null : startedAt ?? this.startedAt,
+      pausedAt: clearPausedAt ? null : pausedAt ?? this.pausedAt,
+      finishedAt: clearFinishedAt ? null : finishedAt ?? this.finishedAt,
+      currentSpeedBytesPerSecond:
+          currentSpeedBytesPerSecond ?? this.currentSpeedBytesPerSecond,
     );
   }
 
@@ -137,8 +188,19 @@ class DownloadTask {
       'error': error,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      'startedAt': startedAt?.toIso8601String(),
+      'pausedAt': pausedAt?.toIso8601String(),
+      'finishedAt': finishedAt?.toIso8601String(),
+      'currentSpeedBytesPerSecond': currentSpeedBytesPerSecond,
     };
   }
+}
+
+DateTime? _dateTimeFromJson(Object? value) {
+  if (value is! String || value.trim().isEmpty) {
+    return null;
+  }
+  return DateTime.parse(value);
 }
 
 String suggestedFileName(String source) {
