@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-FluxDown is a cross-platform downloader workspace.
+FluxDown is a multi-protocol downloader for desktop and mobile, with a CLI, desktop GUI, and mobile app.
 
 ## Targets
 
@@ -28,11 +28,32 @@ FluxDown is a cross-platform downloader workspace.
 ## Release highlights
 
 - The default repository documentation now opens in Chinese; this English README remains available as [README.en.md](README.en.md).
+- The desktop GUI is now focused on two pages: download queue and settings. Windows, macOS, and Linux share the same Tauri UI.
 - The Android queue view is grouped by status and task rows show start/end time, elapsed time, downloaded/total size, real-time speed, and average speed.
 - New task creation supports clipboard input, QR scanning, save-as filename, and output folder selection.
 - Settings now cover download location, concurrent downloads, download thread count, retry count, and max download speed.
 - Torrent and magnet tasks update to the real file name after metadata arrives; multi-file resources prompt for file selection.
 - Android real-device verification now covers local protocol fixtures plus media-sized HLS, torrent, and magnet foreground app flows.
+
+## Screenshots
+
+### macOS Desktop
+
+| Queue | New Task | Settings |
+| --- | --- | --- |
+| <img src="docs/artifacts/readme/macos/queue.png" alt="macOS queue" width="320"> | <img src="docs/artifacts/readme/macos/new-task.png" alt="macOS new task" width="320"> | <img src="docs/artifacts/readme/macos/settings.png" alt="macOS settings" width="320"> |
+
+### Android Real Device
+
+| Queue | New Task | Settings |
+| --- | --- | --- |
+| <img src="docs/artifacts/readme/android-real-device/queue.png" alt="Android queue" width="220"> | <img src="docs/artifacts/readme/android-real-device/new-task.png" alt="Android new task" width="220"> | <img src="docs/artifacts/readme/android-real-device/settings.png" alt="Android settings" width="220"> |
+
+### iOS Simulator
+
+| Queue | New Task | Settings |
+| --- | --- | --- |
+| <img src="docs/artifacts/readme/ios-simulator/queue.jpg" alt="iOS queue" width="220"> | <img src="docs/artifacts/readme/ios-simulator/new-task.jpg" alt="iOS new task" width="220"> | <img src="docs/artifacts/readme/ios-simulator/settings.jpg" alt="iOS settings" width="220"> |
 
 ## Protocol roadmap
 
@@ -51,62 +72,43 @@ The task model recognizes these transfer families:
 
 The desktop executable engine implements direct HTTP/HTTPS downloads, WebDAV/WebDAVS file downloads over HTTP transport, plain FTP and FTPS downloads, password-authenticated SFTP downloads, SMB2/3 share downloads, BitTorrent `.torrent` and magnet downloads, ed2k submission through the aMule `ed2k` CLI when installed with OS URL-handler fallback, IPFS gateway downloads, and VOD m3u8/HLS playlist downloads including AES-128 encrypted segments.
 
-The mobile app persists a local JSON queue and can execute individual tasks or run queued tasks with bounded concurrency. It supports HTTP/HTTPS and WebDAV/WebDAVS downloads with progress, pause, and HTTP Range resume. It also supports FTP/FTPS downloads with passive mode and REST resume, SFTP downloads with password authentication and offset resume, SMB2/3 file downloads, BitTorrent `.torrent` and magnet downloads through native libtorrent bindings, IPFS gateway downloads, plus VOD m3u8/HLS playlists, including AES-128 encrypted segments, remuxed into a final `.mp4` output on Android. ed2k links are executable as a mobile handoff to an installed eMule/aMule-compatible app.
+The mobile app persists a local JSON queue and can execute individual tasks or run queued tasks with bounded concurrency. It supports HTTP/HTTPS and WebDAV/WebDAVS downloads with progress, pause, and HTTP Range resume. It also supports FTP/FTPS downloads with passive mode and REST resume, SFTP downloads with password authentication and offset resume, SMB2/3 file downloads, BitTorrent `.torrent` and magnet downloads through native libtorrent bindings, IPFS gateway downloads, plus VOD m3u8/HLS playlists, including AES-128 encrypted segments, remuxed into a final `.mp4` output on Android and iOS. ed2k links are executable as a mobile handoff to an installed eMule/aMule-compatible app.
 
 Mobile torrent support uses `libtorrent_flutter`, which ships GPL-licensed native components. Keep that license obligation in mind before distributing store builds.
 
-## Useful commands
+## Quick Start
+
+### CLI
 
 ```sh
-cargo run -p fluxdown-cli -- detect "https://example.com/file.zip"
-cargo run -p fluxdown-cli -- support "magnet:?xt=urn:btih:..."
 cargo run -p fluxdown-cli -- doctor
+cargo run -p fluxdown-cli -- detect "https://example.com/file.zip"
 cargo run -p fluxdown-cli -- download "https://example.com/file.zip" --output ./downloads
 cargo run -p fluxdown-cli -- add "https://example.com/file.zip" --output ./downloads
-cargo run -p fluxdown-cli -- list
-cargo run -p fluxdown-cli -- start "<task-id>"
 cargo run -p fluxdown-cli -- run --concurrency 2
-cargo run -p fluxdown-cli -- pause "<task-id>"
-cargo run -p fluxdown-cli -- resume "<task-id>"
-cargo run -p fluxdown-cli -- remove "<task-id>"
-cargo build -p fluxdown-cli --release
-./target/release/fluxdown doctor
+```
+
+`download` runs a source immediately and prints a JSON summary. `add` stores a task in the queue. `run` executes queued tasks with the requested concurrency. The default queue file is `$XDG_DATA_HOME/fluxdown/queue.json` or `~/.local/share/fluxdown/queue.json`; override it with `--store /path/to/queue.json`.
+
+### Desktop
+
+```sh
 npm install
 npm run desktop:web
 npm run desktop:build
-npm run desktop:dmg
-npm run verify:ci-config
-npm run verify:artifacts
-npm run verify:linux-cli
-npm run verify:linux-gui
-npm run verify:windows-cli
-npm run verify:windows-gui
-npm run verify:release
-npm run verify:mobile-url-schemes
-npm run release:prepare
-npm run release:stage
-npm run release:manifest
-npm run release:manifest:verify
-npm run mobile:ios:simulator:verify
-npm run mobile:ios:verify
-npm run mobile:ios:ipa:signed
-npm run audit:release
-npm run desktop:linux:docker
-npm run desktop:windows-cli:docker
-npm run desktop:windows-gui:docker
+```
+
+On macOS, the desktop app is generated at `target/release/bundle/macos/FluxDown.app`. Windows and Linux GUI artifacts are built through the local Docker helper scripts or GitHub Actions; see [Build and release](docs/build-release.md).
+
+### Mobile
+
+```sh
 cd apps/mobile && flutter analyze
 cd apps/mobile && flutter test
 cd apps/mobile && flutter build apk --debug
-cd apps/mobile && flutter build apk --release
-cd apps/mobile/android && ./gradlew bundleRelease
 cd apps/mobile && flutter build ios --simulator
-cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release
-cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ipa --export-options-plist=ios/ExportOptions.plist
 cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
-cd apps/mobile && flutter run
 ```
-
-`download` executes a source immediately and prints a JSON summary. `add` persists a task into the queue. `start` executes a queued task by id and writes the final task state back to the queue store. The default queue file is `$XDG_DATA_HOME/fluxdown/queue.json` or `~/.local/share/fluxdown/queue.json`; the CLI can override it with `--store /path/to/queue.json`.
 
 The Flutter mobile queue file is stored under the app documents directory at `fluxdown/queue.json`. Download output defaults to an app-sandbox `downloads` folder and can be changed in the app.
 Mobile ed2k handoff depends on platform URL handler visibility. The Android manifest declares an `ed2k` VIEW query, and the iOS Info.plist declares `LSApplicationQueriesSchemes` for `ed2k`; `npm run verify:mobile-url-schemes` checks both.

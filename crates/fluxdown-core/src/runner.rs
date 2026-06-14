@@ -31,6 +31,11 @@ pub struct QueueRunReport {
     pub tasks: Vec<DownloadTask>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct QueueRunnerOptions {
+    pub retry_attempts: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct QueueRunner {
     store: TaskStore,
@@ -46,6 +51,15 @@ impl QueueRunner {
     }
 
     pub async fn run_queued(&self, concurrency: usize) -> Result<QueueRunReport, QueueRunnerError> {
+        self.run_queued_with_options(concurrency, QueueRunnerOptions::default())
+            .await
+    }
+
+    pub async fn run_queued_with_options(
+        &self,
+        concurrency: usize,
+        options: QueueRunnerOptions,
+    ) -> Result<QueueRunReport, QueueRunnerError> {
         let concurrency = concurrency.max(1);
         let queued = self
             .store
@@ -63,7 +77,7 @@ impl QueueRunner {
                 let engine = self.engine.clone();
                 let write_lock = Arc::clone(&write_lock);
                 async move {
-                    run_one(store, engine, task, write_lock)
+                    run_one_with_retry(store, engine, task, write_lock, options)
                         .await
                         .map(|report| report.task)
                 }
@@ -96,15 +110,47 @@ impl QueueRunner {
     }
 
     pub async fn run_task(&self, id: &str) -> Result<TaskRunReport, QueueRunnerError> {
+        self.run_task_with_options(id, QueueRunnerOptions::default())
+            .await
+    }
+
+    pub async fn run_task_with_options(
+        &self,
+        id: &str,
+        options: QueueRunnerOptions,
+    ) -> Result<TaskRunReport, QueueRunnerError> {
         let task = self.store.get(id).await?;
-        run_one(
+        run_one_with_retry(
             self.store.clone(),
             self.engine.clone(),
             task,
             Arc::new(Mutex::new(())),
+            options,
         )
         .await
     }
+}
+
+async fn run_one_with_retry(
+    store: TaskStore,
+    engine: DownloadEngine,
+    mut task: DownloadTask,
+    write_lock: Arc<Mutex<()>>,
+    options: QueueRunnerOptions,
+) -> Result<TaskRunReport, QueueRunnerError> {
+    let max_attempts = options.retry_attempts.saturating_add(1);
+    for attempt in 0..max_attempts {
+        let report = run_one(store.clone(), engine.clone(), task, Arc::clone(&write_lock)).await?;
+
+        if report.task.state != DownloadState::Failed || attempt + 1 >= max_attempts {
+            return Ok(report);
+        }
+
+        task = report.task;
+        task.error = None;
+    }
+
+    unreachable!("retry loop always returns after the final attempt")
 }
 
 async fn run_one(

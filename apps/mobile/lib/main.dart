@@ -2615,12 +2615,14 @@ class _SettingsNumberInputState extends State<SettingsNumberInput> {
     super.dispose();
   }
 
-  void commit() {
+  void commit({bool unfocus = true}) {
     final value = controller.text.trim();
     if (value.isNotEmpty || widget.allowEmpty) {
       widget.onSubmitted(value);
     }
-    focusNode.unfocus();
+    if (unfocus) {
+      focusNode.unfocus();
+    }
   }
 
   @override
@@ -2692,8 +2694,9 @@ class _SettingsNumberInputState extends State<SettingsNumberInput> {
                   vertical: 6,
                 ),
               ),
+              onChanged: (_) => commit(unfocus: false),
               onSubmitted: (_) => commit(),
-              onEditingComplete: commit,
+              onEditingComplete: () => commit(),
               onTapOutside: (_) => commit(),
             ),
           ),

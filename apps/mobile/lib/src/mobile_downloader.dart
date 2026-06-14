@@ -172,6 +172,24 @@ class MobileDownloadRunner {
       final response = await client.send(request);
       if (partialBytes > 0 && response.statusCode == HttpStatus.ok) {
         await outputFile.writeAsBytes(const []);
+      } else if (partialBytes > 0 &&
+          response.statusCode == HttpStatus.requestedRangeNotSatisfiable) {
+        final completeBytes =
+            _completeLengthFromContentRange(
+              response.headers[HttpHeaders.contentRangeHeader],
+            ) ??
+            await _remoteContentLength(client, sourceUri);
+        await response.stream.drain<void>();
+        if (completeBytes != null && partialBytes == completeBytes) {
+          return task.copyWith(
+            state: DownloadState.finished,
+            downloadedBytes: partialBytes,
+            totalBytes: completeBytes,
+            currentSpeedBytesPerSecond: 0,
+            clearError: true,
+          );
+        }
+        throw HttpException('HTTP ${response.statusCode}', uri: sourceUri);
       } else if (response.statusCode != HttpStatus.ok &&
           response.statusCode != HttpStatus.partialContent) {
         throw HttpException('HTTP ${response.statusCode}', uri: sourceUri);
@@ -240,6 +258,26 @@ class MobileDownloadRunner {
       if (!identical(client, _client)) {
         client.close();
       }
+    }
+  }
+
+  int? _completeLengthFromContentRange(String? header) {
+    if (header == null) return null;
+    final match = RegExp(r'/(\d+)\s*$').firstMatch(header.trim());
+    return match == null ? null : int.tryParse(match.group(1)!);
+  }
+
+  Future<int?> _remoteContentLength(http.Client client, Uri sourceUri) async {
+    final response = await client.send(http.Request('HEAD', sourceUri));
+    try {
+      if (response.statusCode < HttpStatus.ok ||
+          response.statusCode >= HttpStatus.multipleChoices) {
+        return null;
+      }
+      return response.contentLength ??
+          int.tryParse(response.headers[HttpHeaders.contentLengthHeader] ?? '');
+    } finally {
+      await response.stream.drain<void>();
     }
   }
 

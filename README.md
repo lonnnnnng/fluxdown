@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-FluxDown 是一个跨平台下载器工作区。
+FluxDown 是一款面向桌面和移动端的多协议下载器，包含 CLI、桌面 GUI 和移动 App。
 
 ## 目标平台
 
@@ -28,11 +28,32 @@ FluxDown 是一个跨平台下载器工作区。
 ## 当前版本重点
 
 - 默认文档入口为中文，英文 README 保留在 [README.en.md](README.en.md)。
+- 桌面端 GUI 收敛为下载列表和设置两页，Windows、macOS、Linux 共用同一套 Tauri UI。
 - Android 队列页按状态分组，任务项显示开始/结束时间、总耗时、已下载/总大小、实时速度和平均速度。
 - 新建任务支持剪切板、二维码扫描、另存文件名和保存位置选择。
 - 设置页支持下载保存位置、并发下载数、下载线程数、自动重试数和最大下载网速。
 - Torrent/Magnet 获取 metadata 后会展示真实文件名；多文件资源会弹出选择列表。
 - Android 真机已补充本地协议资源和媒体级 HLS、torrent、magnet 前台 App 验证。
+
+## 界面截图
+
+### macOS 桌面端
+
+| 下载列表 | 新建任务 | 设置 |
+| --- | --- | --- |
+| <img src="docs/artifacts/readme/macos/queue.png" alt="macOS 下载列表" width="320"> | <img src="docs/artifacts/readme/macos/new-task.png" alt="macOS 新建任务" width="320"> | <img src="docs/artifacts/readme/macos/settings.png" alt="macOS 设置" width="320"> |
+
+### Android 真机
+
+| 下载列表 | 新建任务 | 设置 |
+| --- | --- | --- |
+| <img src="docs/artifacts/readme/android-real-device/queue.png" alt="Android 下载列表" width="220"> | <img src="docs/artifacts/readme/android-real-device/new-task.png" alt="Android 新建任务" width="220"> | <img src="docs/artifacts/readme/android-real-device/settings.png" alt="Android 设置" width="220"> |
+
+### iOS 模拟器
+
+| 下载列表 | 新建任务 | 设置 |
+| --- | --- | --- |
+| <img src="docs/artifacts/readme/ios-simulator/queue.jpg" alt="iOS 下载列表" width="220"> | <img src="docs/artifacts/readme/ios-simulator/new-task.jpg" alt="iOS 新建任务" width="220"> | <img src="docs/artifacts/readme/ios-simulator/settings.jpg" alt="iOS 设置" width="220"> |
 
 ## 协议路线
 
@@ -51,62 +72,43 @@ FluxDown 是一个跨平台下载器工作区。
 
 桌面端执行引擎已经实现 HTTP/HTTPS 直链下载、基于 HTTP 传输的 WebDAV/WebDAVS 文件下载、FTP/FTPS 下载、密码认证 SFTP 下载、SMB2/3 共享文件下载、BitTorrent `.torrent` 和 Magnet 下载、ed2k 通过 aMule `ed2k` CLI 提交并在缺失时退回系统 URL handler、IPFS 网关下载，以及 VOD m3u8/HLS 播放列表下载，包括 AES-128 加密分片。
 
-移动端 App 使用本地 JSON 队列，可以执行单个任务，也可以用有界并发运行队列。移动端支持 HTTP/HTTPS 和 WebDAV/WebDAVS 下载，包含进度、暂停和 HTTP Range 续传；也支持 FTP/FTPS 被动模式与 REST 续传、SFTP 密码认证与偏移续传、SMB2/3 文件下载、通过原生 libtorrent 绑定下载 BitTorrent `.torrent` 和 Magnet、IPFS 网关下载，以及 VOD m3u8/HLS 播放列表下载，包括 AES-128 加密分片，并在 Android 端转封装为最终 `.mp4` 文件。ed2k 链接会移交给设备上已安装的 eMule/aMule 兼容 App。
+移动端 App 使用本地 JSON 队列，可以执行单个任务，也可以用有界并发运行队列。移动端支持 HTTP/HTTPS 和 WebDAV/WebDAVS 下载，包含进度、暂停和 HTTP Range 续传；也支持 FTP/FTPS 被动模式与 REST 续传、SFTP 密码认证与偏移续传、SMB2/3 文件下载、通过原生 libtorrent 绑定下载 BitTorrent `.torrent` 和 Magnet、IPFS 网关下载，以及 VOD m3u8/HLS 播放列表下载，包括 AES-128 加密分片，并在 Android 和 iOS 上转封装为最终 `.mp4` 文件。ed2k 链接会移交给设备上已安装的 eMule/aMule 兼容 App。
 
 移动端 torrent 支持使用 `libtorrent_flutter`，它包含 GPL 许可的原生组件。正式分发商店版本前需要确认许可证义务。
 
-## 常用命令
+## 快速开始
+
+### CLI
 
 ```sh
-cargo run -p fluxdown-cli -- detect "https://example.com/file.zip"
-cargo run -p fluxdown-cli -- support "magnet:?xt=urn:btih:..."
 cargo run -p fluxdown-cli -- doctor
+cargo run -p fluxdown-cli -- detect "https://example.com/file.zip"
 cargo run -p fluxdown-cli -- download "https://example.com/file.zip" --output ./downloads
 cargo run -p fluxdown-cli -- add "https://example.com/file.zip" --output ./downloads
-cargo run -p fluxdown-cli -- list
-cargo run -p fluxdown-cli -- start "<task-id>"
 cargo run -p fluxdown-cli -- run --concurrency 2
-cargo run -p fluxdown-cli -- pause "<task-id>"
-cargo run -p fluxdown-cli -- resume "<task-id>"
-cargo run -p fluxdown-cli -- remove "<task-id>"
-cargo build -p fluxdown-cli --release
-./target/release/fluxdown doctor
+```
+
+`download` 会立即执行下载并打印 JSON 摘要；`add` 会把任务写入队列；`run` 按并发数执行排队任务。默认队列文件为 `$XDG_DATA_HOME/fluxdown/queue.json` 或 `~/.local/share/fluxdown/queue.json`，CLI 可通过 `--store /path/to/queue.json` 覆盖。
+
+### 桌面端
+
+```sh
 npm install
 npm run desktop:web
 npm run desktop:build
-npm run desktop:dmg
-npm run verify:ci-config
-npm run verify:artifacts
-npm run verify:linux-cli
-npm run verify:linux-gui
-npm run verify:windows-cli
-npm run verify:windows-gui
-npm run verify:release
-npm run verify:mobile-url-schemes
-npm run release:prepare
-npm run release:stage
-npm run release:manifest
-npm run release:manifest:verify
-npm run mobile:ios:simulator:verify
-npm run mobile:ios:verify
-npm run mobile:ios:ipa:signed
-npm run audit:release
-npm run desktop:linux:docker
-npm run desktop:windows-cli:docker
-npm run desktop:windows-gui:docker
+```
+
+macOS 构建完成后，桌面 App 位于 `target/release/bundle/macos/FluxDown.app`。Windows 和 Linux GUI 产物通过本地 Docker 辅助脚本或 GitHub Actions 构建，详见 [构建与发布](docs/build-release.md)。
+
+### 移动端
+
+```sh
 cd apps/mobile && flutter analyze
 cd apps/mobile && flutter test
 cd apps/mobile && flutter build apk --debug
-cd apps/mobile && flutter build apk --release
-cd apps/mobile/android && ./gradlew bundleRelease
 cd apps/mobile && flutter build ios --simulator
-cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release
-cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ipa --export-options-plist=ios/ExportOptions.plist
 cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
-cd apps/mobile && flutter run
 ```
-
-`download` 会立即执行一个下载源并打印 JSON 摘要。`add` 会把任务持久化到队列。`start` 按任务 id 执行队列任务，并把最终状态写回队列。默认队列文件为 `$XDG_DATA_HOME/fluxdown/queue.json` 或 `~/.local/share/fluxdown/queue.json`；CLI 可通过 `--store /path/to/queue.json` 覆盖。
 
 Flutter 移动端队列文件保存在 App documents 目录下的 `fluxdown/queue.json`。下载输出默认在 App 沙盒内的 `downloads` 文件夹，用户可在 App 中修改。
 移动端 ed2k 移交依赖平台 URL handler 可见性。Android manifest 声明了 `ed2k` VIEW query，iOS Info.plist 声明了 `ed2k` 的 `LSApplicationQueriesSchemes`；`npm run verify:mobile-url-schemes` 会检查两端配置。

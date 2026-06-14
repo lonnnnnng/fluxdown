@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
@@ -48,12 +49,17 @@ type DoctorReport = {
   protocols: SupportStatus[];
 };
 
+type DownloadState = "queued" | "running" | "finished" | "failed" | "paused";
+type QueueFilter = "all" | "queued" | "running" | "finished" | "failed";
+type Page = "queue" | "settings";
+type TaskAction = "idle" | "start" | "pause" | "remove" | "copy";
+
 type DownloadTask = {
   id: string;
   source: string;
   protocol: Protocol;
   support: SupportStatus;
-  state: string;
+  state: DownloadState;
   output_dir: string;
   file_name?: string | null;
   total_bytes?: number | null;
@@ -86,129 +92,25 @@ type TaskRunReport = {
   summary?: DownloadSummary | null;
 };
 
-type Language = "zh" | "en";
+type Settings = {
+  outputDir: string;
+  concurrency: number;
+  threadCount: number;
+  retryAttempts: number;
+  speedLimitMbps: number;
+  autoStart: boolean;
+  refreshIntervalMs: number;
+};
 
-type TranslationKey =
-  | "tagline"
-  | "navQueue"
-  | "navProtocols"
-  | "navSettings"
-  | "recognized"
-  | "title"
-  | "subtitle"
-  | "ready"
-  | "adapterPlanned"
-  | "source"
-  | "sourcePlaceholder"
-  | "outputFolder"
-  | "fileName"
-  | "optional"
-  | "detected"
-  | "addToQueue"
-  | "queue"
-  | "queueRunner"
-  | "queueRunnerHelp"
-  | "concurrency"
-  | "runQueue"
-  | "runtimeBackends"
-  | "checkedOnThisMachine"
-  | "webPreviewFallback"
-  | "compiledIntoCore"
-  | "available"
-  | "notAvailable"
-  | "tasks"
-  | "noQueuedTasks"
-  | "start"
-  | "pause"
-  | "resume"
-  | "remove"
-  | "bytes"
-  | "language"
-  | "chinese"
-  | "english";
-
-const translations: Record<Language, Record<TranslationKey, string>> = {
-  zh: {
-    tagline: "多协议下载器",
-    navQueue: "队列",
-    navProtocols: "协议",
-    navSettings: "设置",
-    recognized: "已识别协议",
-    title: "下载队列",
-    subtitle:
-      "适用于 Windows、macOS 和 Linux 的桌面 GUI，由共享 Rust 引擎驱动。",
-    ready: "就绪",
-    adapterPlanned: "适配器规划中",
-    source: "下载源",
-    sourcePlaceholder: "URL、WebDAV、磁力链接、ed2k、torrent 路径、m3u8",
-    outputFolder: "输出目录",
-    fileName: "文件名",
-    optional: "可选",
-    detected: "识别结果",
-    addToQueue: "添加到队列",
-    queue: "入队",
-    queueRunner: "队列运行器",
-    queueRunnerHelp: "处理已排队任务，并把最终状态写回持久化队列。",
-    concurrency: "并发数",
-    runQueue: "运行队列",
-    runtimeBackends: "运行时后端",
-    checkedOnThisMachine: "已在本机检查",
-    webPreviewFallback: "网页预览兜底",
-    compiledIntoCore: "已编译进 FluxDown core",
-    available: "可用",
-    notAvailable: "不可用",
-    tasks: "任务",
-    noQueuedTasks: "还没有排队任务。",
-    start: "开始",
-    pause: "暂停",
-    resume: "继续",
-    remove: "删除",
-    bytes: "字节",
-    language: "语言",
-    chinese: "中文",
-    english: "English",
-  },
-  en: {
-    tagline: "multi-protocol downloader",
-    navQueue: "Queue",
-    navProtocols: "Protocols",
-    navSettings: "Settings",
-    recognized: "Recognized",
-    title: "Download queue",
-    subtitle:
-      "Desktop GUI for Windows, macOS, and Linux backed by the shared Rust engine.",
-    ready: "Ready",
-    adapterPlanned: "Adapter planned",
-    source: "Source",
-    sourcePlaceholder: "URL, WebDAV, magnet, ed2k, torrent path, m3u8",
-    outputFolder: "Output folder",
-    fileName: "File name",
-    optional: "optional",
-    detected: "Detected",
-    addToQueue: "Add to queue",
-    queue: "Queue",
-    queueRunner: "Queue runner",
-    queueRunnerHelp:
-      "Processes queued tasks and writes final state back to the persistent store.",
-    concurrency: "Concurrency",
-    runQueue: "Run queue",
-    runtimeBackends: "Runtime backends",
-    checkedOnThisMachine: "checked on this machine",
-    webPreviewFallback: "web preview fallback",
-    compiledIntoCore: "compiled into FluxDown core",
-    available: "available",
-    notAvailable: "not available",
-    tasks: "Tasks",
-    noQueuedTasks: "No queued tasks yet.",
-    start: "Start",
-    pause: "Pause",
-    resume: "Resume",
-    remove: "Remove",
-    bytes: "bytes",
-    language: "Language",
-    chinese: "中文",
-    english: "English",
-  },
+const settingsKey = "fluxdown.desktop.settings.v2";
+const defaultSettings: Settings = {
+  outputDir: "",
+  concurrency: 1,
+  threadCount: 8,
+  retryAttempts: 1,
+  speedLimitMbps: 0,
+  autoStart: true,
+  refreshIntervalMs: 600,
 };
 
 const supportedNow = new Set<Protocol>([
@@ -226,17 +128,6 @@ const supportedNow = new Set<Protocol>([
   "smb",
   "ipfs",
 ]);
-
-const examples = [
-  "https://speed.hetzner.de/100MB.bin",
-  "webdavs://cloud.example.com/remote.php/dav/files/archive.zip",
-  "https://example.com/live/playlist.m3u8",
-  "magnet:?xt=urn:btih:0123456789abcdef",
-  "ed2k://|file|example.iso|123|ABCDEF|/",
-  "ftp://ftp.example.com/pub/file.zip",
-  "sftp://user:pass@example.com/home/user/archive.zip",
-  "smb://user:pass@nas.local/Share/archive.zip",
-];
 
 function fallbackDetect(source: string): Protocol {
   const value = source.trim().toLowerCase();
@@ -258,7 +149,6 @@ function fallbackDetect(source: string): Protocol {
 
 function hasPathExtension(source: string, extension: string) {
   if (source.endsWith(extension)) return true;
-
   try {
     return new URL(source).pathname.toLowerCase().endsWith(extension);
   } catch {
@@ -267,498 +157,966 @@ function hasPathExtension(source: string, extension: string) {
 }
 
 function fallbackSupport(source: string): SupportStatus {
-  const detected = fallbackDetect(source);
-  if (detected === "ed2k") {
-    return { protocol: detected, backend: "system-handoff", executable: true };
+  const protocol = fallbackDetect(source);
+  if (protocol === "ed2k") {
+    return { protocol, backend: "system-handoff", executable: true };
   }
-
-  if (supportedNow.has(detected)) {
-    return { protocol: detected, backend: "built-in", executable: true };
+  if (supportedNow.has(protocol)) {
+    return { protocol, backend: "built-in", executable: true };
   }
-
-  return { protocol: detected, backend: "planned", executable: false };
+  return { protocol, backend: "planned", executable: false };
 }
 
-function progressPercent(task: DownloadTask) {
-  if (!task.total_bytes || task.total_bytes <= 0) return 0;
-  return Math.min(
-    100,
-    Math.round((task.downloaded_bytes / task.total_bytes) * 100),
+function loadSettings(): Settings {
+  try {
+    const raw = window.localStorage.getItem(settingsKey);
+    if (!raw) return defaultSettings;
+    const saved = JSON.parse(raw) as Partial<Settings>;
+    return {
+      outputDir:
+        typeof saved.outputDir === "string" && saved.outputDir.trim()
+          ? saved.outputDir
+          : defaultSettings.outputDir,
+      concurrency: clampNumber(saved.concurrency, 1, 30, 1),
+      threadCount: clampNumber(saved.threadCount, 1, 32, defaultSettings.threadCount),
+      retryAttempts: clampNumber(saved.retryAttempts, 0, 10, defaultSettings.retryAttempts),
+      speedLimitMbps: clampNumber(saved.speedLimitMbps, 0, 10000, defaultSettings.speedLimitMbps),
+      autoStart:
+        typeof saved.autoStart === "boolean"
+          ? saved.autoStart
+          : defaultSettings.autoStart,
+      refreshIntervalMs: clampNumber(
+        saved.refreshIntervalMs,
+        300,
+        5000,
+        defaultSettings.refreshIntervalMs,
+      ),
+    };
+  } catch {
+    return defaultSettings;
+  }
+}
+
+function saveSettings(settings: Settings) {
+  try {
+    window.localStorage.setItem(settingsKey, JSON.stringify(settings));
+  } catch {
+    // Local storage can be unavailable in restricted web previews.
+  }
+}
+
+function shouldUseDefaultOutputDir(value: string) {
+  const normalized = value.trim();
+  return (
+    normalized === "" ||
+    normalized === "." ||
+    normalized === "./" ||
+    normalized === "downloads" ||
+    normalized === "./downloads"
   );
 }
 
-function initialLanguage(): Language {
+function clampNumber(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+function taskTitle(task: DownloadTask) {
+  if (task.file_name?.trim()) return task.file_name.trim();
+  const sourceName = suggestedFileName(task.source);
+  return sourceName || protocolLabel(task.protocol);
+}
+
+function suggestedFileName(source: string) {
+  if (source.startsWith("magnet:?")) {
+    const params = new URLSearchParams(source.slice("magnet:?".length));
+    return params.get("dn") || "magnet-download";
+  }
   try {
-    return window.localStorage.getItem("fluxdown-language") === "en"
-      ? "en"
-      : "zh";
+    const url = new URL(source);
+    const segment = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+    return segment || url.hostname || source;
   } catch {
-    return "zh";
+    return source.split(/[\\/]/).pop() || source;
   }
 }
 
 function protocolLabel(protocol: Protocol) {
-  if (protocol === "unknown") return "Unknown";
-  return protocol.toUpperCase();
+  return protocol === "unknown" ? "UNKNOWN" : protocol.toUpperCase();
 }
 
-function backendLabel(backend: Backend, language: Language) {
-  const labels: Record<Backend, Record<Language, string>> = {
-    "built-in": { zh: "内建", en: "built-in" },
-    "system-handoff": { zh: "系统移交", en: "system handoff" },
-    aria2: { zh: "aria2", en: "aria2" },
-    amule: { zh: "aMule", en: "aMule" },
-    "smb-client": { zh: "SMB 客户端", en: "SMB client" },
-    ipfs: { zh: "IPFS", en: "IPFS" },
-    planned: { zh: "规划中", en: "planned" },
+function backendLabel(backend: Backend) {
+  const labels: Record<Backend, string> = {
+    "built-in": "内建",
+    "system-handoff": "系统移交",
+    aria2: "aria2",
+    amule: "aMule",
+    "smb-client": "SMB 客户端",
+    ipfs: "IPFS",
+    planned: "规划中",
   };
-  return labels[backend][language];
+  return labels[backend];
 }
 
-function stateLabel(state: string, language: Language) {
-  const labels: Record<string, Record<Language, string>> = {
-    queued: { zh: "排队中", en: "queued" },
-    running: { zh: "运行中", en: "running" },
-    finished: { zh: "已完成", en: "finished" },
-    failed: { zh: "失败", en: "failed" },
-    paused: { zh: "已暂停", en: "paused" },
+function stateLabel(state: DownloadState) {
+  const labels: Record<DownloadState, string> = {
+    queued: "排队中",
+    running: "下载中",
+    finished: "已完成",
+    failed: "失败",
+    paused: "已暂停",
   };
-  return labels[state]?.[language] ?? state;
+  return labels[state];
 }
 
-function backendAvailabilityLabel(
-  backend: BackendAvailability,
-  language: Language,
-  t: Record<TranslationKey, string>,
-) {
-  if (backend.available) return t.available;
-  if (backend.command) {
-    return language === "zh"
-      ? `缺少 ${backend.command}`
-      : `missing ${backend.command}`;
+function filterLabel(filter: QueueFilter) {
+  const labels: Record<QueueFilter, string> = {
+    all: "全部",
+    queued: "排队中",
+    running: "下载中",
+    finished: "已完成",
+    failed: "失败",
+  };
+  return labels[filter];
+}
+
+function filterMatches(task: DownloadTask, filter: QueueFilter) {
+  if (filter === "all") return true;
+  if (filter === "queued") return task.state === "queued" || task.state === "paused";
+  return task.state === filter;
+}
+
+function taskCounts(tasks: DownloadTask[]) {
+  return {
+    all: tasks.length,
+    queued: tasks.filter((task) => filterMatches(task, "queued")).length,
+    running: tasks.filter((task) => task.state === "running").length,
+    finished: tasks.filter((task) => task.state === "finished").length,
+    failed: tasks.filter((task) => task.state === "failed").length,
+  } satisfies Record<QueueFilter, number>;
+}
+
+function progressRatio(task: DownloadTask) {
+  const total = task.total_bytes;
+  if (!total || total <= 0) return task.state === "finished" ? 1 : 0;
+  return Math.min(1, Math.max(0, task.downloaded_bytes / total));
+}
+
+function formatBytes(value?: number | null) {
+  if (!value || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = value;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
   }
-  return t.notAvailable;
+  return `${size >= 10 || index === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[index]}`;
+}
+
+function formatClock(value?: number | null) {
+  if (!value) return "--:--";
+  return new Date(value).toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function formatDuration(start?: number, end?: number) {
+  if (!start || !end || end < start) return "00:00";
+  const totalSeconds = Math.floor((end - start) / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function averageSpeed(task: DownloadTask) {
+  if (!task.created_at_ms || !task.updated_at_ms || task.downloaded_bytes <= 0) {
+    return "0 B/s";
+  }
+  const elapsed = Math.max(1, task.updated_at_ms - task.created_at_ms);
+  return `${formatBytes((task.downloaded_bytes * 1000) / elapsed)}/s`;
 }
 
 function App() {
-  const [language, setLanguage] = useState<Language>(initialLanguage);
-  const [source, setSource] = useState(examples[0]);
-  const [outputDir, setOutputDir] = useState("./downloads");
-  const [fileName, setFileName] = useState("");
+  const [page, setPage] = useState<Page>("queue");
+  const [filter, setFilter] = useState<QueueFilter>("all");
+  const [settings, setSettings] = useState<Settings>(loadSettings);
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
-  const [message, setMessage] = useState("");
-  const [runtimeSupport, setRuntimeSupport] = useState<SupportStatus | null>(
-    null,
-  );
+  const [message, setMessage] = useState("就绪");
   const [doctorReport, setDoctorReport] = useState<DoctorReport | null>(null);
-  const [concurrency, setConcurrency] = useState(2);
-  const [activeRuns, setActiveRuns] = useState(0);
-  const t = translations[language];
+  const [newDialogOpen, setNewDialogOpen] = useState(false);
+  const [source, setSource] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [outputDir, setOutputDir] = useState(settings.outputDir);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
+  const [propertyTask, setPropertyTask] = useState<DownloadTask | null>(null);
+  const [action, setAction] = useState<TaskAction>("idle");
 
-  const fallbackStatus = useMemo(() => fallbackSupport(source), [source]);
-  const supportStatus = runtimeSupport ?? fallbackStatus;
-  const protocol = supportStatus.protocol;
-  const canStart = supportStatus.executable;
-  const visibleMessage = message || t.ready;
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem("fluxdown-language", language);
-    } catch {
-      // Ignore storage failures in restricted preview environments.
-    }
-  }, [language]);
+  const counts = useMemo(() => taskCounts(tasks), [tasks]);
+  const visibleTasks = useMemo(
+    () => tasks.filter((task) => filterMatches(task, filter)),
+    [filter, tasks],
+  );
 
   useEffect(() => {
-    let cancelled = false;
-    invoke<SupportStatus>("support", { source })
-      .then((status) => {
-        if (!cancelled) setRuntimeSupport(status);
+    saveSettings(settings);
+  }, [settings]);
+
+  useEffect(() => {
+    setOutputDir((current) => current || settings.outputDir);
+  }, [settings.outputDir]);
+
+  useEffect(() => {
+    refreshTasks();
+    invoke<string>("default_output_dir")
+      .then((defaultDir) => {
+        setSettings((current) =>
+          shouldUseDefaultOutputDir(current.outputDir)
+            ? { ...current, outputDir: defaultDir }
+            : current,
+        );
+        setOutputDir((current) =>
+          shouldUseDefaultOutputDir(current) ? defaultDir : current,
+        );
       })
       .catch(() => {
-        if (!cancelled) setRuntimeSupport(null);
+        // Web preview has no Tauri backend; keep the empty value and let the
+        // preview fallback create an in-memory task.
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [source]);
-
-  useEffect(() => {
     invoke<DoctorReport>("doctor")
       .then(setDoctorReport)
       .catch(() => setDoctorReport(null));
   }, []);
 
   useEffect(() => {
-    invoke<DownloadTask[]>("list_downloads")
-      .then(setTasks)
-      .catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    const hasRunningTasks = tasks.some((task) => task.state === "running");
-    if (activeRuns <= 0 && !hasRunningTasks) return;
-
-    const timer = window.setInterval(() => {
-      invoke<DownloadTask[]>("list_downloads")
-        .then(setTasks)
-        .catch(() => undefined);
-    }, 600);
-
+    if (!tasks.some((task) => task.state === "running")) return;
+    const timer = window.setInterval(refreshTasks, settings.refreshIntervalMs);
     return () => window.clearInterval(timer);
-  }, [activeRuns, tasks]);
+  }, [settings.refreshIntervalMs, tasks]);
 
-  async function addTask() {
-    const fallbackTask: DownloadTask = {
-      id: `preview-${Date.now()}`,
-      source,
-      protocol,
-      state: "queued",
-      output_dir: outputDir,
-      file_name: fileName || null,
-      support: fallbackSupport(source),
-      total_bytes: null,
-      downloaded_bytes: 0,
-    };
-
-    const task = await invoke<DownloadTask>("enqueue_download", {
-      payload: {
-        source,
-        output_dir: outputDir,
-        file_name: fileName || null,
-      },
-    }).catch(() => fallbackTask);
-
-    setTasks((current) => [task, ...current]);
-    setMessage(
-      language === "zh"
-        ? `${protocolLabel(task.protocol)} 任务已加入队列`
-        : `${protocolLabel(task.protocol)} task queued`,
+  async function refreshTasks() {
+    const result = await invoke<DownloadTask[]>("list_downloads").catch(
+      () => null,
     );
+    if (result) setTasks(result);
   }
 
-  async function startDownload(id: string) {
-    setMessage(language === "zh" ? `正在启动 ${id}...` : `Starting ${id}...`);
-    setActiveRuns((count) => count + 1);
+  function updateSettings(patch: Partial<Settings>) {
+    setSettings((current) => ({ ...current, ...patch }));
+  }
+
+  async function createTask() {
+    const normalizedSource = source.trim();
+    if (!normalizedSource) {
+      setMessage("下载链接不能为空");
+      return;
+    }
+    const normalizedOutput = outputDir.trim() || settings.outputDir;
+    const task = await invoke<DownloadTask>("enqueue_download", {
+      payload: {
+        source: normalizedSource,
+        output_dir: normalizedOutput,
+        file_name: fileName.trim() || null,
+      },
+    }).catch(() => {
+      const protocol = fallbackDetect(normalizedSource);
+      return {
+        id: `preview-${Date.now()}`,
+        source: normalizedSource,
+        protocol,
+        support: fallbackSupport(normalizedSource),
+        state: "queued",
+        output_dir: normalizedOutput,
+        file_name: fileName.trim() || suggestedFileName(normalizedSource),
+        total_bytes: null,
+        downloaded_bytes: 0,
+        created_at_ms: Date.now(),
+        updated_at_ms: Date.now(),
+      } satisfies DownloadTask;
+    });
+
+    setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
+    setNewDialogOpen(false);
+    setSource("");
+    setFileName("");
+    setOutputDir(settings.outputDir);
+    setMessage(`${taskTitle(task)} 已加入队列`);
+    if (settings.autoStart) {
+      runQueue();
+    }
+  }
+
+  async function pasteFromClipboard() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text.trim()) {
+        setSource(text.trim());
+        if (!fileName.trim()) setFileName(suggestedFileName(text.trim()));
+      }
+    } catch {
+      setMessage("无法读取剪切板");
+    }
+  }
+
+  async function copyText(text: string, successMessage: string) {
+    setAction("copy");
+    try {
+      await navigator.clipboard.writeText(text);
+      setMessage(successMessage);
+    } catch {
+      setMessage("复制失败");
+    } finally {
+      setAction("idle");
+    }
+  }
+
+  async function startTask(task: DownloadTask) {
+    if (!task.support.executable) {
+      setMessage(task.support.note || "当前协议不可执行");
+      return;
+    }
+    setAction("start");
+    setActiveTaskId(task.id);
     setTasks((current) =>
       current.map((item) =>
-        item.id === id ? { ...item, state: "running" } : item,
+        item.id === task.id ? { ...item, state: "running" } : item,
       ),
     );
     try {
       const report = await invoke<TaskRunReport>("start_download", {
-        id,
+        id: task.id,
+        retry_attempts: settings.retryAttempts,
       });
       setTasks((current) =>
-        current.map((item) => (item.id === id ? report.task : item)),
+        current.map((item) => (item.id === task.id ? report.task : item)),
       );
-      if (report.summary) {
-        setMessage(
-          language === "zh"
-            ? `已保存 ${report.summary.bytes_written.toLocaleString()} 字节到 ${report.summary.output_path}${
-                report.summary.resumed_from > 0
-                  ? `，从 ${report.summary.resumed_from.toLocaleString()} 字节继续`
-                  : ""
-              }`
-            : `Saved ${report.summary.bytes_written.toLocaleString()} bytes to ${report.summary.output_path}${
-                report.summary.resumed_from > 0
-                  ? `, resumed from ${report.summary.resumed_from.toLocaleString()}`
-                  : ""
-              }`,
-        );
-      } else if (report.task.state === "paused") {
-        setMessage(language === "zh" ? `${id} 已暂停` : `${id} paused`);
-      } else if (report.task.state === "failed") {
-        setMessage(report.task.error || `${id} failed`);
-      } else {
-        setMessage(
-          language === "zh"
-            ? `${id} 结束，状态：${stateLabel(report.task.state, language)}`
-            : `${id} finished with state ${report.task.state}`,
-        );
-      }
+      setMessage(
+        report.summary
+          ? `已保存 ${formatBytes(report.summary.bytes_written)}`
+          : `${taskTitle(report.task)} ${stateLabel(report.task.state)}`,
+      );
     } catch (error) {
       setMessage(String(error));
-      setTasks(
-        await invoke<DownloadTask[]>("list_downloads").catch(() => tasks),
-      );
+      refreshTasks();
     } finally {
-      setActiveRuns((count) => Math.max(0, count - 1));
+      setAction("idle");
+      setActiveTaskId(null);
     }
   }
 
-  async function pauseDownload(id: string) {
-    const task = await invoke<DownloadTask>("pause_download", { id });
-    setTasks((current) =>
-      current.map((item) => (item.id === id ? task : item)),
-    );
-    setMessage(language === "zh" ? `${id} 已暂停` : `${id} paused`);
+  async function pauseTask(task: DownloadTask) {
+    setAction("pause");
+    try {
+      const updated = await invoke<DownloadTask>("pause_download", {
+        id: task.id,
+      });
+      setTasks((current) =>
+        current.map((item) => (item.id === task.id ? updated : item)),
+      );
+      setMessage(`${taskTitle(task)} 已暂停`);
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      setAction("idle");
+    }
   }
 
-  async function resumeDownload(id: string) {
-    const task = await invoke<DownloadTask>("resume_download", { id });
-    setTasks((current) =>
-      current.map((item) => (item.id === id ? task : item)),
-    );
-    setMessage(language === "zh" ? `${id} 已重新排队` : `${id} queued`);
+  async function removeTask(task: DownloadTask) {
+    setAction("remove");
+    try {
+      await invoke<DownloadTask>("remove_download", { id: task.id });
+      setTasks((current) => current.filter((item) => item.id !== task.id));
+      setMessage(`${taskTitle(task)} 已删除`);
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      setAction("idle");
+    }
   }
 
-  async function removeDownload(id: string) {
-    await invoke<DownloadTask>("remove_download", { id });
-    setTasks((current) => current.filter((item) => item.id !== id));
-    setMessage(language === "zh" ? `${id} 已删除` : `${id} removed`);
+  async function redownloadTask(task: DownloadTask) {
+    setMenuTaskId(null);
+    await startTask(task);
   }
 
   async function runQueue() {
-    setMessage(
-      language === "zh"
-        ? `正在以 ${concurrency} 并发运行队列...`
-        : `Running queued tasks with concurrency ${concurrency}...`,
-    );
-    setActiveRuns((count) => count + 1);
     try {
-      const report = await invoke<QueueRunReport>("run_queue", { concurrency });
-      setMessage(
-        language === "zh"
-          ? `运行完成：${report.finished} 个完成，${report.failed} 个失败`
-          : `Run complete: ${report.finished} finished, ${report.failed} failed`,
-      );
-      setTasks(
-        await invoke<DownloadTask[]>("list_downloads").catch(() => tasks),
-      );
-    } catch (error) {
-      setMessage(String(error));
-      setTasks(
-        await invoke<DownloadTask[]>("list_downloads").catch(() => tasks),
-      );
-    } finally {
-      setActiveRuns((count) => Math.max(0, count - 1));
+      const report = await invoke<QueueRunReport>("run_queue", {
+        concurrency: settings.concurrency,
+        retry_attempts: settings.retryAttempts,
+      });
+      if (report.tasks.length > 0) {
+        setTasks(await invoke<DownloadTask[]>("list_downloads"));
+        setMessage(`队列完成：${report.finished} 个完成，${report.failed} 个失败`);
+      }
+    } catch {
+      // Web preview or unsupported runtime: queued items stay visible.
     }
   }
 
-  return (
-    <main className="shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="mark">F</div>
-          <div>
-            <strong>FluxDown</strong>
-            <span>{t.tagline}</span>
-          </div>
-        </div>
-        <nav>
-          <button className="navItem active">{t.navQueue}</button>
-          <button className="navItem">{t.navProtocols}</button>
-          <button className="navItem">{t.navSettings}</button>
-        </nav>
-        <section className="protocolPanel">
-          <h2>{t.recognized}</h2>
-          <div className="protocolGrid">
-            {[
-              "HTTP",
-              "FTP",
-              "WebDAV",
-              "Torrent",
-              "Magnet",
-              "ed2k",
-              "m3u8",
-              "SFTP",
-              "SMB",
-              "IPFS",
-            ].map((item) => (
-              <span key={item}>{item}</span>
-            ))}
-          </div>
-        </section>
-      </aside>
+  function toggleTask(task: DownloadTask) {
+    if (task.state === "running") {
+      pauseTask(task);
+    } else {
+      startTask(task);
+    }
+  }
 
-      <section className="workspace">
-        <header className="topbar">
+  function openNewDialog() {
+    setOutputDir(settings.outputDir);
+    setNewDialogOpen(true);
+  }
+
+  const currentMenuTask = tasks.find((task) => task.id === menuTaskId) ?? null;
+
+  return (
+    <main className="appShell">
+      <section className="fixedPane">
+        <header className="appHeader">
+          {page === "queue" ? (
+            <span className="brandMark" aria-label="FluxDown">
+              FD
+            </span>
+          ) : (
+            <button
+              className="pageIcon"
+              title="返回下载列表"
+              onClick={() => setPage("queue")}
+            >
+              ‹
+            </button>
+          )}
           <div>
-            <h1>{t.title}</h1>
-            <p>{t.subtitle}</p>
+            <h1>{page === "queue" ? "下载列表" : "设置"}</h1>
+            <p>
+              {page === "queue"
+                ? `${tasks.length} 个任务 · ${message}`
+                : "下载保存位置、队列和速度"}
+            </p>
           </div>
-          <div className="topbarControls">
-            <label className="languageSelect">
-              <span>{t.language}</span>
-              <select
-                value={language}
-                onChange={(event) =>
-                  setLanguage(event.target.value as Language)
-                }
-              >
-                <option value="zh">{t.chinese}</option>
-                <option value="en">{t.english}</option>
-              </select>
-            </label>
-            <div className={`status ${canStart ? "ready" : "planned"}`}>
-              {canStart
-                ? t.ready
-                : supportStatus.missing_command
-                  ? language === "zh"
-                    ? `缺少 ${supportStatus.missing_command}`
-                    : `Missing ${supportStatus.missing_command}`
-                  : t.adapterPlanned}
-            </div>
-          </div>
+          {page === "queue" ? (
+            <button
+              className="pageIcon right"
+              title="设置"
+              onClick={() => setPage("settings")}
+            >
+              ⚙
+            </button>
+          ) : (
+            <span className="headerSpacer" aria-hidden="true" />
+          )}
         </header>
 
-        <section className="composer">
-          <label>
-            {t.source}
-            <input
-              value={source}
-              onChange={(event) => setSource(event.target.value)}
-              placeholder={t.sourcePlaceholder}
-            />
-          </label>
-          <div className="row">
-            <label>
-              {t.outputFolder}
-              <input
-                value={outputDir}
-                onChange={(event) => setOutputDir(event.target.value)}
-              />
-            </label>
-            <label>
-              {t.fileName}
-              <input
-                value={fileName}
-                onChange={(event) => setFileName(event.target.value)}
-                placeholder={t.optional}
-              />
-            </label>
-          </div>
-          <div className="actions">
-            <div className="detected">
-              <span>{t.detected}</span>
-              <strong>{protocolLabel(protocol)}</strong>
-              <em>{backendLabel(supportStatus.backend, language)}</em>
-            </div>
-            <button onClick={addTask}>{t.addToQueue}</button>
-            <button className="primary" onClick={addTask}>
-              {t.queue}
-            </button>
-          </div>
-        </section>
-
-        <section className="examples">
-          {examples.map((example) => (
-            <button key={example} onClick={() => setSource(example)}>
-              {fallbackDetect(example)}
-            </button>
-          ))}
-        </section>
-
-        <section className="runner">
-          <div>
-            <h2>{t.queueRunner}</h2>
-            <span>{t.queueRunnerHelp}</span>
-          </div>
-          <label>
-            {t.concurrency}
-            <input
-              min={1}
-              max={8}
-              type="number"
-              value={concurrency}
-              onChange={(event) =>
-                setConcurrency(Math.max(1, Number(event.target.value) || 1))
-              }
-            />
-          </label>
-          <button className="primary" onClick={runQueue}>
-            {t.runQueue}
-          </button>
-        </section>
-
-        <section className="doctor">
-          <div className="queueHeader">
-            <h2>{t.runtimeBackends}</h2>
-            <span>
-              {doctorReport ? t.checkedOnThisMachine : t.webPreviewFallback}
-            </span>
-          </div>
-          <div className="backendGrid">
-            {(
-              doctorReport?.backends ?? [
-                {
-                  backend: "built-in",
-                  available: true,
-                  note: t.compiledIntoCore,
-                },
-              ]
-            ).map((backend) => (
-              <div className="backend" key={backend.backend}>
-                <strong>{backendLabel(backend.backend, language)}</strong>
-                <span>{backendAvailabilityLabel(backend, language, t)}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="queue">
-          <div className="queueHeader">
-            <h2>{t.tasks}</h2>
-            <span>{visibleMessage}</span>
-          </div>
-          {tasks.length === 0 ? (
-            <div className="empty">{t.noQueuedTasks}</div>
-          ) : (
-            tasks.map((task) => (
-              <article className="task" key={task.id}>
-                <div>
-                  <strong>{task.source}</strong>
-                  <span>{task.output_dir}</span>
-                  <span>
-                    {task.downloaded_bytes.toLocaleString()}
-                    {task.total_bytes
-                      ? ` / ${task.total_bytes.toLocaleString()}`
-                      : ""}{" "}
-                    {t.bytes}
-                  </span>
-                  <div
-                    className="progressTrack"
-                    aria-label={
-                      language === "zh"
-                        ? `进度 ${progressPercent(task)}%`
-                        : `Progress ${progressPercent(task)} percent`
-                    }
-                  >
-                    <div style={{ width: `${progressPercent(task)}%` }} />
-                  </div>
-                  {task.error ? (
-                    <span className="errorText">{task.error}</span>
-                  ) : null}
-                </div>
-                <div className="taskMeta">
-                  <span>{protocolLabel(task.protocol)}</span>
-                  <span>{backendLabel(task.support.backend, language)}</span>
-                  <span>{stateLabel(task.state, language)}</span>
-                  <div className="taskButtons">
-                    <button
-                      disabled={!task.support.executable}
-                      onClick={() => startDownload(task.id)}
-                    >
-                      {t.start}
-                    </button>
-                    <button onClick={() => pauseDownload(task.id)}>
-                      {t.pause}
-                    </button>
-                    <button onClick={() => resumeDownload(task.id)}>
-                      {t.resume}
-                    </button>
-                    <button onClick={() => removeDownload(task.id)}>
-                      {t.remove}
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))
-          )}
-        </section>
+        {page === "queue" ? (
+          <nav className="statusTabs" aria-label="下载任务状态">
+            {(["all", "queued", "running", "finished", "failed"] as const).map(
+              (item) => (
+                <button
+                  key={item}
+                  className={filter === item ? "active" : ""}
+                  onClick={() => setFilter(item)}
+                >
+                  {filterLabel(item)}({counts[item]})
+                </button>
+              ),
+            )}
+          </nav>
+        ) : null}
       </section>
+
+      {page === "queue" ? (
+        <DownloadList
+          activeTaskId={activeTaskId}
+          action={action}
+          filter={filter}
+          menuTaskId={menuTaskId}
+          onMenu={setMenuTaskId}
+          onToggle={toggleTask}
+          tasks={visibleTasks}
+        />
+      ) : (
+        <SettingsPage
+          doctorReport={doctorReport}
+          onChange={updateSettings}
+          settings={settings}
+        />
+      )}
+
+      {page === "queue" ? (
+        <button
+          className="floatingAdd"
+          title="新建任务"
+          onClick={openNewDialog}
+        >
+          +
+        </button>
+      ) : null}
+
+      {newDialogOpen ? (
+        <NewTaskDialog
+          fileName={fileName}
+          onClose={() => setNewDialogOpen(false)}
+          onCreate={createTask}
+          onFileNameChange={setFileName}
+          onOutputDirChange={setOutputDir}
+          onPaste={pasteFromClipboard}
+          onSourceChange={(value) => {
+            setSource(value);
+            if (!fileName.trim()) setFileName(suggestedFileName(value));
+          }}
+          outputDir={outputDir}
+          source={source}
+        />
+      ) : null}
+
+      {currentMenuTask ? (
+        <TaskMenu
+          onClose={() => setMenuTaskId(null)}
+          onCopyLink={() =>
+            copyText(currentMenuTask.source, "下载链接已复制").then(() =>
+              setMenuTaskId(null),
+            )
+          }
+          onCopyPath={() =>
+            copyText(
+              `${currentMenuTask.output_dir}/${taskTitle(currentMenuTask)}`,
+              "文件路径已复制",
+            ).then(() => setMenuTaskId(null))
+          }
+          onProperties={() => {
+            setPropertyTask(currentMenuTask);
+            setMenuTaskId(null);
+          }}
+          onRedownload={() => redownloadTask(currentMenuTask)}
+          onRemove={() => {
+            setMenuTaskId(null);
+            removeTask(currentMenuTask);
+          }}
+          task={currentMenuTask}
+        />
+      ) : null}
+
+      {propertyTask ? (
+        <PropertyDialog
+          onClose={() => setPropertyTask(null)}
+          task={propertyTask}
+        />
+      ) : null}
     </main>
+  );
+}
+
+function DownloadList({
+  activeTaskId,
+  action,
+  filter,
+  menuTaskId,
+  onMenu,
+  onToggle,
+  tasks,
+}: {
+  activeTaskId: string | null;
+  action: TaskAction;
+  filter: QueueFilter;
+  menuTaskId: string | null;
+  onMenu: (id: string | null) => void;
+  onToggle: (task: DownloadTask) => void;
+  tasks: DownloadTask[];
+}) {
+  if (tasks.length === 0) {
+    return (
+      <section className="scrollPane emptyPane">
+        <div className="emptyState">
+          <span>▣</span>
+          <strong>{filter === "all" ? "等待添加任务" : "当前状态没有任务"}</strong>
+          <p>点击右下角按钮新建下载。</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="scrollPane taskList">
+      {tasks.map((task) => (
+        <TaskRow
+          action={activeTaskId === task.id ? action : "idle"}
+          key={task.id}
+          menuOpen={menuTaskId === task.id}
+          onMenu={onMenu}
+          onToggle={onToggle}
+          task={task}
+        />
+      ))}
+    </section>
+  );
+}
+
+function TaskRow({
+  action,
+  menuOpen,
+  onMenu,
+  onToggle,
+  task,
+}: {
+  action: TaskAction;
+  menuOpen: boolean;
+  onMenu: (id: string | null) => void;
+  onToggle: (task: DownloadTask) => void;
+  task: DownloadTask;
+}) {
+  const progress = progressRatio(task);
+  const width = `${Math.round(progress * 100)}%`;
+  const elapsed = formatDuration(task.created_at_ms, task.updated_at_ms);
+
+  return (
+    <article
+      className={`taskRow state-${task.state}`}
+      onClick={() => onToggle(task)}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onMenu(task.id);
+      }}
+      style={{ "--progress": width } as CSSProperties}
+      title={task.state === "running" ? "点击暂停" : "点击开始"}
+    >
+      <div className="taskProgressFill" />
+      <div className="taskMain">
+        <div className="taskTitleLine">
+          <strong>{taskTitle(task)}</strong>
+          <span>{protocolLabel(task.protocol)}</span>
+          <em>{stateLabel(task.state)}</em>
+        </div>
+        <div className="taskMetrics">
+          <span title="开始时间">↘ {formatClock(task.created_at_ms)}</span>
+          <span title="结束时间">↗ {formatClock(task.updated_at_ms)}</span>
+          <span title="共计耗时">◷ {elapsed}</span>
+          <span title="平均速度">⇅ {averageSpeed(task)}</span>
+          <span title="已下载/总大小">
+            {formatBytes(task.downloaded_bytes)} / {formatBytes(task.total_bytes)}
+          </span>
+        </div>
+        {task.error ? <p className="taskError">{task.error}</p> : null}
+      </div>
+      <button
+        className="moreButton"
+        onClick={(event) => {
+          event.stopPropagation();
+          onMenu(menuOpen ? null : task.id);
+        }}
+        title="任务操作"
+      >
+        ⋮
+      </button>
+      {action === "start" ? <span className="busyDot" /> : null}
+    </article>
+  );
+}
+
+function NewTaskDialog({
+  fileName,
+  onClose,
+  onCreate,
+  onFileNameChange,
+  onOutputDirChange,
+  onPaste,
+  onSourceChange,
+  outputDir,
+  source,
+}: {
+  fileName: string;
+  onClose: () => void;
+  onCreate: () => void;
+  onFileNameChange: (value: string) => void;
+  onOutputDirChange: (value: string) => void;
+  onPaste: () => void;
+  onSourceChange: (value: string) => void;
+  outputDir: string;
+  source: string;
+}) {
+  return (
+    <div className="modalBackdrop" onMouseDown={onClose}>
+      <section className="taskDialog" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="dialogHeader">
+          <div>
+            <span className="dialogMark">＋</span>
+            <h2>新建任务</h2>
+          </div>
+          <div className="dialogTools">
+            <button title="从剪切板读取" onClick={onPaste}>
+              ⧉
+            </button>
+            <button title="关闭" onClick={onClose}>
+              ×
+            </button>
+          </div>
+        </header>
+        <label className="fieldBlock">
+          <span>下载链接</span>
+          <textarea
+            autoFocus
+            onChange={(event) => onSourceChange(event.target.value)}
+            placeholder="粘贴 HTTP、m3u8、torrent、magnet、FTP、SFTP、SMB 等下载源"
+            rows={4}
+            value={source}
+          />
+        </label>
+        <label className="fieldBlock">
+          <span>另存为文件名</span>
+          <input
+            onChange={(event) => onFileNameChange(event.target.value)}
+            placeholder="留空则按下载资源自动命名"
+            value={fileName}
+          />
+        </label>
+        <label className="fieldBlock">
+          <span>保存路径</span>
+          <input
+            onChange={(event) => onOutputDirChange(event.target.value)}
+            value={outputDir}
+          />
+        </label>
+        <footer className="dialogFooter">
+          <button onClick={onClose}>取消</button>
+          <button className="primary" onClick={onCreate}>
+            创建任务
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function TaskMenu({
+  onClose,
+  onCopyLink,
+  onCopyPath,
+  onProperties,
+  onRedownload,
+  onRemove,
+  task,
+}: {
+  onClose: () => void;
+  onCopyLink: () => void;
+  onCopyPath: () => void;
+  onProperties: () => void;
+  onRedownload: () => void;
+  onRemove: () => void;
+  task: DownloadTask;
+}) {
+  return (
+    <div className="menuBackdrop" onMouseDown={onClose}>
+      <section className="taskMenu" onMouseDown={(event) => event.stopPropagation()}>
+        <header>
+          <strong>{taskTitle(task)}</strong>
+          <button onClick={onClose}>×</button>
+        </header>
+        <button onClick={onCopyLink}>复制下载链接</button>
+        <button onClick={onCopyPath}>复制文件路径</button>
+        <button onClick={onProperties}>属性</button>
+        <button onClick={onRedownload}>重新下载</button>
+        <button className="danger" onClick={onRemove}>
+          删除
+        </button>
+      </section>
+    </div>
+  );
+}
+
+function PropertyDialog({
+  onClose,
+  task,
+}: {
+  onClose: () => void;
+  task: DownloadTask;
+}) {
+  return (
+    <div className="modalBackdrop" onMouseDown={onClose}>
+      <section className="propertyDialog" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="dialogHeader">
+          <h2>任务属性</h2>
+          <button title="关闭" onClick={onClose}>
+            ×
+          </button>
+        </header>
+        <dl>
+          <dt>文件名</dt>
+          <dd>{taskTitle(task)}</dd>
+          <dt>下载链接</dt>
+          <dd>{task.source}</dd>
+          <dt>保存路径</dt>
+          <dd>{task.output_dir}</dd>
+          <dt>协议</dt>
+          <dd>{protocolLabel(task.protocol)}</dd>
+          <dt>状态</dt>
+          <dd>{stateLabel(task.state)}</dd>
+          <dt>大小</dt>
+          <dd>
+            {formatBytes(task.downloaded_bytes)} / {formatBytes(task.total_bytes)}
+          </dd>
+        </dl>
+      </section>
+    </div>
+  );
+}
+
+function SettingsPage({
+  doctorReport,
+  onChange,
+  settings,
+}: {
+  doctorReport: DoctorReport | null;
+  onChange: (patch: Partial<Settings>) => void;
+  settings: Settings;
+}) {
+  const backends =
+    doctorReport?.backends ?? [
+      {
+        backend: "built-in" as Backend,
+        available: true,
+        note: "已编译进 FluxDown core",
+      },
+    ];
+
+  return (
+    <section className="scrollPane settingsPage">
+      <div className="settingsCard">
+        <SettingRow title="下载保存位置" subtitle="新建任务默认保存到这里">
+          <input
+            onChange={(event) => onChange({ outputDir: event.target.value })}
+            value={settings.outputDir}
+          />
+        </SettingRow>
+        <SettingRow title="并发下载数" subtitle="同时运行的队列任务，1-30">
+          <input
+            max={30}
+            min={1}
+            onChange={(event) =>
+              onChange({
+                concurrency: clampNumber(event.target.value, 1, 30, 1),
+              })
+            }
+            type="number"
+            value={settings.concurrency ?? defaultSettings.concurrency}
+          />
+        </SettingRow>
+        <SettingRow title="下载线程数" subtitle="单个任务使用的线程，1-32">
+          <input
+            max={32}
+            min={1}
+            onChange={(event) =>
+              onChange({
+                threadCount: clampNumber(event.target.value, 1, 32, 8),
+              })
+            }
+            type="number"
+            value={settings.threadCount ?? defaultSettings.threadCount}
+          />
+        </SettingRow>
+        <SettingRow title="自动重试数" subtitle="任务失败后的重试次数，0-10">
+          <input
+            max={10}
+            min={0}
+            onChange={(event) =>
+              onChange({
+                retryAttempts: clampNumber(event.target.value, 0, 10, 1),
+              })
+            }
+            type="number"
+            value={settings.retryAttempts ?? defaultSettings.retryAttempts}
+          />
+        </SettingRow>
+        <SettingRow title="最大下载网速" subtitle="单位 MB/s，0 表示不限速">
+          <input
+            max={10000}
+            min={0}
+            onChange={(event) =>
+              onChange({
+                speedLimitMbps: clampNumber(event.target.value, 0, 10000, 0),
+              })
+            }
+            placeholder="不限速"
+            type="number"
+            value={
+              settings.speedLimitMbps && settings.speedLimitMbps > 0
+                ? settings.speedLimitMbps
+                : ""
+            }
+          />
+        </SettingRow>
+        <SettingRow title="创建后自动开始" subtitle="新任务入队后自动按并发数运行">
+          <button
+            className={`toggle ${settings.autoStart ? "on" : ""}`}
+            onClick={() => onChange({ autoStart: !settings.autoStart })}
+          >
+            <span />
+          </button>
+        </SettingRow>
+        <SettingRow title="列表刷新间隔" subtitle="下载中任务的界面刷新频率">
+          <input
+            max={5000}
+            min={300}
+            onChange={(event) =>
+              onChange({
+                refreshIntervalMs: clampNumber(
+                  event.target.value,
+                  300,
+                  5000,
+                  defaultSettings.refreshIntervalMs,
+                ),
+              })
+            }
+            step={100}
+            type="number"
+            value={settings.refreshIntervalMs ?? defaultSettings.refreshIntervalMs}
+          />
+        </SettingRow>
+      </div>
+
+      <div className="settingsCard subtle">
+        <div className="settingsSectionTitle">
+          <strong>协议能力</strong>
+          <span>本机后端状态</span>
+        </div>
+        <div className="backendList">
+          {backends.map((backend) => (
+            <div className="backendItem" key={backend.backend}>
+              <span>{backendLabel(backend.backend)}</span>
+              <strong>{backend.available ? "可用" : backend.command ? `缺少 ${backend.command}` : "不可用"}</strong>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SettingRow({
+  children,
+  subtitle,
+  title,
+}: {
+  children: ReactNode;
+  subtitle: string;
+  title: string;
+}) {
+  return (
+    <div className="settingRow">
+      <div>
+        <strong>{title}</strong>
+        <span>{subtitle}</span>
+      </div>
+      <div className="settingControl">{children}</div>
+    </div>
   );
 }
 

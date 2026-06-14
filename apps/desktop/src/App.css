@@ -1,404 +1,722 @@
-.shell {
+.appShell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  background: #f6f7f4;
-  color: #171b1f;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #f5f6f2;
+  color: #18201f;
 }
 
-.sidebar {
-  padding: 28px;
-  border-right: 1px solid #d8ded6;
-  background: #10251f;
-  color: #f7fbf4;
+button,
+input,
+textarea {
+  font: inherit;
 }
 
-.brand {
-  display: flex;
+button {
+  cursor: pointer;
+}
+
+.fixedPane {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 18px 20px 10px;
+  background: rgba(245, 246, 242, 0.96);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid #d7ded7;
+}
+
+.appHeader {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 38px;
   align-items: center;
   gap: 12px;
-  margin-bottom: 36px;
+  max-width: 980px;
+  margin: 0 auto;
 }
 
-.brand > div:last-child {
+.appHeader h1 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+
+.appHeader p {
+  margin: 4px 0 0;
+  min-height: 16px;
+  color: #65706e;
+  font-size: 11px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pageIcon {
+  width: 34px;
+  height: 34px;
   display: grid;
-  gap: 2px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: #d7f2f0;
+  color: #0e4e4d;
+  font-size: 18px;
+  font-weight: 800;
 }
 
-.brand span,
-.task span,
-.topbar p,
-.queueHeader span {
-  color: #6d7771;
+.brandMark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: #164f4b;
+  color: #f8fbf6;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  box-shadow: 0 8px 16px rgba(22, 79, 75, 0.18);
 }
 
-.sidebar .brand span,
-.sidebar h2 {
-  color: #b7c8bd;
+.pageIcon.right {
+  margin-left: auto;
+  background: transparent;
+  color: #384441;
 }
 
-.mark {
+.headerSpacer {
+  width: 34px;
+  height: 34px;
+}
+
+.statusTabs {
+  max-width: 980px;
+  margin: 14px auto 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #cad4cf;
+  border-radius: 8px;
+  background: #e9ede7;
+}
+
+.statusTabs button {
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #33403d;
+  font-size: 11px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statusTabs button.active {
+  background: #188f8b;
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(24, 143, 139, 0.18);
+}
+
+.scrollPane {
+  min-height: 0;
+  overflow: auto;
+  max-width: 980px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 12px 20px 86px;
+}
+
+.taskList {
+  display: grid;
+  align-content: start;
+  gap: 0;
+}
+
+.taskRow {
+  --progress: 0%;
+  position: relative;
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 8px 11px 12px;
+  border: 1px solid transparent;
+  border-bottom-color: rgba(46, 60, 57, 0.1);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.taskRow:first-child {
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.taskRow:last-child {
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  border-bottom-color: transparent;
+}
+
+.taskRow:hover {
+  border-color: rgba(24, 143, 139, 0.22);
+}
+
+.taskProgressFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--progress);
+  z-index: -1;
+  transition: width 220ms ease;
+}
+
+.state-queued {
+  background: #f4f0e6;
+}
+
+.state-paused {
+  background: #eee9df;
+}
+
+.state-running {
+  background: #eaf7f6;
+}
+
+.state-running .taskProgressFill {
+  background: #b8eeeb;
+}
+
+.state-finished {
+  background: #e9f4ed;
+}
+
+.state-finished .taskProgressFill {
+  width: 100%;
+  background: #d7eddf;
+}
+
+.state-failed {
+  background: #fff0eb;
+}
+
+.state-failed .taskProgressFill {
+  background: #ffd9cf;
+}
+
+.taskMain {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.taskTitleLine,
+.taskMetrics {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.taskTitleLine strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  line-height: 1.1;
+}
+
+.taskTitleLine span,
+.taskTitleLine em {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.62);
+  color: #3f514e;
+  font-size: 9.5px;
+  line-height: 1.2;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.taskMetrics {
+  flex-wrap: wrap;
+  color: #54625f;
+  font-size: 10.5px;
+  line-height: 1.25;
+}
+
+.taskMetrics span {
+  white-space: nowrap;
+}
+
+.taskError {
+  margin: 0;
+  color: #a73525;
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.moreButton {
+  width: 30px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #36413f;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.moreButton:hover {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.busyDot {
+  position: absolute;
+  right: 42px;
+  top: 12px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #188f8b;
+}
+
+.emptyPane {
+  display: grid;
+  place-items: center;
+}
+
+.emptyState {
+  width: min(420px, 100%);
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 34px 20px;
+  border: 1px solid #d7ded7;
+  border-radius: 8px;
+  background: #eef6f5;
+  color: #42514e;
+}
+
+.emptyState span {
   width: 42px;
   height: 42px;
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: #d6ff62;
-  color: #10251f;
-  font-weight: 800;
+  background: #b8eeeb;
+  color: #0d5654;
+  font-size: 20px;
 }
 
-nav {
-  display: grid;
-  gap: 8px;
-}
-
-button,
-input {
-  font: inherit;
-}
-
-.navItem,
-.examples button,
-.actions button {
-  border: 0;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.navItem {
-  text-align: left;
-  padding: 12px 14px;
-  background: transparent;
-  color: #dbe9df;
-}
-
-.navItem.active,
-.navItem:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.protocolPanel {
-  margin-top: 42px;
-}
-
-.protocolPanel h2,
-.queue h2 {
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0;
-}
-
-.protocolGrid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.protocolGrid span {
-  padding: 7px 9px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 7px;
-  color: #e7efe9;
-}
-
-.workspace {
-  padding: 32px;
-  display: grid;
-  gap: 22px;
-  align-content: start;
-}
-
-.topbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  align-items: flex-start;
-}
-
-.topbarControls {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.topbar h1 {
-  margin: 0 0 8px;
-  font-size: 34px;
-  line-height: 1.1;
-}
-
-.topbar p {
-  margin: 0;
-}
-
-.status {
-  padding: 8px 11px;
-  border-radius: 8px;
-  font-size: 13px;
-}
-
-.languageSelect {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.languageSelect span {
-  color: #6d7771;
-}
-
-.languageSelect select {
-  min-width: 112px;
-  padding: 8px 10px;
-  border: 1px solid #cfd6cd;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #171b1f;
-  font: inherit;
-}
-
-.status.ready {
-  background: #d6ff62;
-}
-
-.status.planned {
-  background: #e6e8e2;
-}
-
-.composer,
-.queue,
-.doctor,
-.runner {
-  background: #ffffff;
-  border: 1px solid #dfe4dc;
-  border-radius: 8px;
-  padding: 22px;
-}
-
-label {
-  display: grid;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-input {
-  min-width: 0;
-  padding: 13px 14px;
-  border: 1px solid #cfd6cd;
-  border-radius: 7px;
-  background: #fbfcfa;
-  color: #171b1f;
-}
-
-.row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 14px;
-}
-
-.actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 18px;
-}
-
-.detected {
-  margin-right: auto;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.detected span,
-.detected em {
-  color: #6d7771;
-  font-size: 13px;
-}
-
-.detected em {
-  font-style: normal;
-}
-
-.actions button,
-.examples button,
-.taskButtons button {
-  padding: 11px 14px;
-  background: #e7ebe4;
-  color: #171b1f;
-}
-
-.actions .primary {
-  background: #10251f;
-  color: #ffffff;
-}
-
-.actions .primary:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.examples {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.runner {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 140px auto;
-  gap: 14px;
-  align-items: end;
-}
-
-.runner h2 {
-  margin: 0 0 6px;
+.emptyState strong {
   font-size: 16px;
 }
 
-.runner span {
-  color: #6d7771;
+.emptyState p {
+  margin: 0;
+  color: #65706e;
+  font-size: 12px;
 }
 
-.runner .primary {
+.floatingAdd {
+  position: fixed;
+  right: 26px;
+  bottom: 26px;
+  z-index: 30;
+  width: 54px;
+  height: 54px;
   border: 0;
-  border-radius: 8px;
-  cursor: pointer;
-  padding: 13px 16px;
-  background: #10251f;
-  color: #ffffff;
+  border-radius: 999px;
+  background: #7ee8e2;
+  color: #0f4e4c;
+  font-size: 28px;
+  font-weight: 600;
+  box-shadow: 0 10px 28px rgba(17, 74, 72, 0.24);
 }
 
-.backendGrid {
+.modalBackdrop,
+.menuBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px;
+  place-items: center;
+  padding: 18px;
+  background: rgba(22, 29, 28, 0.42);
 }
 
-.backend {
-  display: grid;
-  gap: 4px;
-  padding: 12px;
-  border: 1px solid #edf0ea;
+.taskDialog,
+.propertyDialog,
+.taskMenu {
+  width: min(560px, 100%);
   border-radius: 8px;
+  background: #f8faf7;
+  box-shadow: 0 18px 46px rgba(22, 29, 28, 0.28);
 }
 
-.backend span {
-  color: #6d7771;
-  font-size: 13px;
+.taskDialog,
+.propertyDialog {
+  padding: 14px;
 }
 
-.queueHeader {
+.dialogHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
-.queue h2 {
-  margin: 0;
-}
-
-.empty {
-  padding: 30px;
-  border: 1px dashed #cfd6cd;
-  border-radius: 8px;
-  color: #6d7771;
-  text-align: center;
-}
-
-.task {
+.dialogHeader > div {
   display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 14px 0;
-  border-top: 1px solid #edf0ea;
+  align-items: center;
+  gap: 8px;
 }
 
-.task:first-of-type {
-  border-top: 0;
+.dialogHeader h2 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.2;
 }
 
-.task div {
-  min-width: 0;
+.dialogMark {
+  width: 26px;
+  height: 26px;
   display: grid;
-  gap: 6px;
+  place-items: center;
+  border-radius: 7px;
+  background: #d7f2f0;
+  color: #0e4e4d;
+  font-weight: 900;
 }
 
-.task strong {
+.dialogTools {
+  display: flex;
+  gap: 4px;
+}
+
+.dialogTools button,
+.dialogHeader > button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #33403d;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.dialogTools button:hover,
+.dialogHeader > button:hover {
+  background: #e6edea;
+}
+
+.fieldBlock {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 9px;
+  color: #57635f;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.fieldBlock input,
+.fieldBlock textarea,
+.settingControl input {
+  width: 100%;
+  border: 1px solid #d4ddd8;
+  border-radius: 7px;
+  background: #fff;
+  color: #18201f;
+  outline: none;
+}
+
+.fieldBlock input,
+.settingControl input {
+  height: 36px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.fieldBlock textarea {
+  min-height: 88px;
+  resize: vertical;
+  padding: 9px 10px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.fieldBlock input:focus,
+.fieldBlock textarea:focus,
+.settingControl input:focus {
+  border-color: #188f8b;
+  box-shadow: 0 0 0 3px rgba(24, 143, 139, 0.13);
+}
+
+.dialogFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.dialogFooter button {
+  height: 38px;
+  min-width: 88px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #188f8b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dialogFooter .primary {
+  background: #188f8b;
+  color: #fff;
+}
+
+.menuBackdrop {
+  place-items: end center;
+}
+
+.taskMenu {
+  width: min(460px, 100%);
+  padding: 8px;
+}
+
+.taskMenu header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 8px 8px;
+  border-bottom: 1px solid #dde5e1;
+}
+
+.taskMenu header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.taskMenu header button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  font-size: 17px;
+}
+
+.taskMenu > button {
+  width: 100%;
+  height: 38px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #24312f;
+  text-align: left;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.taskMenu > button:hover {
+  background: #edf3f1;
+}
+
+.taskMenu .danger {
+  color: #a73525;
+}
+
+.propertyDialog dl {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.propertyDialog dt {
+  color: #697673;
+  font-weight: 800;
+}
+
+.propertyDialog dd {
+  min-width: 0;
+  margin: 0;
   overflow-wrap: anywhere;
 }
 
-.progressTrack {
-  width: min(420px, 100%);
-  height: 8px;
+.settingsPage {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.settingsCard {
   overflow: hidden;
-  border-radius: 999px;
-  background: #edf0ea;
+  border: 1px solid #d8e1dc;
+  border-radius: 8px;
+  background: #fff;
 }
 
-.progressTrack div {
-  height: 100%;
-  border-radius: inherit;
-  background: #10251f;
-  transition: width 160ms ease;
+.settingsCard.subtle {
+  background: #fbfcfa;
 }
 
-.taskMeta {
-  text-align: right;
+.settingRow {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 34%);
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #d8e1dc;
+}
+
+.settingRow:last-child {
+  border-bottom: 0;
+}
+
+.settingRow > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.settingRow strong {
+  font-size: 12.5px;
+  line-height: 1.1;
+}
+
+.settingRow span {
+  color: #697673;
+  font-size: 10.5px;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.taskButtons {
+.settingControl {
   display: flex;
-  gap: 6px;
   justify-content: flex-end;
 }
 
-.taskButtons button {
-  padding: 7px 9px;
+.toggle {
+  width: 48px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: #cfd8d4;
+  padding: 3px;
 }
 
-.taskButtons button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
+.toggle span {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #fff;
+  transition: transform 160ms ease;
 }
 
-.errorText {
-  color: #b42929;
+.toggle.on {
+  background: #188f8b;
 }
 
-@media (max-width: 820px) {
-  .shell {
+.toggle.on span {
+  transform: translateX(20px);
+}
+
+.settingsSectionTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 12px;
+  border-bottom: 1px solid #d8e1dc;
+}
+
+.settingsSectionTitle strong {
+  font-size: 12.5px;
+}
+
+.settingsSectionTitle span {
+  color: #697673;
+  font-size: 10.5px;
+}
+
+.backendList {
+  display: grid;
+}
+
+.backendItem {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border-bottom: 1px solid #e7ede9;
+  font-size: 11.5px;
+}
+
+.backendItem:last-child {
+  border-bottom: 0;
+}
+
+.backendItem span {
+  color: #42514e;
+  font-weight: 800;
+}
+
+.backendItem strong {
+  color: #188f8b;
+}
+
+@media (max-width: 680px) {
+  .fixedPane {
+    padding-inline: 12px;
+  }
+
+  .scrollPane {
+    padding-inline: 12px;
+  }
+
+  .statusTabs {
+    overflow-x: auto;
+    grid-template-columns: repeat(5, minmax(86px, 1fr));
+  }
+
+  .taskRow {
+    min-height: 88px;
+  }
+
+  .taskMetrics {
+    gap: 5px 8px;
+  }
+
+  .settingRow {
     grid-template-columns: 1fr;
+    gap: 8px;
   }
 
-  .sidebar {
-    border-right: 0;
-  }
-
-  .topbar,
-  .topbarControls,
-  .actions,
-  .queueHeader,
-  .task,
-  .runner {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .runner {
-    grid-template-columns: 1fr;
-  }
-
-  .row {
-    grid-template-columns: 1fr;
+  .settingControl {
+    justify-content: stretch;
   }
 }
