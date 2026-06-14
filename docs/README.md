@@ -23,7 +23,17 @@ FluxDown 是一个跨平台下载器工作区：
 - 移动端：Android 和 iPhone，使用 Flutter App。
 - 共享核心：Rust core crate 提供协议检测、任务模型、任务存储、队列运行器和桌面下载执行能力。
 
-当前版本号为 `1.0.1`。发布流水线在 `.github/workflows/build.yml` 中定义，标签 `v*` 会触发 GitHub Release 发布。
+当前版本号为 `1.0.2`。发布流水线在 `.github/workflows/build.yml` 中定义，标签 `v*` 会触发 GitHub Release 发布。
+
+## 当前版本重点
+
+- GitHub 默认 README 已切换为中文，英文入口保留为 `README.en.md`。
+- Android 队列页显示任务状态、开始/结束时间、总耗时、已下载/总大小、实时速度和平均速度。
+- 新建任务支持下载链接输入、剪切板读取、二维码扫描、另存文件名和保存位置选择。
+- 设置页提供下载保存位置、并发下载数、下载线程数、自动重试数和最大下载网速。
+- 下载执行逻辑接入并发排队、线程数、失败重试和可选限速配置。
+- Torrent/Magnet 在获取 metadata 后使用真实文件名；多文件资源会让用户选择要下载的文件。
+- Android 真机已补充本地协议资源和媒体级 HLS/torrent/magnet 前台 App 验证报告。
 
 ## 维护原则
 

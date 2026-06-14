@@ -1,8 +1,45 @@
 import 'package:uuid/uuid.dart';
+import 'package:path/path.dart' as p;
 
 import 'protocol.dart';
 
 enum DownloadState { queued, running, paused, finished, failed }
+
+class TorrentFileEntry {
+  const TorrentFileEntry({
+    required this.index,
+    required this.path,
+    required this.name,
+    required this.size,
+    this.isStreamable = false,
+  });
+
+  factory TorrentFileEntry.fromJson(Map<String, Object?> json) {
+    return TorrentFileEntry(
+      index: json['index'] as int? ?? 0,
+      path: json['path'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      size: json['size'] as int? ?? 0,
+      isStreamable: json['isStreamable'] as bool? ?? false,
+    );
+  }
+
+  final int index;
+  final String path;
+  final String name;
+  final int size;
+  final bool isStreamable;
+
+  Map<String, Object?> toJson() {
+    return {
+      'index': index,
+      'path': path,
+      'name': name,
+      'size': size,
+      'isStreamable': isStreamable,
+    };
+  }
+}
 
 class DownloadTask {
   DownloadTask({
@@ -21,12 +58,18 @@ class DownloadTask {
     this.pausedAt,
     this.finishedAt,
     this.currentSpeedBytesPerSecond = 0,
+    this.torrentName,
+    this.torrentFiles = const [],
+    this.selectedTorrentFileIndexes,
   });
 
   factory DownloadTask.create({
     required String source,
     required String outputFolder,
     String? fileName,
+    String? torrentName,
+    List<TorrentFileEntry> torrentFiles = const [],
+    List<int>? selectedTorrentFileIndexes,
   }) {
     final now = DateTime.now().toUtc();
     final protocol = detectProtocol(source);
@@ -43,6 +86,11 @@ class DownloadTask {
       state: DownloadState.queued,
       createdAt: now,
       updatedAt: now,
+      torrentName: torrentName,
+      torrentFiles: List.unmodifiable(torrentFiles),
+      selectedTorrentFileIndexes: selectedTorrentFileIndexes == null
+          ? null
+          : List.unmodifiable(selectedTorrentFileIndexes),
     );
   }
 
@@ -69,6 +117,21 @@ class DownloadTask {
       finishedAt: _dateTimeFromJson(json['finishedAt']),
       currentSpeedBytesPerSecond:
           json['currentSpeedBytesPerSecond'] as int? ?? 0,
+      torrentName: json['torrentName'] as String?,
+      torrentFiles:
+          (json['torrentFiles'] as List<Object?>?)
+              ?.whereType<Map>()
+              .map(
+                (item) =>
+                    TorrentFileEntry.fromJson(Map<String, Object?>.from(item)),
+              )
+              .toList(growable: false) ??
+          const [],
+      selectedTorrentFileIndexes:
+          (json['selectedTorrentFileIndexes'] as List<Object?>?)
+              ?.map(_intFromJson)
+              .whereType<int>()
+              .toList(growable: false),
     );
   }
 
@@ -87,6 +150,9 @@ class DownloadTask {
   final DateTime? pausedAt;
   final DateTime? finishedAt;
   final int currentSpeedBytesPerSecond;
+  final String? torrentName;
+  final List<TorrentFileEntry> torrentFiles;
+  final List<int>? selectedTorrentFileIndexes;
 
   double? get progress {
     final total = totalBytes;
@@ -118,6 +184,30 @@ class DownloadTask {
       return 0;
     }
     return (downloadedBytes * 1000 / elapsedTime.inMilliseconds).round();
+  }
+
+  bool get isTorrentLike => protocol == 'torrent' || protocol == 'magnet';
+
+  List<int> get effectiveSelectedTorrentFileIndexes {
+    final selected = selectedTorrentFileIndexes;
+    if (selected != null && selected.isNotEmpty) {
+      return List.unmodifiable(selected);
+    }
+    return List.unmodifiable(torrentFiles.map((file) => file.index));
+  }
+
+  List<TorrentFileEntry> get selectedTorrentFiles {
+    if (torrentFiles.isEmpty) return const [];
+    final selected = effectiveSelectedTorrentFileIndexes.toSet();
+    return torrentFiles
+        .where((file) => selected.contains(file.index))
+        .toList(growable: false);
+  }
+
+  int? get selectedTorrentTotalBytes {
+    final files = selectedTorrentFiles;
+    if (files.isEmpty) return null;
+    return files.fold<int>(0, (total, file) => total + file.size);
   }
 
   bool get isBuiltInMobile =>
@@ -154,6 +244,11 @@ class DownloadTask {
     DateTime? finishedAt,
     bool clearFinishedAt = false,
     int? currentSpeedBytesPerSecond,
+    String? torrentName,
+    List<TorrentFileEntry>? torrentFiles,
+    List<int>? selectedTorrentFileIndexes,
+    bool clearSelectedTorrentFileIndexes = false,
+    bool clearTorrentMetadata = false,
   }) {
     return DownloadTask(
       id: id,
@@ -172,6 +267,16 @@ class DownloadTask {
       finishedAt: clearFinishedAt ? null : finishedAt ?? this.finishedAt,
       currentSpeedBytesPerSecond:
           currentSpeedBytesPerSecond ?? this.currentSpeedBytesPerSecond,
+      torrentName: clearTorrentMetadata
+          ? null
+          : torrentName ?? this.torrentName,
+      torrentFiles: clearTorrentMetadata
+          ? const []
+          : List.unmodifiable(torrentFiles ?? this.torrentFiles),
+      selectedTorrentFileIndexes:
+          clearTorrentMetadata || clearSelectedTorrentFileIndexes
+          ? null
+          : selectedTorrentFileIndexes ?? this.selectedTorrentFileIndexes,
     );
   }
 
@@ -192,8 +297,17 @@ class DownloadTask {
       'pausedAt': pausedAt?.toIso8601String(),
       'finishedAt': finishedAt?.toIso8601String(),
       'currentSpeedBytesPerSecond': currentSpeedBytesPerSecond,
+      'torrentName': torrentName,
+      'torrentFiles': torrentFiles.map((file) => file.toJson()).toList(),
+      'selectedTorrentFileIndexes': selectedTorrentFileIndexes,
     };
   }
+}
+
+int? _intFromJson(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
 }
 
 DateTime? _dateTimeFromJson(Object? value) {
@@ -204,17 +318,25 @@ DateTime? _dateTimeFromJson(Object? value) {
 }
 
 String suggestedFileName(String source) {
+  final protocol = detectProtocol(source);
   final uri = Uri.tryParse(source.trim());
   final segment = uri?.pathSegments
       .where((part) => part.trim().isNotEmpty)
       .lastOrNull;
+
+  if (protocol == 'm3u8') {
+    final baseName = segment == null || segment.trim().isEmpty
+        ? 'playlist'
+        : p.basenameWithoutExtension(Uri.decodeComponent(segment));
+    return '$baseName.mp4';
+  }
+
   if (segment != null && segment.trim().isNotEmpty) {
     return Uri.decodeComponent(segment);
   }
 
-  final protocol = detectProtocol(source);
   return switch (protocol) {
-    'm3u8' => 'playlist.ts',
+    'm3u8' => 'playlist.mp4',
     'torrent' => 'download.torrent',
     'magnet' => 'magnet-download',
     'ed2k' => 'ed2k-download',

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'download_task.dart';
 import 'mobile_downloader.dart';
+import 'mobile_torrent.dart';
 import 'protocol.dart';
 import 'task_store.dart';
 
@@ -53,11 +54,17 @@ class DownloadController {
     required String source,
     required String outputFolder,
     String? fileName,
+    String? torrentName,
+    List<TorrentFileEntry> torrentFiles = const [],
+    List<int>? selectedTorrentFileIndexes,
   }) async {
     final task = DownloadTask.create(
       source: source,
       outputFolder: outputFolder,
       fileName: fileName,
+      torrentName: torrentName,
+      torrentFiles: torrentFiles,
+      selectedTorrentFileIndexes: selectedTorrentFileIndexes,
     );
     _tasks.insert(0, task);
     await _save();
@@ -111,6 +118,7 @@ class DownloadController {
     int maxRetries = 0,
     int speedLimitKbps = 0,
     int threadCount = 8,
+    TorrentMetadataSelector? onTorrentMetadata,
   }) async {
     if (_activeTaskIds.contains(id)) {
       return;
@@ -126,6 +134,7 @@ class DownloadController {
         maxRetries: maxRetries,
         speedLimitKbps: speedLimitKbps,
         threadCount: threadCount,
+        onTorrentMetadata: onTorrentMetadata,
       );
     } finally {
       _activeTaskIds.remove(id);
@@ -137,6 +146,7 @@ class DownloadController {
     required int maxRetries,
     required int speedLimitKbps,
     required int threadCount,
+    TorrentMetadataSelector? onTorrentMetadata,
   }) async {
     final task = _taskById(id);
     final support = supportStatus(task.protocol);
@@ -178,6 +188,7 @@ class DownloadController {
           _taskById(id),
           speedLimitKbps: speedLimitKbps,
           threadCount: effectiveThreadCount,
+          onTorrentMetadata: onTorrentMetadata,
           onProgress: (progress) async {
             _replace(progress.id, (_) => progress);
             await _save();
@@ -253,12 +264,14 @@ class DownloadController {
     int maxRetries = 0,
     int speedLimitKbps = 0,
     int threadCount = 8,
+    TorrentMetadataSelector? onTorrentMetadata,
   }) {
     final request = _QueueRunRequest(
       concurrency: concurrency,
       maxRetries: maxRetries,
       speedLimitKbps: speedLimitKbps,
       threadCount: threadCount,
+      onTorrentMetadata: onTorrentMetadata,
     );
     final activeRun = _queueRun;
     if (activeRun != null) {
@@ -277,6 +290,7 @@ class DownloadController {
           maxRetries: request.maxRetries,
           speedLimitKbps: request.speedLimitKbps,
           threadCount: request.threadCount,
+          onTorrentMetadata: request.onTorrentMetadata,
         ).whenComplete(() {
           if (identical(_queueRun, queueRun)) {
             _queueRun = null;
@@ -298,6 +312,7 @@ class DownloadController {
     required int maxRetries,
     required int speedLimitKbps,
     required int threadCount,
+    TorrentMetadataSelector? onTorrentMetadata,
   }) async {
     final workerCount = concurrency.clamp(1, 30).toInt();
     final seen = <String>{};
@@ -317,6 +332,7 @@ class DownloadController {
           maxRetries: maxRetries,
           speedLimitKbps: speedLimitKbps,
           threadCount: threadCount,
+          onTorrentMetadata: onTorrentMetadata,
         );
         final after = _maybeTaskById(id);
         if (after?.state == DownloadState.finished) {
@@ -405,10 +421,12 @@ class _QueueRunRequest {
     required this.maxRetries,
     required this.speedLimitKbps,
     required this.threadCount,
+    required this.onTorrentMetadata,
   });
 
   final int concurrency;
   final int maxRetries;
   final int speedLimitKbps;
   final int threadCount;
+  final TorrentMetadataSelector? onTorrentMetadata;
 }

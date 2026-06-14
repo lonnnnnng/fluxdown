@@ -1,6 +1,6 @@
 # FluxDown
 
-[English](README.md)
+[English](README.en.md)
 
 FluxDown 是一个跨平台下载器工作区。
 
@@ -25,6 +25,15 @@ FluxDown 是一个跨平台下载器工作区。
 - [运维与安全](docs/operations-security.md)
 - [路线图](docs/roadmap.md)
 
+## 当前版本重点
+
+- 默认文档入口为中文，英文 README 保留在 [README.en.md](README.en.md)。
+- Android 队列页按状态分组，任务项显示开始/结束时间、总耗时、已下载/总大小、实时速度和平均速度。
+- 新建任务支持剪切板、二维码扫描、另存文件名和保存位置选择。
+- 设置页支持下载保存位置、并发下载数、下载线程数、自动重试数和最大下载网速。
+- Torrent/Magnet 获取 metadata 后会展示真实文件名；多文件资源会弹出选择列表。
+- Android 真机已补充本地协议资源和媒体级 HLS、torrent、magnet 前台 App 验证。
+
 ## 协议路线
 
 任务模型识别这些传输类型：
@@ -42,7 +51,7 @@ FluxDown 是一个跨平台下载器工作区。
 
 桌面端执行引擎已经实现 HTTP/HTTPS 直链下载、基于 HTTP 传输的 WebDAV/WebDAVS 文件下载、FTP/FTPS 下载、密码认证 SFTP 下载、SMB2/3 共享文件下载、BitTorrent `.torrent` 和 Magnet 下载、ed2k 通过 aMule `ed2k` CLI 提交并在缺失时退回系统 URL handler、IPFS 网关下载，以及 VOD m3u8/HLS 播放列表下载，包括 AES-128 加密分片。
 
-移动端 App 使用本地 JSON 队列，可以执行单个任务，也可以用有界并发运行队列。移动端支持 HTTP/HTTPS 和 WebDAV/WebDAVS 下载，包含进度、暂停和 HTTP Range 续传；也支持 FTP/FTPS 被动模式与 REST 续传、SFTP 密码认证与偏移续传、SMB2/3 文件下载、通过原生 libtorrent 绑定下载 BitTorrent `.torrent` 和 Magnet、IPFS 网关下载，以及 VOD m3u8/HLS 播放列表下载，包括 AES-128 加密分片并输出 `.ts` 文件。ed2k 链接会移交给设备上已安装的 eMule/aMule 兼容 App。
+移动端 App 使用本地 JSON 队列，可以执行单个任务，也可以用有界并发运行队列。移动端支持 HTTP/HTTPS 和 WebDAV/WebDAVS 下载，包含进度、暂停和 HTTP Range 续传；也支持 FTP/FTPS 被动模式与 REST 续传、SFTP 密码认证与偏移续传、SMB2/3 文件下载、通过原生 libtorrent 绑定下载 BitTorrent `.torrent` 和 Magnet、IPFS 网关下载，以及 VOD m3u8/HLS 播放列表下载，包括 AES-128 加密分片，并在 Android 端转封装为最终 `.mp4` 文件。ed2k 链接会移交给设备上已安装的 eMule/aMule 兼容 App。
 
 移动端 torrent 支持使用 `libtorrent_flutter`，它包含 GPL 许可的原生组件。正式分发商店版本前需要确认许可证义务。
 

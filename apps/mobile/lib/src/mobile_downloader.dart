@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:path/path.dart' as p;
@@ -18,6 +19,8 @@ import 'transfer_metrics.dart';
 class DownloadCancelled implements Exception {
   const DownloadCancelled();
 }
+
+const _mediaChannel = MethodChannel('dev.fluxdown.mobile/media');
 
 class DownloadSpeedLimiter {
   DownloadSpeedLimiter.fromKbps(int kilobytesPerSecond)
@@ -72,6 +75,7 @@ class MobileDownloadRunner {
     DownloadTask task, {
     int speedLimitKbps = 0,
     int threadCount = 8,
+    TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) {
     if (task.protocol == 'ftp' || task.protocol == 'ftps') {
@@ -94,12 +98,17 @@ class MobileDownloadRunner {
       return downloadM3u8(
         task,
         speedLimitKbps: speedLimitKbps,
+        threadCount: threadCount,
         onProgress: onProgress,
       );
     }
 
     if (task.protocol == 'torrent' || task.protocol == 'magnet') {
-      return downloadTorrent(task, onProgress: onProgress);
+      return downloadTorrent(
+        task,
+        onProgress: onProgress,
+        onMetadata: onTorrentMetadata,
+      );
     }
 
     if (task.protocol == 'smb') {
@@ -287,52 +296,90 @@ class MobileDownloadRunner {
     );
     await onProgress(current);
 
-    var downloaded = 0;
+    final partDownloadedBytes = List<int>.filled(effectiveThreadCount, 0);
     var lastEmit = DateTime.now();
     final speedSampler = TransferSpeedSampler();
     final chunkSize = (totalBytes / effectiveThreadCount).ceil();
+    var rangeFailed = false;
+
+    int displayedDownloadedBytes() =>
+        partDownloadedBytes.fold<int>(0, (total, bytes) => total + bytes);
 
     Future<void> downloadPart(int index) async {
       final start = index * chunkSize;
       final end = (start + chunkSize - 1).clamp(0, totalBytes - 1).toInt();
       if (start > end) return;
 
-      final request = http.Request('GET', sourceUri)
-        ..headers['Range'] = 'bytes=$start-$end';
-      final response = await client.send(request);
-      if (response.statusCode != HttpStatus.partialContent) {
-        throw HttpException('HTTP ${response.statusCode}', uri: sourceUri);
-      }
-
-      final sink = partFiles[index].openWrite(mode: FileMode.write);
-      try {
-        await for (final chunk in response.stream) {
-          if (_cancelled.contains(task.id)) {
-            throw const DownloadCancelled();
-          }
-
-          await speedLimiter.throttle(chunk.length);
-          if (_cancelled.contains(task.id)) {
-            throw const DownloadCancelled();
-          }
-
-          sink.add(chunk);
-          downloaded += chunk.length;
-          final now = DateTime.now();
-          if (now.difference(lastEmit).inMilliseconds >= 250 ||
-              downloaded == totalBytes) {
-            current = current.copyWith(
-              downloadedBytes: downloaded,
-              totalBytes: totalBytes,
-              currentSpeedBytesPerSecond: speedSampler.sample(downloaded),
-            );
-            await onProgress(current);
-            lastEmit = now;
-          }
+      const maxPartAttempts = 3;
+      final expectedPartBytes = end - start + 1;
+      for (var attempt = 0; attempt < maxPartAttempts; attempt += 1) {
+        if (rangeFailed || _cancelled.contains(task.id)) {
+          throw const DownloadCancelled();
         }
-      } finally {
-        await sink.flush();
-        await sink.close();
+
+        var partBytesThisAttempt = 0;
+        final request = http.Request('GET', sourceUri)
+          ..headers['Range'] = 'bytes=$start-$end';
+        try {
+          final response = await client.send(request);
+          if (response.statusCode != HttpStatus.partialContent) {
+            throw HttpException('HTTP ${response.statusCode}', uri: sourceUri);
+          }
+
+          final sink = partFiles[index].openWrite(mode: FileMode.write);
+          try {
+            await for (final chunk in response.stream) {
+              if (rangeFailed || _cancelled.contains(task.id)) {
+                throw const DownloadCancelled();
+              }
+
+              await speedLimiter.throttle(chunk.length);
+              if (rangeFailed || _cancelled.contains(task.id)) {
+                throw const DownloadCancelled();
+              }
+
+              sink.add(chunk);
+              partBytesThisAttempt += chunk.length;
+              if (partBytesThisAttempt > partDownloadedBytes[index]) {
+                partDownloadedBytes[index] = partBytesThisAttempt;
+              }
+              final downloaded = displayedDownloadedBytes();
+              final now = DateTime.now();
+              if (now.difference(lastEmit).inMilliseconds >= 250 ||
+                  downloaded == totalBytes) {
+                current = current.copyWith(
+                  downloadedBytes: downloaded,
+                  totalBytes: totalBytes,
+                  currentSpeedBytesPerSecond: speedSampler.sample(downloaded),
+                );
+                await onProgress(current);
+                lastEmit = now;
+              }
+            }
+          } finally {
+            await sink.flush();
+            await sink.close();
+          }
+
+          if (partBytesThisAttempt != expectedPartBytes) {
+            throw HttpException(
+              'Incomplete HTTP range $partBytesThisAttempt/$expectedPartBytes',
+              uri: sourceUri,
+            );
+          }
+
+          return;
+        } on DownloadCancelled {
+          rethrow;
+        } catch (_) {
+          if (attempt == maxPartAttempts - 1) {
+            rangeFailed = true;
+            rethrow;
+          }
+          await Future<void>.delayed(
+            Duration(milliseconds: 200 * (attempt + 1)),
+          );
+        }
       }
     }
 
@@ -460,6 +507,7 @@ class MobileDownloadRunner {
   Future<DownloadTask> downloadM3u8(
     DownloadTask task, {
     int speedLimitKbps = 0,
+    int threadCount = 8,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
     _cancelled.remove(task.id);
@@ -469,6 +517,13 @@ class MobileDownloadRunner {
     final outputFile = File(
       p.join(outputDir.path, _hlsFileName(task.fileName)),
     );
+    final tempTsFile = File(
+      p.join(
+        outputDir.path,
+        '.${p.basenameWithoutExtension(outputFile.path)}-${task.id}.ts',
+      ),
+    );
+    final segmentDir = Directory('${tempTsFile.path}.segments');
     final playlistUri = Uri.parse(task.source);
     final playlistText = await _readText(playlistUri);
     final mediaPlaylistUri = await _mediaPlaylistUri(playlistUri, playlistText);
@@ -491,48 +546,132 @@ class MobileDownloadRunner {
     );
     await onProgress(current);
 
-    final sink = outputFile.openWrite(mode: FileMode.write);
+    if (await outputFile.exists()) {
+      await outputFile.delete();
+    }
+    if (await tempTsFile.exists()) {
+      await tempTsFile.delete();
+    }
+    if (await segmentDir.exists()) {
+      await segmentDir.delete(recursive: true);
+    }
+    await segmentDir.create(recursive: true);
+
     var downloaded = 0;
+    var completedSegments = 0;
+    var lastEmit = DateTime.now();
     final speedSampler = TransferSpeedSampler();
-    final keyCache = <Uri, Uint8List>{};
-    try {
-      for (final segment in segments) {
-        if (_cancelled.contains(task.id)) {
-          throw const DownloadCancelled();
-        }
-        final response = await _client.send(http.Request('GET', segment.uri));
-        if (response.statusCode != HttpStatus.ok) {
-          throw HttpException('HTTP ${response.statusCode}', uri: segment.uri);
-        }
-        final bytes = await _readResponseBytes(
-          response,
-          speedLimiter: speedLimiter,
-          taskId: task.id,
-        );
-        if (_cancelled.contains(task.id)) {
-          throw const DownloadCancelled();
-        }
-        final segmentBytes = await _decodeHlsSegment(segment, bytes, keyCache);
-        sink.add(segmentBytes);
-        downloaded += segmentBytes.length;
-        current = current.copyWith(
-          downloadedBytes: downloaded,
-          totalBytes: null,
-          clearTotalBytes: true,
-          currentSpeedBytesPerSecond: speedSampler.sample(downloaded),
-        );
-        await onProgress(current);
+    final keyCache = <Uri, Future<Uint8List>>{};
+    final segmentFiles = List.generate(
+      segments.length,
+      (index) => File(
+        p.join(segmentDir.path, '${index.toString().padLeft(6, '0')}.ts'),
+      ),
+    );
+    final workerCount = threadCount.clamp(1, segments.length).toInt();
+    var nextSegmentIndex = 0;
+
+    Future<void> reportProgress({bool force = false}) async {
+      final now = DateTime.now();
+      if (!force &&
+          now.difference(lastEmit).inMilliseconds < 250 &&
+          completedSegments < segments.length) {
+        return;
       }
+      current = current.copyWith(
+        downloadedBytes: downloaded,
+        totalBytes: null,
+        clearTotalBytes: true,
+        currentSpeedBytesPerSecond: speedSampler.sample(downloaded),
+      );
+      await onProgress(current);
+      lastEmit = now;
+    }
+
+    Future<void> downloadSegment(int index) async {
+      final segment = segments[index];
+      if (_cancelled.contains(task.id)) {
+        throw const DownloadCancelled();
+      }
+      final response = await _client.send(http.Request('GET', segment.uri));
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('HTTP ${response.statusCode}', uri: segment.uri);
+      }
+      final bytes = await _readResponseBytes(
+        response,
+        speedLimiter: speedLimiter,
+        taskId: task.id,
+      );
+      if (_cancelled.contains(task.id)) {
+        throw const DownloadCancelled();
+      }
+      final segmentBytes = await _decodeHlsSegment(segment, bytes, keyCache);
+      await segmentFiles[index].writeAsBytes(segmentBytes);
+      downloaded += segmentBytes.length;
+      completedSegments += 1;
+      await reportProgress(force: completedSegments == segments.length);
+    }
+
+    Future<void> worker() async {
+      while (true) {
+        if (_cancelled.contains(task.id)) {
+          throw const DownloadCancelled();
+        }
+        final index = nextSegmentIndex;
+        nextSegmentIndex += 1;
+        if (index >= segments.length) {
+          return;
+        }
+        await downloadSegment(index);
+      }
+    }
+
+    try {
+      await Future.wait(
+        List.generate(workerCount, (_) => worker()),
+        eagerError: true,
+      );
+      if (_cancelled.contains(task.id)) {
+        throw const DownloadCancelled();
+      }
+
+      final sink = tempTsFile.openWrite(mode: FileMode.write);
+      try {
+        for (final segmentFile in segmentFiles) {
+          await sink.addStream(segmentFile.openRead());
+        }
+      } finally {
+        await sink.flush();
+        await sink.close();
+      }
+    } catch (_) {
+      if (await tempTsFile.exists()) {
+        await tempTsFile.delete();
+      }
+      rethrow;
     } finally {
-      await sink.flush();
-      await sink.close();
+      if (await segmentDir.exists()) {
+        await segmentDir.delete(recursive: true);
+      }
+    }
+
+    final outputBytes = await _remuxHlsTransportStream(
+      sourceTs: tempTsFile,
+      outputMp4: outputFile,
+    );
+    try {
+      if (await tempTsFile.exists()) {
+        await tempTsFile.delete();
+      }
+    } catch (_) {
+      // Leaving a hidden temporary TS is safer than failing a completed MP4.
     }
 
     _cancelled.remove(task.id);
     return current.copyWith(
       state: DownloadState.finished,
-      downloadedBytes: downloaded,
-      totalBytes: downloaded,
+      downloadedBytes: outputBytes,
+      totalBytes: outputBytes,
       clearError: true,
     );
   }
@@ -608,6 +747,7 @@ class MobileDownloadRunner {
   Future<DownloadTask> downloadTorrent(
     DownloadTask task, {
     required FutureOr<void> Function(DownloadTask task) onProgress,
+    TorrentMetadataSelector? onMetadata,
   }) async {
     _cancelled.remove(task.id);
     final runner = MobileTorrentRunner(client: _client);
@@ -616,10 +756,13 @@ class MobileDownloadRunner {
         task,
         onProgress: onProgress,
         isCancelled: () => _cancelled.contains(task.id),
+        onMetadata: onMetadata,
       );
       _cancelled.remove(task.id);
       return finished;
     } on TorrentDownloadCancelled {
+      throw const DownloadCancelled();
+    } on TorrentMetadataSelectionCancelled {
       throw const DownloadCancelled();
     }
   }
@@ -721,10 +864,35 @@ class MobileDownloadRunner {
 
   String _hlsFileName(String fileName) {
     final extension = p.extension(fileName).toLowerCase();
-    if (extension == '.ts') {
+    if (extension == '.mp4') {
       return fileName;
     }
-    return '${p.basenameWithoutExtension(fileName)}.ts';
+    return '${p.basenameWithoutExtension(fileName)}.mp4';
+  }
+
+  Future<int> _remuxHlsTransportStream({
+    required File sourceTs,
+    required File outputMp4,
+  }) async {
+    final result = await _mediaChannel
+        .invokeMapMethod<String, Object?>('remuxTsToMp4', {
+          'sourcePath': sourceTs.path,
+          'outputPath': outputMp4.path,
+        })
+        .timeout(const Duration(minutes: 5));
+    final outputBytes = _readPlatformInt(result?['outputBytes']);
+    final fileBytes = await outputMp4.exists() ? await outputMp4.length() : 0;
+    final size = outputBytes ?? fileBytes;
+    if (size <= 0) {
+      throw StateError('HLS MP4 remux produced an empty output file.');
+    }
+    return size;
+  }
+
+  int? _readPlatformInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
   }
 
   HlsKey? _parseHlsKey(Uri playlistUri, String line) {
@@ -792,7 +960,7 @@ class MobileDownloadRunner {
   Future<Uint8List> _decodeHlsSegment(
     HlsSegment segment,
     List<int> bytes,
-    Map<Uri, Uint8List> keyCache,
+    Map<Uri, Future<Uint8List>> keyCache,
   ) async {
     final key = segment.key;
     if (key == null) {
@@ -804,24 +972,23 @@ class MobileDownloadRunner {
     return _decryptAes128Cbc(Uint8List.fromList(bytes), keyBytes, iv);
   }
 
-  Future<Uint8List> _hlsKeyBytes(Uri uri, Map<Uri, Uint8List> keyCache) async {
-    final cached = keyCache[uri];
-    if (cached != null) {
-      return cached;
-    }
-
-    final response = await _client.get(uri);
-    if (response.statusCode != HttpStatus.ok) {
-      throw HttpException('HTTP ${response.statusCode}', uri: uri);
-    }
-    final bytes = Uint8List.fromList(response.bodyBytes);
-    if (bytes.length != 16) {
-      throw FormatException(
-        'AES-128 HLS key must be 16 bytes, got ${bytes.length}.',
-      );
-    }
-    keyCache[uri] = bytes;
-    return bytes;
+  Future<Uint8List> _hlsKeyBytes(
+    Uri uri,
+    Map<Uri, Future<Uint8List>> keyCache,
+  ) {
+    return keyCache.putIfAbsent(uri, () async {
+      final response = await _client.get(uri);
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('HTTP ${response.statusCode}', uri: uri);
+      }
+      final bytes = Uint8List.fromList(response.bodyBytes);
+      if (bytes.length != 16) {
+        throw FormatException(
+          'AES-128 HLS key must be 16 bytes, got ${bytes.length}.',
+        );
+      }
+      return bytes;
+    });
   }
 
   Uint8List _parseHlsIv(String value) {

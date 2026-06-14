@@ -94,10 +94,10 @@ CLI 需要支持：
 | FTP/FTPS | 被动模式、二进制传输、进度、暂停、REST 续传。 |
 | SFTP | 密码认证、文件大小读取、偏移续传。 |
 | SMB | SMB2/3 文件下载、进度、取消。 |
-| BitTorrent `.torrent` | 支持本地或远程 torrent 源，下载到指定目录。 |
-| Magnet | 通过 torrent 引擎添加 magnet 链接。 |
+| BitTorrent `.torrent` | 支持本地或远程 torrent 源，下载到指定目录；拿到 metadata 后使用真实文件列表更新任务名，多文件种子必须允许用户选择下载内容。 |
+| Magnet | 通过 torrent 引擎添加 magnet 链接；拿到 metadata 后使用真实文件列表更新任务名，多文件 magnet 必须允许用户选择下载内容。 |
 | ed2k | 桌面优先使用 aMule `ed2k` CLI，否则系统 URL handler；移动端移交系统兼容 App。 |
-| m3u8/HLS | 支持 VOD 播放列表、主播放列表首个变体、AES-128 分片解密，输出 `.ts`。 |
+| m3u8/HLS | 支持 VOD 播放列表、主播放列表首个变体、AES-128 分片解密；移动端 Android 输出最终 `.mp4`。 |
 | IPFS | 将 `ipfs://` 映射到公共网关下载。 |
 
 ## 非功能需求

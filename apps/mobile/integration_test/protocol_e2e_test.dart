@@ -10,6 +10,8 @@ import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 
 const _casesJson = String.fromEnvironment('FLUXDOWN_E2E_CASES_JSON');
+const _keepOutputs = bool.fromEnvironment('FLUXDOWN_E2E_KEEP_OUTPUTS');
+const _baseDirOverride = String.fromEnvironment('FLUXDOWN_E2E_BASE_DIR');
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -22,25 +24,45 @@ void main() {
       reason: 'Pass cases with --dart-define=FLUXDOWN_E2E_CASES_JSON=...',
     );
 
-    final baseDir = await Directory.systemTemp.createTemp(
-      'fluxdown_mobile_protocol_e2e_',
-    );
+    final baseDir = await _resolveBaseDir();
     final outputDir = Directory(p.join(baseDir.path, 'downloads'));
     await outputDir.create(recursive: true);
-    addTearDown(() async {
-      if (await baseDir.exists()) {
-        await baseDir.delete(recursive: true);
-      }
-    });
+    if (!_keepOutputs) {
+      addTearDown(() async {
+        if (await baseDir.exists()) {
+          await baseDir.delete(recursive: true);
+        }
+      });
+    }
 
-    final controller = DownloadController(
+    late final DownloadController controller;
+    var activeCaseId = '';
+    var lastProgressPrint = DateTime.fromMillisecondsSinceEpoch(0);
+    controller = DownloadController(
       store: TaskStore(baseDirectory: baseDir),
+      onChanged: () {
+        final now = DateTime.now();
+        if (now.difference(lastProgressPrint).inSeconds < 10) {
+          return;
+        }
+        lastProgressPrint = now;
+        for (final task in controller.tasks) {
+          if (task.state != DownloadState.running) {
+            continue;
+          }
+          // ignore: avoid_print
+          print(
+            'FLUXDOWN_E2E_PROGRESS ${jsonEncode({'caseId': activeCaseId, 'taskId': task.id, 'state': task.state.name, 'downloadedBytes': task.downloadedBytes, 'totalBytes': task.totalBytes, 'speedBytesPerSecond': task.currentSpeedBytesPerSecond, 'error': task.error})}',
+          );
+        }
+      },
     );
     await controller.load();
 
     final results = <Map<String, Object?>>[];
     final failures = <String>[];
     for (final testCase in cases) {
+      activeCaseId = testCase.id;
       final source = testCase.source;
       final fileName = testCase.fileName;
       final task = await controller.add(
@@ -52,20 +74,31 @@ void main() {
       final started = DateTime.now().toUtc();
       Object? timeoutError;
       try {
-        await controller
-            .start(task.id)
-            .timeout(Duration(seconds: testCase.timeoutSeconds ?? 45));
+        final download = controller.start(task.id);
+        final timeoutSeconds = testCase.timeoutSeconds;
+        if (timeoutSeconds == null) {
+          await download;
+        } else {
+          await download.timeout(Duration(seconds: timeoutSeconds));
+        }
       } on TimeoutException catch (error) {
         timeoutError = error;
         await controller.pause(task.id);
       }
       final finished = DateTime.now().toUtc();
       final actual = controller.tasks.firstWhere((item) => item.id == task.id);
-      final outputPath = p.join(outputDir.path, actual.fileName);
-      final outputFile = File(outputPath);
+      final outputFile = await _resolveOutputFile(
+        outputDir: outputDir,
+        fileName: actual.fileName,
+        outputRelativePath: testCase.outputRelativePath,
+        scanForLargest:
+            actual.protocol == 'torrent' || actual.protocol == 'magnet',
+      );
+      final outputPath = outputFile.path;
       final outputBytes = await outputFile.exists()
           ? await outputFile.length()
           : 0;
+      final outputHeadHex = await _readHeadHex(outputFile);
 
       final result = <String, Object?>{
         'id': testCase.id,
@@ -76,10 +109,11 @@ void main() {
         'downloadedBytes': actual.downloadedBytes,
         'totalBytes': actual.totalBytes,
         'outputBytes': outputBytes,
+        'outputHeadHex': outputHeadHex,
         'outputPath': outputPath,
         'error': timeoutError == null
             ? actual.error
-            : 'Timed out after ${testCase.timeoutSeconds ?? 45}s',
+            : 'Timed out after ${testCase.timeoutSeconds}s',
         'startedAt': started.toIso8601String(),
         'finishedAt': finished.toIso8601String(),
       };
@@ -130,6 +164,13 @@ void main() {
         );
         continue;
       }
+      if (testCase.expectedHeadHexContains != null &&
+          !outputHeadHex.contains(testCase.expectedHeadHexContains!)) {
+        failures.add(
+          '${testCase.id}: output head did not contain ${testCase.expectedHeadHexContains}',
+        );
+        continue;
+      }
       if (testCase.expectedText != null) {
         final text = await outputFile.readAsString();
         if (text != testCase.expectedText) {
@@ -141,7 +182,18 @@ void main() {
     // ignore: avoid_print
     print('FLUXDOWN_E2E_SUMMARY ${jsonEncode(results)}');
     expect(failures, isEmpty);
-  });
+  }, timeout: Timeout.none);
+}
+
+Future<Directory> _resolveBaseDir() async {
+  final override = _baseDirOverride.trim();
+  if (override.isEmpty) {
+    return Directory.systemTemp.createTemp('fluxdown_mobile_protocol_e2e_');
+  }
+
+  final directory = Directory(override);
+  await directory.create(recursive: true);
+  return directory;
 }
 
 List<ProtocolE2eCase> _loadCases() {
@@ -160,16 +212,62 @@ List<ProtocolE2eCase> _loadCases() {
       .toList(growable: false);
 }
 
+Future<String> _readHeadHex(File file) async {
+  if (!await file.exists()) {
+    return '';
+  }
+  final stream = file.openRead(0, 32);
+  final chunks = <int>[];
+  await for (final chunk in stream) {
+    chunks.addAll(chunk);
+  }
+  return chunks.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+}
+
+Future<File> _resolveOutputFile({
+  required Directory outputDir,
+  required String fileName,
+  required String? outputRelativePath,
+  required bool scanForLargest,
+}) async {
+  if (outputRelativePath != null && outputRelativePath.trim().isNotEmpty) {
+    return File(
+      p.joinAll([
+        outputDir.path,
+        ...outputRelativePath.split('/').where((part) => part.isNotEmpty),
+      ]),
+    );
+  }
+
+  final direct = File(p.join(outputDir.path, fileName));
+  if (await direct.exists() || !scanForLargest) {
+    return direct;
+  }
+
+  File? largest;
+  await for (final entity in outputDir.list(recursive: true)) {
+    if (entity is! File) {
+      continue;
+    }
+    if (largest == null || await entity.length() > await largest.length()) {
+      largest = entity;
+    }
+  }
+  return largest ?? direct;
+}
+
 class ProtocolE2eCase {
   const ProtocolE2eCase({
     required this.id,
     required this.source,
     this.fileName,
+    this.outputRelativePath,
     this.maxBytes,
     this.expectedBytes,
     this.expectedText,
     this.expectedState,
     this.expectedErrorContains,
+    this.expectedHeadHexContains,
     this.timeoutSeconds,
   });
 
@@ -178,11 +276,13 @@ class ProtocolE2eCase {
       id: json['id'] as String,
       source: json['source'] as String,
       fileName: json['fileName'] as String?,
+      outputRelativePath: json['outputRelativePath'] as String?,
       maxBytes: json['maxBytes'] as int?,
       expectedBytes: json['expectedBytes'] as int?,
       expectedText: json['expectedText'] as String?,
       expectedState: json['expectedState'] as String?,
       expectedErrorContains: json['expectedErrorContains'] as String?,
+      expectedHeadHexContains: json['expectedHeadHexContains'] as String?,
       timeoutSeconds: json['timeoutSeconds'] as int?,
     );
   }
@@ -190,10 +290,12 @@ class ProtocolE2eCase {
   final String id;
   final String source;
   final String? fileName;
+  final String? outputRelativePath;
   final int? maxBytes;
   final int? expectedBytes;
   final String? expectedText;
   final String? expectedState;
   final String? expectedErrorContains;
+  final String? expectedHeadHexContains;
   final int? timeoutSeconds;
 }

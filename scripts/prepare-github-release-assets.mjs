@@ -267,13 +267,23 @@ function writeReleaseNotes() {
 
   const notes = `# FluxDown ${version}
 
-Multi-platform release built by GitHub Actions.
+这是由 GitHub Actions 构建的多平台发布版本。
+
+## 本次重点
+
+- 移动端队列页重新整理为更紧凑的状态 tab 和任务列表，任务卡片显示开始时间、结束时间、总耗时、已下载/总大小、实时速度和平均速度。
+- 新建任务改为队列页右下角入口，支持粘贴、扫码、另存文件名和保存位置选择。
+- 设置页改为更紧凑的中文默认文档风格，并提供并发下载数、下载线程数、自动重试数、最大下载网速和下载保存位置配置。
+- Android 下载执行支持并发排队、线程数配置、失败重试和可选限速；HTTP Range 服务可用于验证多线程吞吐。
+- Torrent 和 Magnet 在拿到 libtorrent metadata 后会把任务名更新为真实文件名；多文件资源会弹出选择列表，只下载用户选择的内容。
+- HLS 在 Android 端会生成最终 .mp4 文件，并已用本地媒体级 HLS、单文件种子、单文件 Magnet、多文件种子和多文件 Magnet 做真机前台 App 验证。
+- 文档默认入口改为中文，并补充协议测试用例、Android 真机协议报告和下载验证边界说明。
 
 ## Assets
 
 ${assetList}
 
-Signed iOS IPA and debug framework assets are included only when Apple signing secrets are configured.
+签名 iOS IPA 和 debug framework 产物仅在 Apple signing secrets 配置完成后包含。
 `
   writeFileSync(resolve(outputRoot, 'RELEASE_NOTES.md'), notes)
 }

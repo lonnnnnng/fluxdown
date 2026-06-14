@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -13,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/download_controller.dart';
 import 'src/download_task.dart';
+import 'src/mobile_torrent.dart';
 import 'src/protocol.dart';
 
 void main() {
@@ -106,7 +108,7 @@ class AppStrings {
   String get close => language == AppLanguage.zh ? '关闭' : 'Close';
   String get source => language == AppLanguage.zh ? '下载源' : 'Source';
   String get outputFolder =>
-      language == AppLanguage.zh ? '设备上的输出目录' : 'Output folder on device';
+      language == AppLanguage.zh ? '下载保存位置' : 'Download location';
   String get fileName => language == AppLanguage.zh ? '文件名' : 'File name';
   String get fileNameOptional =>
       language == AppLanguage.zh ? '文件名（可选）' : 'File name (optional)';
@@ -116,6 +118,25 @@ class AppStrings {
   String get saveAsFileName =>
       language == AppLanguage.zh ? '另存为文件名' : 'Save as file name';
   String get savePath => language == AppLanguage.zh ? '保存路径' : 'Save path';
+  String get selectTorrentFiles =>
+      language == AppLanguage.zh ? '选择种子内容' : 'Select torrent files';
+  String get selectTorrentFilesHint => language == AppLanguage.zh
+      ? '这个种子包含多个文件，勾选本次要下载的内容。'
+      : 'This torrent contains multiple files. Choose what to download.';
+  String get selectAll => language == AppLanguage.zh ? '全选' : 'Select all';
+  String get selectNone => language == AppLanguage.zh ? '全不选' : 'Select none';
+  String get confirmSelection =>
+      language == AppLanguage.zh ? '确认选择' : 'Confirm';
+  String torrentSelectedCount(int count) =>
+      language == AppLanguage.zh ? '已选择 $count 项' : '$count selected';
+  String get torrentSelectionRequired =>
+      language == AppLanguage.zh ? '请至少选择一个文件。' : 'Select at least one file.';
+  String get torrentMetadataLoading => language == AppLanguage.zh
+      ? '正在读取种子文件列表...'
+      : 'Reading torrent file list...';
+  String get torrentMetadataFailed => language == AppLanguage.zh
+      ? '无法读取这个种子的文件列表。'
+      : 'Could not read this torrent file list.';
   String get storageTotal =>
       language == AppLanguage.zh ? '总磁盘容量' : 'Total storage';
   String get storageUsed =>
@@ -231,6 +252,8 @@ class AppStrings {
   String get endTime => language == AppLanguage.zh ? '结束时间' : 'End time';
   String get averageSpeed =>
       language == AppLanguage.zh ? '平均速度' : 'Average speed';
+  String get errorMessage =>
+      language == AppLanguage.zh ? '错误信息' : 'Error message';
   String get totalElapsed => language == AppLanguage.zh ? '共计耗时' : 'Elapsed';
   String get taskActions =>
       language == AppLanguage.zh ? '任务操作' : 'Task actions';
@@ -424,6 +447,19 @@ String _formatSpeed(int bytesPerSecond) {
   return '${formatBytes(bytesPerSecond)}/s';
 }
 
+int _visibleSpeedBytesPerSecond(DownloadTask task) {
+  if (task.state == DownloadState.running) {
+    return task.currentSpeedBytesPerSecond;
+  }
+  return task.averageSpeedBytesPerSecond;
+}
+
+String _speedTooltip(AppStrings strings, DownloadTask task) {
+  return task.state == DownloadState.running
+      ? strings.realTimeSpeed
+      : strings.averageSpeed;
+}
+
 String _twoDigits(int value) => value.toString().padLeft(2, '0');
 
 String protocolLabel(String protocol) {
@@ -613,6 +649,9 @@ class _DownloadHomeState extends State<DownloadHome> {
     required String source,
     required String outputFolder,
     String? fileName,
+    String? torrentName,
+    List<TorrentFileEntry> torrentFiles = const [],
+    List<int>? selectedTorrentFileIndexes,
   }) async {
     final normalizedSource = source.trim();
     final output = outputFolder.trim();
@@ -629,6 +668,9 @@ class _DownloadHomeState extends State<DownloadHome> {
       source: normalizedSource,
       outputFolder: output,
       fileName: fileName,
+      torrentName: torrentName,
+      torrentFiles: torrentFiles,
+      selectedTorrentFileIndexes: selectedTorrentFileIndexes,
     );
     setState(() {
       queueFilter = QueueFilter.all;
@@ -644,6 +686,7 @@ class _DownloadHomeState extends State<DownloadHome> {
         maxRetries: retryAttempts,
         speedLimitKbps: speedLimitKbps,
         threadCount: downloadThreadCount,
+        onTorrentMetadata: selectTorrentFiles,
       ),
     );
   }
@@ -683,9 +726,10 @@ class _DownloadHomeState extends State<DownloadHome> {
         _showSnack(strings.folderSelectionCancelled);
         return;
       }
-      outputController.text = selected.trim();
+      final normalized = selected.trim();
+      outputController.text = normalized;
       final preferences = await SharedPreferences.getInstance();
-      await preferences.setString(_outputFolderPreferenceKey, selected.trim());
+      await preferences.setString(_outputFolderPreferenceKey, normalized);
       _showSnack(strings.folderSelected);
     } catch (_) {
       if (mounted) {
@@ -737,8 +781,26 @@ class _DownloadHomeState extends State<DownloadHome> {
       maxRetries: retryAttempts,
       speedLimitKbps: speedLimitKbps,
       threadCount: downloadThreadCount,
+      onTorrentMetadata: selectTorrentFiles,
     );
     _scheduleQueue();
+  }
+
+  Future<TorrentFileSelection?> selectTorrentFiles(
+    DownloadTask task,
+    TorrentMetadata metadata,
+  ) async {
+    if (!metadata.hasMultipleFiles) {
+      return TorrentFileSelection(
+        selectedIndexes: metadata.files.map((file) => file.index).toList(),
+      );
+    }
+    if (!mounted) return null;
+    return showTorrentFileSelectionDialog(
+      context,
+      strings: strings,
+      metadata: metadata,
+    );
   }
 
   Future<void> pauseTask(String id) async {
@@ -821,10 +883,20 @@ class _DownloadHomeState extends State<DownloadHome> {
   }
 
   String _preferredOutputPath(DownloadTask task) {
+    if (task.isTorrentLike && task.selectedTorrentFiles.length > 1) {
+      return p.join(task.outputFolder, task.torrentName ?? task.fileName);
+    }
     return p.join(task.outputFolder, _possibleOutputFileNames(task).last);
   }
 
   List<String> _possibleOutputFileNames(DownloadTask task) {
+    if (task.isTorrentLike && task.selectedTorrentFiles.isNotEmpty) {
+      return task.selectedTorrentFiles
+          .expand((file) => [file.path, file.name])
+          .where((name) => name.trim().isNotEmpty)
+          .toSet()
+          .toList(growable: false);
+    }
     final names = <String>[task.fileName];
     final outputName = _taskOutputFileName(task);
     if (outputName != task.fileName) {
@@ -851,7 +923,7 @@ class _DownloadHomeState extends State<DownloadHome> {
             downloadThreadCount: downloadThreadCount,
             retryAttempts: retryAttempts,
             speedLimitKbps: speedLimitKbps,
-            outputFolder: outputController.text,
+            outputFolderListenable: outputController,
             onLanguageChanged: widget.onLanguageChanged,
             onConcurrencyChanged: setQueueConcurrency,
             onDownloadThreadCountChanged: setDownloadThreadCount,
@@ -1005,6 +1077,13 @@ class QueueView extends StatelessWidget {
                     return DownloadTaskCard(
                       strings: strings,
                       task: task,
+                      onToggle: () {
+                        if (task.canPause) {
+                          onPauseTask(task.id);
+                        } else if (task.canRun) {
+                          onStartTask(task.id);
+                        }
+                      },
                       onStart: () => onStartTask(task.id),
                       onPause: () => onPauseTask(task.id),
                       onRemove: () => onRemoveTask(task.id),
@@ -1048,6 +1127,9 @@ class NewTaskDialog extends StatefulWidget {
     required String source,
     required String outputFolder,
     String? fileName,
+    String? torrentName,
+    List<TorrentFileEntry> torrentFiles,
+    List<int>? selectedTorrentFileIndexes,
   })
   onCreate;
 
@@ -1110,6 +1192,20 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
     });
   }
 
+  Future<void> scanSourceFromQr() async {
+    final scanned = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => QrScannerPage(strings: strings)),
+    );
+    if (!mounted || scanned == null) return;
+    final text = scanned.trim();
+    if (text.isEmpty) return;
+    sourceController.text = text;
+    syncSuggestedFileName(text);
+    setState(() {
+      errorText = null;
+    });
+  }
+
   Future<void> pickOutputFolder() async {
     final selected = await widget.onPickOutputFolder();
     if (!mounted || selected == null || selected.trim().isEmpty) return;
@@ -1131,10 +1227,55 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
       busy = true;
       errorText = null;
     });
+    var effectiveFileName = fileNameController.text;
+    String? torrentName;
+    var torrentFiles = const <TorrentFileEntry>[];
+    List<int>? selectedTorrentFileIndexes;
+    if (detectProtocol(normalized) == 'torrent') {
+      try {
+        final metadata = await inspectTorrentMetadataFromSource(normalized);
+        if (!mounted) return;
+        if (metadata == null) {
+          setState(() {
+            busy = false;
+            errorText = strings.torrentMetadataFailed;
+          });
+          return;
+        }
+
+        final selection = await selectTorrentFilesForMetadata(metadata);
+        if (!mounted) return;
+        if (selection == null || selection.selectedIndexes.isEmpty) {
+          setState(() {
+            busy = false;
+            errorText = strings.torrentSelectionRequired;
+          });
+          return;
+        }
+
+        torrentName = metadata.name;
+        torrentFiles = metadata.files;
+        selectedTorrentFileIndexes = selection.selectedIndexes;
+        effectiveFileName = torrentDisplayName(
+          metadata,
+          selectedIndexes: selectedTorrentFileIndexes,
+        );
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          busy = false;
+          errorText = strings.torrentMetadataFailed;
+        });
+        return;
+      }
+    }
     final created = await widget.onCreate(
       source: normalized,
       outputFolder: outputFolderController.text,
-      fileName: fileNameController.text,
+      fileName: effectiveFileName,
+      torrentName: torrentName,
+      torrentFiles: torrentFiles,
+      selectedTorrentFileIndexes: selectedTorrentFileIndexes,
     );
     if (!mounted) return;
     if (created) {
@@ -1144,6 +1285,23 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
     setState(() {
       busy = false;
     });
+  }
+
+  Future<TorrentFileSelection?> selectTorrentFilesForMetadata(
+    TorrentMetadata metadata,
+  ) {
+    if (!metadata.hasMultipleFiles) {
+      return Future.value(
+        TorrentFileSelection(
+          selectedIndexes: metadata.files.map((file) => file.index).toList(),
+        ),
+      );
+    }
+    return showTorrentFileSelectionDialog(
+      context,
+      strings: strings,
+      metadata: metadata,
+    );
   }
 
   void syncSuggestedFileName(String source) {
@@ -1235,6 +1393,27 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                       ),
                     ),
                     IconButton(
+                      tooltip: strings.createFromClipboard,
+                      onPressed: busy ? null : pasteSourceFromClipboard,
+                      icon: const Icon(Icons.content_paste_go, size: 17),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: strings.scanQr,
+                      onPressed: busy ? null : scanSourceFromQr,
+                      icon: const Icon(Icons.qr_code_scanner, size: 17),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    IconButton(
                       tooltip: strings.close,
                       onPressed: busy
                           ? null
@@ -1263,11 +1442,6 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                     errorText: errorText,
                     errorStyle: const TextStyle(fontSize: 11.5),
                     prefixIcon: const Icon(Icons.link, size: 18),
-                    suffixIcon: IconButton(
-                      tooltip: strings.createFromClipboard,
-                      onPressed: busy ? null : pasteSourceFromClipboard,
-                      icon: const Icon(Icons.content_paste_go, size: 18),
-                    ),
                     contentPadding: const EdgeInsets.symmetric(
                       horizontal: 10,
                       vertical: 8,
@@ -1371,6 +1545,225 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                             fontWeight: FontWeight.w900,
                           ),
                           minimumSize: const Size.fromHeight(44),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<TorrentFileSelection?> showTorrentFileSelectionDialog(
+  BuildContext context, {
+  required AppStrings strings,
+  required TorrentMetadata metadata,
+}) {
+  return showDialog<TorrentFileSelection>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) =>
+        TorrentFileSelectionDialog(strings: strings, metadata: metadata),
+  );
+}
+
+class TorrentFileSelectionDialog extends StatefulWidget {
+  const TorrentFileSelectionDialog({
+    required this.strings,
+    required this.metadata,
+    super.key,
+  });
+
+  final AppStrings strings;
+  final TorrentMetadata metadata;
+
+  @override
+  State<TorrentFileSelectionDialog> createState() =>
+      _TorrentFileSelectionDialogState();
+}
+
+class _TorrentFileSelectionDialogState
+    extends State<TorrentFileSelectionDialog> {
+  late final Set<int> selectedIndexes;
+
+  AppStrings get strings => widget.strings;
+
+  @override
+  void initState() {
+    super.initState();
+    selectedIndexes = widget.metadata.files.map((file) => file.index).toSet();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final files = widget.metadata.files;
+
+    return MediaQuery(
+      data: MediaQuery.of(
+        context,
+      ).copyWith(textScaler: const TextScaler.linear(0.86)),
+      child: Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 22),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560, maxHeight: 620),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        strings.selectTorrentFiles,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.titleMedium?.copyWith(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      strings.torrentSelectedCount(selectedIndexes.length),
+                      style: textTheme.labelSmall?.copyWith(
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  strings.selectTorrentFilesHint,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    TextButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          selectedIndexes
+                            ..clear()
+                            ..addAll(files.map((file) => file.index));
+                        });
+                      },
+                      icon: const Icon(Icons.done_all, size: 16),
+                      label: Text(strings.selectAll),
+                    ),
+                    const SizedBox(width: 4),
+                    TextButton.icon(
+                      onPressed: () {
+                        setState(selectedIndexes.clear);
+                      },
+                      icon: const Icon(Icons.remove_done, size: 16),
+                      label: Text(strings.selectNone),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Flexible(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: colorScheme.outlineVariant),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: files.length,
+                      separatorBuilder: (context, index) => Divider(
+                        height: 1,
+                        thickness: 1,
+                        color: colorScheme.outlineVariant,
+                      ),
+                      itemBuilder: (context, index) {
+                        final file = files[index];
+                        final selected = selectedIndexes.contains(file.index);
+                        return CheckboxListTile(
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          value: selected,
+                          onChanged: (value) {
+                            setState(() {
+                              if (value == true) {
+                                selectedIndexes.add(file.index);
+                              } else {
+                                selectedIndexes.remove(file.index);
+                              }
+                            });
+                          },
+                          controlAffinity: ListTileControlAffinity.leading,
+                          title: Text(
+                            file.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${file.path}  ·  ${formatBytes(file.size)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: Text(strings.close),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: selectedIndexes.isEmpty
+                            ? null
+                            : () => Navigator.of(context).pop(
+                                TorrentFileSelection(
+                                  selectedIndexes: selectedIndexes.toList(
+                                    growable: false,
+                                  )..sort(),
+                                ),
+                              ),
+                        icon: const Icon(Icons.check, size: 17),
+                        label: Text(strings.confirmSelection),
+                        style: FilledButton.styleFrom(
+                          textStyle: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                          minimumSize: const Size.fromHeight(42),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
@@ -1925,7 +2318,7 @@ class SettingsView extends StatelessWidget {
     required this.downloadThreadCount,
     required this.retryAttempts,
     required this.speedLimitKbps,
-    required this.outputFolder,
+    required this.outputFolderListenable,
     required this.onLanguageChanged,
     required this.onConcurrencyChanged,
     required this.onDownloadThreadCountChanged,
@@ -1942,7 +2335,7 @@ class SettingsView extends StatelessWidget {
   final int downloadThreadCount;
   final int retryAttempts;
   final int speedLimitKbps;
-  final String outputFolder;
+  final ValueListenable<TextEditingValue> outputFolderListenable;
   final ValueChanged<AppLanguage> onLanguageChanged;
   final ValueChanged<int> onConcurrencyChanged;
   final ValueChanged<int> onDownloadThreadCountChanged;
@@ -1968,20 +2361,28 @@ class SettingsView extends StatelessWidget {
                 onLanguageChanged: onLanguageChanged,
               ),
             ),
-            SettingsCompactRow(
-              icon: Icons.folder_outlined,
-              title: strings.outputFolder,
-              subtitle: outputFolder,
-              trailing: IconButton(
-                tooltip: strings.chooseFolder,
-                onPressed: onPickOutputFolder,
-                icon: const Icon(Icons.drive_folder_upload_outlined, size: 16),
-                constraints: const BoxConstraints.tightFor(
-                  width: 38,
-                  height: 38,
-                ),
-                padding: EdgeInsets.zero,
-              ),
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: outputFolderListenable,
+              builder: (context, value, _) {
+                return SettingsCompactRow(
+                  icon: Icons.folder_outlined,
+                  title: strings.outputFolder,
+                  subtitle: value.text,
+                  trailing: IconButton(
+                    tooltip: strings.chooseFolder,
+                    onPressed: onPickOutputFolder,
+                    icon: const Icon(
+                      Icons.drive_folder_upload_outlined,
+                      size: 16,
+                    ),
+                    constraints: const BoxConstraints.tightFor(
+                      width: 38,
+                      height: 38,
+                    ),
+                    padding: EdgeInsets.zero,
+                  ),
+                );
+              },
             ),
             SettingsNumberInput(
               icon: Icons.speed,
@@ -2789,6 +3190,7 @@ class DownloadTaskCard extends StatelessWidget {
   const DownloadTaskCard({
     required this.strings,
     required this.task,
+    required this.onToggle,
     required this.onStart,
     required this.onPause,
     required this.onRemove,
@@ -2802,6 +3204,7 @@ class DownloadTaskCard extends StatelessWidget {
 
   final AppStrings strings;
   final DownloadTask task;
+  final VoidCallback onToggle;
   final VoidCallback onStart;
   final VoidCallback onPause;
   final VoidCallback onRemove;
@@ -2834,107 +3237,111 @@ class DownloadTaskCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(color: _taskStateBorder(visualState, colorScheme)),
       ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return Stack(
-            children: [
-              if (progress > 0)
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    width: constraints.maxWidth * progress,
-                    color: _taskProgressFill(colorScheme),
+      child: InkWell(
+        onTap: task.canPause || task.canRun ? onToggle : null,
+        onLongPress: () => _showActions(context),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return Stack(
+              children: [
+                if (progress > 0)
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      width: constraints.maxWidth * progress,
+                      color: _taskProgressFill(colorScheme),
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 0, 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _taskOutputFileName(task),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.titleSmall?.copyWith(
+                                fontSize: 13,
+                                color: colorScheme.onSurface,
+                                fontWeight: FontWeight.w900,
+                                height: 1.1,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 4,
+                              children: [
+                                TaskDetailChip(
+                                  icon: Icons.play_circle_outline,
+                                  iconColor: accentColor,
+                                  text: _formatDateTime(task.startedAt),
+                                  tooltip: strings.startTime,
+                                  style: detailStyle,
+                                ),
+                                TaskDetailChip(
+                                  icon: Icons.flag_outlined,
+                                  iconColor: accentColor,
+                                  text: _formatDateTime(task.finishedAt),
+                                  tooltip: strings.endTime,
+                                  style: detailStyle,
+                                ),
+                                TaskDetailChip(
+                                  icon: Icons.timer_outlined,
+                                  iconColor: accentColor,
+                                  text: _formatDuration(task.elapsed),
+                                  tooltip: strings.totalElapsed,
+                                  style: detailStyle,
+                                ),
+                                TaskDetailChip(
+                                  icon: Icons.data_usage,
+                                  iconColor: accentColor,
+                                  text: _formatBytePair(task),
+                                  tooltip: strings.fileSize,
+                                  style: detailStyle,
+                                ),
+                                TaskDetailChip(
+                                  icon: Icons.speed,
+                                  iconColor: accentColor,
+                                  text: _formatSpeed(
+                                    _visibleSpeedBytesPerSecond(task),
+                                  ),
+                                  tooltip: _speedTooltip(strings, task),
+                                  style: detailStyle,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      IconButton(
+                        tooltip: strings.taskActions,
+                        onPressed: () => _showActions(context),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 44,
+                          height: 48,
+                        ),
+                        color: accentColor,
+                        icon: const Icon(Icons.more_vert),
+                      ),
+                    ],
                   ),
                 ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 0, 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _taskOutputFileName(task),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: textTheme.titleSmall?.copyWith(
-                              fontSize: 13,
-                              color: colorScheme.onSurface,
-                              fontWeight: FontWeight.w900,
-                              height: 1.1,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 4,
-                            children: [
-                              TaskDetailChip(
-                                icon: Icons.play_circle_outline,
-                                iconColor: accentColor,
-                                text: _formatDateTime(task.startedAt),
-                                tooltip: strings.startTime,
-                                style: detailStyle,
-                              ),
-                              TaskDetailChip(
-                                icon: Icons.flag_outlined,
-                                iconColor: accentColor,
-                                text: _formatDateTime(task.finishedAt),
-                                tooltip: strings.endTime,
-                                style: detailStyle,
-                              ),
-                              TaskDetailChip(
-                                icon: Icons.timer_outlined,
-                                iconColor: accentColor,
-                                text: _formatDuration(task.elapsed),
-                                tooltip: strings.totalElapsed,
-                                style: detailStyle,
-                              ),
-                              TaskDetailChip(
-                                icon: Icons.data_usage,
-                                iconColor: accentColor,
-                                text: _formatBytePair(task),
-                                tooltip: strings.fileSize,
-                                style: detailStyle,
-                              ),
-                              TaskDetailChip(
-                                icon: Icons.speed,
-                                iconColor: accentColor,
-                                text: _formatSpeed(
-                                  task.averageSpeedBytesPerSecond,
-                                ),
-                                tooltip: strings.averageSpeed,
-                                style: detailStyle,
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                    IconButton(
-                      tooltip: strings.taskActions,
-                      onPressed: () => _showActions(context),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 44,
-                        height: 48,
-                      ),
-                      color: accentColor,
-                      icon: const Icon(Icons.more_vert),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -3250,9 +3657,11 @@ class TaskPropertiesSheet extends StatelessWidget {
             value: _formatDuration(task.elapsed),
           ),
           PropertyRow(
-            label: strings.averageSpeed,
-            value: _formatSpeed(task.averageSpeedBytesPerSecond),
+            label: _speedTooltip(strings, task),
+            value: _formatSpeed(_visibleSpeedBytesPerSecond(task)),
           ),
+          if (task.error != null && task.error!.trim().isNotEmpty)
+            PropertyRow(label: strings.errorMessage, value: task.error!),
         ],
       ),
     );
@@ -3350,8 +3759,8 @@ String _taskOutputFileName(DownloadTask task) {
     return task.fileName;
   }
   final extension = p.extension(task.fileName).toLowerCase();
-  if (extension == '.ts') {
+  if (extension == '.mp4') {
     return task.fileName;
   }
-  return '${p.basenameWithoutExtension(task.fileName)}.ts';
+  return '${p.basenameWithoutExtension(task.fileName)}.mp4';
 }

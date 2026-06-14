@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fluxdown_mobile/src/download_controller.dart';
 import 'package:fluxdown_mobile/src/download_task.dart';
@@ -10,12 +10,37 @@ import 'package:fluxdown_mobile/src/mobile_downloader.dart';
 import 'package:fluxdown_mobile/src/mobile_ftp.dart';
 import 'package:fluxdown_mobile/src/mobile_sftp.dart';
 import 'package:fluxdown_mobile/src/mobile_smb.dart';
+import 'package:fluxdown_mobile/src/mobile_torrent.dart';
 import 'package:fluxdown_mobile/src/protocol.dart';
 import 'package:fluxdown_mobile/src/task_store.dart';
 import 'package:path/path.dart' as p;
 import 'package:pointycastle/export.dart';
 
+const _mediaChannel = MethodChannel('dev.fluxdown.mobile/media');
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  HttpOverrides.global = null;
+
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_mediaChannel, (call) async {
+          if (call.method != 'remuxTsToMp4') {
+            return null;
+          }
+          final arguments = Map<String, Object?>.from(call.arguments as Map);
+          final sourcePath = arguments['sourcePath'] as String;
+          final outputPath = arguments['outputPath'] as String;
+          final outputFile = await File(sourcePath).copy(outputPath);
+          return {'outputBytes': await outputFile.length()};
+        });
+  });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_mediaChannel, null);
+  });
+
   test('detects common protocols', () {
     expect(detectProtocol('https://example.com/file.bin'), 'https');
     expect(detectProtocol('http://example.com/file.bin'), 'http');
@@ -79,6 +104,62 @@ void main() {
     expect(restored.finishedAt, finishedAt);
     expect(restored.elapsed, const Duration(seconds: 5));
     expect(restored.averageSpeedBytesPerSecond, 2048);
+  });
+
+  test('serializes torrent metadata and selected file indexes', () {
+    final task = DownloadTask.create(
+      source: 'https://example.com/bundle.torrent',
+      outputFolder: '/tmp/downloads',
+      fileName: 'movie.mp4',
+      torrentName: 'bundle',
+      torrentFiles: const [
+        TorrentFileEntry(
+          index: 0,
+          path: 'bundle/movie.mp4',
+          name: 'movie.mp4',
+          size: 1024,
+          isStreamable: true,
+        ),
+        TorrentFileEntry(
+          index: 1,
+          path: 'bundle/readme.txt',
+          name: 'readme.txt',
+          size: 128,
+        ),
+      ],
+      selectedTorrentFileIndexes: const [0],
+    );
+
+    final restored = DownloadTask.fromJson(task.toJson());
+
+    expect(restored.torrentName, 'bundle');
+    expect(restored.torrentFiles, hasLength(2));
+    expect(restored.torrentFiles.first.path, 'bundle/movie.mp4');
+    expect(restored.selectedTorrentFileIndexes, [0]);
+    expect(restored.selectedTorrentFiles.single.name, 'movie.mp4');
+    expect(restored.selectedTorrentTotalBytes, 1024);
+  });
+
+  test('parses single-file and multi-file torrent metadata', () {
+    final single = parseTorrentMetadataBytes(
+      utf8Bytes('d4:infod4:name10:sample.mp46:lengthi12345eee'),
+    );
+    expect(single.name, 'sample.mp4');
+    expect(single.files.single.name, 'sample.mp4');
+    expect(single.files.single.size, 12345);
+
+    final multi = parseTorrentMetadataBytes(
+      utf8Bytes(
+        'd4:infod4:name6:bundle5:filesld6:lengthi5e4:pathl9:video.mp4ee'
+        'd6:lengthi3e4:pathl3:sub8:file.srteeeee',
+      ),
+    );
+    expect(multi.name, 'bundle');
+    expect(multi.files, hasLength(2));
+    expect(multi.files.first.path, 'video.mp4');
+    expect(multi.files.last.path, 'sub/file.srt');
+    expect(torrentDisplayName(multi, selectedIndexes: const [0]), 'video.mp4');
+    expect(torrentDisplayName(multi, selectedIndexes: const [0, 1]), 'bundle');
   });
 
   test('freezes mobile task elapsed time while paused', () async {
@@ -737,6 +818,82 @@ void main() {
     }
   });
 
+  test('retries incomplete HTTP Range parts', () async {
+    final payload = List<int>.generate(4096, (index) => index % 251);
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_threaded_http_retry_test_',
+    );
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    var shortResponseSent = false;
+    var rangeRequestCount = 0;
+    final serverDone = server.listen((request) async {
+      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      if (request.method == 'HEAD') {
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentLength = payload.length;
+        await request.response.close();
+        return;
+      }
+
+      final range = request.headers.value(HttpHeaders.rangeHeader);
+      if (range != null) {
+        rangeRequestCount += 1;
+        final match = RegExp(r'bytes=(\d+)-(\d+)').firstMatch(range);
+        final start = int.parse(match!.group(1)!);
+        final end = int.parse(match.group(2)!);
+        request.response
+          ..statusCode = HttpStatus.partialContent
+          ..headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes $start-$end/${payload.length}',
+          );
+        if (!shortResponseSent) {
+          shortResponseSent = true;
+          request.response.add(payload.sublist(start, start + 1));
+        } else {
+          request.response.headers.contentLength = end - start + 1;
+          request.response.add(payload.sublist(start, end + 1));
+        }
+      } else {
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentLength = payload.length;
+        request.response.add(payload);
+      }
+      await request.response.close();
+    });
+
+    try {
+      final source = 'http://${server.address.host}:${server.port}/file.bin';
+      final task = DownloadTask.create(
+        source: source,
+        outputFolder: tempDir.path,
+        fileName: 'threaded-retry.bin',
+      );
+      final runner = MobileDownloadRunner();
+
+      final finished = await runner.downloadHttp(
+        task,
+        threadCount: 4,
+        onProgress: (_) {},
+      );
+
+      expect(finished.state, DownloadState.finished);
+      expect(finished.downloadedBytes, payload.length);
+      expect(shortResponseSent, isTrue);
+      expect(rangeRequestCount, greaterThan(4));
+      expect(
+        await File(p.join(tempDir.path, 'threaded-retry.bin')).readAsBytes(),
+        payload,
+      );
+    } finally {
+      await server.close(force: true);
+      await serverDone.cancel();
+      await tempDir.delete(recursive: true);
+    }
+  });
+
   test('downloads WebDAV files through HTTP transport', () async {
     final payload = utf8Bytes('webdav-payload-data');
     final tempDir = await Directory.systemTemp.createTemp(
@@ -820,7 +977,7 @@ void main() {
     }
   });
 
-  test('downloads simple m3u8 playlists into a transport stream', () async {
+  test('downloads simple m3u8 playlists into an mp4 file', () async {
     final first = [1, 2, 3, 4];
     final second = [5, 6, 7];
     final tempDir = await Directory.systemTemp.createTemp(
@@ -870,11 +1027,96 @@ seg-2.ts
 
       final finished = await runner.download(task, onProgress: (_) {});
       expect(finished.state, DownloadState.finished);
-      expect(finished.fileName, 'playlist.m3u8');
+      expect(finished.fileName, 'playlist.mp4');
       expect(finished.downloadedBytes, first.length + second.length);
-      expect(await File(p.join(tempDir.path, 'playlist.ts')).readAsBytes(), [
+      expect(await File(p.join(tempDir.path, 'playlist.mp4')).readAsBytes(), [
         ...first,
         ...second,
+      ]);
+    } finally {
+      await server.close(force: true);
+      await serverDone.cancel();
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test('downloads m3u8 segments concurrently and preserves order', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_hls_parallel_test_',
+    );
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    var activeSegments = 0;
+    var maxActiveSegments = 0;
+    final serverDone = server.listen((request) async {
+      if (request.uri.path == '/playlist.m3u8') {
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentType = ContentType(
+            'application',
+            'vnd.apple.mpegurl',
+          )
+          ..write('''
+#EXTM3U
+#EXT-X-VERSION:3
+#EXTINF:1,
+seg-1.ts
+#EXTINF:1,
+seg-2.ts
+#EXTINF:1,
+seg-3.ts
+#EXTINF:1,
+seg-4.ts
+#EXTINF:1,
+seg-5.ts
+#EXTINF:1,
+seg-6.ts
+#EXT-X-ENDLIST
+''');
+      } else if (request.uri.path.startsWith('/seg-')) {
+        final value = int.parse(
+          request.uri.path.replaceFirst('/seg-', '').replaceFirst('.ts', ''),
+        );
+        activeSegments += 1;
+        if (activeSegments > maxActiveSegments) {
+          maxActiveSegments = activeSegments;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..add([value]);
+        activeSegments -= 1;
+      } else {
+        request.response.statusCode = HttpStatus.notFound;
+      }
+      await request.response.close();
+    });
+
+    try {
+      final source =
+          'http://${server.address.host}:${server.port}/playlist.m3u8';
+      final task = DownloadTask.create(
+        source: source,
+        outputFolder: tempDir.path,
+      );
+      final runner = MobileDownloadRunner();
+
+      final finished = await runner.download(
+        task,
+        threadCount: 3,
+        onProgress: (_) {},
+      );
+
+      expect(finished.state, DownloadState.finished);
+      expect(finished.downloadedBytes, 6);
+      expect(maxActiveSegments, greaterThan(1));
+      expect(maxActiveSegments, lessThanOrEqualTo(3));
+      expect(await File(p.join(tempDir.path, 'playlist.mp4')).readAsBytes(), [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
       ]);
     } finally {
       await server.close(force: true);
@@ -943,7 +1185,7 @@ variants/high.m3u8
       final finished = await runner.download(task, onProgress: (_) {});
       expect(finished.state, DownloadState.finished);
       expect(finished.downloadedBytes, first.length + second.length);
-      expect(await File(p.join(tempDir.path, 'master.ts')).readAsBytes(), [
+      expect(await File(p.join(tempDir.path, 'master.mp4')).readAsBytes(), [
         ...first,
         ...second,
       ]);
@@ -1041,7 +1283,7 @@ seg-2.ts
       final finished = await runner.download(task, onProgress: (_) {});
       expect(finished.state, DownloadState.finished);
       expect(finished.downloadedBytes, firstPlain.length + secondPlain.length);
-      expect(await File(p.join(tempDir.path, 'playlist.ts')).readAsBytes(), [
+      expect(await File(p.join(tempDir.path, 'playlist.mp4')).readAsBytes(), [
         ...firstPlain,
         ...secondPlain,
       ]);
@@ -1111,6 +1353,7 @@ class _FakeMobileDownloadRunner extends MobileDownloadRunner {
     DownloadTask task, {
     int speedLimitKbps = 0,
     int threadCount = 8,
+    TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
     speedLimitKbpsValues.add(speedLimitKbps);
@@ -1147,6 +1390,7 @@ class _FlakyMobileDownloadRunner extends MobileDownloadRunner {
     DownloadTask task, {
     int speedLimitKbps = 0,
     int threadCount = 8,
+    TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
     attempts += 1;
@@ -1182,6 +1426,7 @@ class _CancellableMobileDownloadRunner extends MobileDownloadRunner {
     DownloadTask task, {
     int speedLimitKbps = 0,
     int threadCount = 8,
+    TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
     if (!started.isCompleted) {
@@ -1218,6 +1463,7 @@ class _PauseThenFinishMobileDownloadRunner extends MobileDownloadRunner {
     DownloadTask task, {
     int speedLimitKbps = 0,
     int threadCount = 8,
+    TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
     _attempt += 1;

@@ -21,7 +21,7 @@
 | `.torrent` | URL 或路径以 `.torrent` 结尾 | 内建 | 内建 | 桌面用 `librqbit`，移动端用 `libtorrent_flutter`。 |
 | Magnet | `magnet:?` | 内建 | 内建 | 依赖 torrent 后端。 |
 | ed2k | `ed2k://` | 移交 | 移交 | 桌面优先 aMule `ed2k` CLI，否则系统 handler；移动端移交兼容 App。 |
-| m3u8/HLS | URL 或路径以 `.m3u8` 结尾 | 内建 | 内建 | VOD 播放列表，支持 AES-128 分片，输出 `.ts`。 |
+| m3u8/HLS | URL 或路径以 `.m3u8` 结尾 | 内建 | 内建 | VOD 播放列表，支持 AES-128 分片；移动端 Android 转封装输出 `.mp4`。 |
 | IPFS | `ipfs://` | 内建 | 内建 | 映射到 `https://ipfs.io/ipfs/...` 公共网关。 |
 | Unknown | 未匹配 | 计划中 | 计划中 | 不会执行下载。 |
 
@@ -125,6 +125,12 @@
 - 使用 `libtorrent_flutter`。
 - 支持 `.torrent` 文件和 Magnet 链接。
 - `.torrent` URL 会先下载到临时文件再添加到引擎。
+- 拿到 libtorrent metadata 后会读取真实文件列表，卡片名从 `.torrent`
+  文件名或临时 magnet 名称更新为真实下载文件名。
+- 单文件种子会自动选择该文件；多文件种子会弹出文件列表供用户选择，
+  并把未选文件的 libtorrent priority 设为 0。
+- 任务 JSON 会保存 `torrentName`、`torrentFiles` 和
+  `selectedTorrentFileIndexes`，用于恢复展示、打开和分享。
 - 该依赖带有 GPL 原生组件，正式分发前必须审查许可证义务。
 
 ### ed2k
@@ -137,8 +143,8 @@
 ### m3u8/HLS
 
 - 支持 VOD playlist、master playlist 首个 variant 和 AES-128 分片解密。
-- 输出 `.ts` 文件。
-- 暂不承诺直播、DRM 或转封装。
+- Android 端先写入临时 TS，再转封装为最终 `.mp4` 文件。
+- 暂不承诺直播、DRM 或复杂码率选择。
 
 ## 支持状态命令
 
