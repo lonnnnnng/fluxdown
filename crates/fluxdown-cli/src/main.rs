@@ -7,6 +7,10 @@ use fluxdown_core::{
 };
 use std::path::PathBuf;
 
+const MIN_CONCURRENCY: usize = 1;
+const MAX_CONCURRENCY: usize = 30;
+const MAX_RETRY_ATTEMPTS: usize = 10;
+
 #[derive(Debug, Parser)]
 #[command(name = "fluxdown")]
 #[command(about = "Cross-platform downloader CLI")]
@@ -152,7 +156,7 @@ async fn main() -> Result<()> {
         } => {
             let report = QueueRunner::new(store)
                 .run_queued_with_options(
-                    concurrency,
+                    clamp_concurrency(concurrency),
                     runner_options(retry_attempts, threads, speed_limit_mbps, restart),
                 )
                 .await?;
@@ -182,7 +186,9 @@ fn runner_options(
     restart_existing: bool,
 ) -> QueueRunnerOptions {
     QueueRunnerOptions {
-        retry_attempts,
+        // 作者: long
+        // CLI 和桌面设置共用同一条业务边界：失败重试最多 10 次，避免终端误传大数导致任务长时间循环。
+        retry_attempts: clamp_retry_attempts(retry_attempts),
         download: download_options(threads, speed_limit_mbps),
         restart_existing,
     }
@@ -197,6 +203,16 @@ fn speed_limit_mbps_to_bps(speed_limit_mbps: Option<f64>) -> Option<u64> {
         .filter(|value| value.is_finite() && *value > 0.0)
         .map(|value| (value * 1024.0 * 1024.0).round() as u64)
         .filter(|value| *value > 0)
+}
+
+fn clamp_concurrency(concurrency: usize) -> usize {
+    // 作者: long
+    // 队列并发和 GUI 设置保持一致，既允许终端脚本容错，也避免一次性启动过多任务压垮本机网络。
+    concurrency.clamp(MIN_CONCURRENCY, MAX_CONCURRENCY)
+}
+
+fn clamp_retry_attempts(retry_attempts: usize) -> usize {
+    retry_attempts.min(MAX_RETRY_ATTEMPTS)
 }
 
 async fn pause_task(store: &TaskStore, id: &str) -> Result<fluxdown_core::DownloadTask> {
@@ -225,5 +241,21 @@ async fn resume_task(store: &TaskStore, id: &str) -> Result<fluxdown_core::Downl
         DownloadState::Finished | DownloadState::Failed => {
             bail!("finished or failed tasks cannot be resumed; start them again explicitly")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_queue_limits_match_product_settings() {
+        let options = runner_options(99, 99, Some(-1.0), false);
+
+        assert_eq!(clamp_concurrency(0), 1);
+        assert_eq!(clamp_concurrency(31), 30);
+        assert_eq!(options.retry_attempts, 10);
+        assert_eq!(options.download.thread_count, 32);
+        assert_eq!(options.download.speed_limit_bps, None);
     }
 }

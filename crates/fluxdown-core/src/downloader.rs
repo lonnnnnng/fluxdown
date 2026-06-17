@@ -37,6 +37,7 @@ use tokio::sync::Mutex;
 use url::Url;
 
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
+const HLS_SEGMENT_ATTEMPTS: usize = 3;
 
 #[derive(Debug, Error)]
 pub enum DownloadError {
@@ -842,22 +843,14 @@ impl DownloadEngine {
                     if is_cancelled(&cancel) {
                         return Err(DownloadError::Paused);
                     }
-                    let response = engine
-                        .client
-                        .get(segment.url)
-                        .send()
-                        .await?
-                        .error_for_status()?;
-                    let mut stream = response.bytes_stream();
-                    let mut bytes = Vec::new();
-                    while let Some(chunk) = stream.next().await {
-                        if is_cancelled(&cancel) {
-                            return Err(DownloadError::Paused);
-                        }
-                        let chunk = chunk?;
-                        limiter.wait(chunk.len() as u64).await;
-                        bytes.extend_from_slice(&chunk);
-                    }
+                    let bytes = engine
+                        .fetch_hls_segment_with_retry(
+                            segment.url,
+                            limiter,
+                            cancel.clone(),
+                            HLS_SEGMENT_ATTEMPTS,
+                        )
+                        .await?;
                     let mut key_cache = HashMap::new();
                     let segment_bytes = engine
                         .decode_hls_segment(
@@ -921,6 +914,58 @@ impl DownloadEngine {
             total_bytes: Some(output_bytes),
             segments_written: Some(segments_written),
         })
+    }
+
+    async fn fetch_hls_segment_with_retry(
+        &self,
+        url: Url,
+        limiter: DownloadSpeedLimiter,
+        cancel: Option<CancelToken>,
+        attempts: usize,
+    ) -> Result<Vec<u8>, DownloadError> {
+        let attempts = attempts.max(1);
+        let mut last_error = None;
+        for attempt in 0..attempts {
+            if is_cancelled(&cancel) {
+                return Err(DownloadError::Paused);
+            }
+            match self
+                .fetch_hls_segment_bytes(url.clone(), limiter.clone(), cancel.clone())
+                .await
+            {
+                Ok(bytes) => return Ok(bytes),
+                Err(DownloadError::Paused) => return Err(DownloadError::Paused),
+                Err(error) => {
+                    last_error = Some(error);
+                    if attempt + 1 < attempts {
+                        // 作者: long
+                        // HLS 分片常见于大量短连接，局域网或本机服务偶发 reset 时短重试能保住整条下载。
+                        tokio::time::sleep(Duration::from_millis(150 * (attempt as u64 + 1))).await;
+                    }
+                }
+            }
+        }
+        Err(last_error.expect("at least one HLS segment attempt has run"))
+    }
+
+    async fn fetch_hls_segment_bytes(
+        &self,
+        url: Url,
+        limiter: DownloadSpeedLimiter,
+        cancel: Option<CancelToken>,
+    ) -> Result<Vec<u8>, DownloadError> {
+        let response = self.client.get(url).send().await?.error_for_status()?;
+        let mut stream = response.bytes_stream();
+        let mut bytes = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            if is_cancelled(&cancel) {
+                return Err(DownloadError::Paused);
+            }
+            let chunk = chunk?;
+            limiter.wait(chunk.len() as u64).await;
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(bytes)
     }
 
     async fn decode_hls_segment(
@@ -2264,6 +2309,71 @@ fn main() {{
         assert_eq!(
             fs::read(temp_dir.path().join("playlist.ts")).await.unwrap(),
             [first_plain, second_plain].concat(),
+        );
+        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn retries_hls_segment_connection_reset() {
+        let failed_segment_requests = Arc::new(AtomicUsize::new(0));
+        let server_failed_segment_requests = Arc::clone(&failed_segment_requests);
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/playlist.m3u8", server.local_addr().unwrap());
+        let server_task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = server.accept().await else {
+                    return;
+                };
+                let mut buffer = [0; 1024];
+                let Ok(read) = stream.read(&mut buffer).await else {
+                    continue;
+                };
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                if path == "/seg-1.ts"
+                    && server_failed_segment_requests.fetch_add(1, AtomicOrdering::SeqCst) == 0
+                {
+                    continue;
+                }
+                let (status, content_type, body): (&str, &str, Vec<u8>) = match path {
+                    "/playlist.m3u8" => (
+                        "200 OK",
+                        "application/vnd.apple.mpegurl",
+                        b"#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1,\nseg-1.ts\n#EXTINF:1,\nseg-2.ts\n#EXT-X-ENDLIST\n"
+                            .to_vec(),
+                    ),
+                    "/seg-1.ts" => ("200 OK", "video/mp2t", b"first segment".to_vec()),
+                    "/seg-2.ts" => ("200 OK", "video/mp2t", b"second segment".to_vec()),
+                    _ => ("404 Not Found", "text/plain", b"not found".to_vec()),
+                };
+                let header = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(header.as_bytes()).await;
+                let _ = stream.write_all(&body).await;
+                let _ = stream.shutdown().await;
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let summary = DownloadEngine::new()
+            .download_with_options(
+                DownloadRequest::new(source, temp_dir.path()),
+                DownloadOptions::new(1, None),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(failed_segment_requests.load(AtomicOrdering::SeqCst), 2);
+        assert_eq!(summary.segments_written, Some(2));
+        assert_eq!(
+            fs::read(temp_dir.path().join("playlist.ts")).await.unwrap(),
+            b"first segmentsecond segment"
         );
         server_task.abort();
     }
