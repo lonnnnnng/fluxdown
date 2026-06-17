@@ -38,6 +38,9 @@ use url::Url;
 
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
 const HLS_SEGMENT_ATTEMPTS: usize = 3;
+const TORRENT_STALL_TIMEOUT: Duration = Duration::from_secs(45);
+const TORRENT_LISTEN_PORT_START: u16 = 49152;
+const TORRENT_LISTEN_PORT_END: u16 = 65535;
 
 #[derive(Debug, Error)]
 pub enum DownloadError {
@@ -82,6 +85,14 @@ pub enum DownloadError {
     HlsDecrypt(String),
     #[error("HLS MP4 remux failed: {0}")]
     HlsRemux(String),
+    #[error(
+        "torrent made no download progress for {elapsed_secs}s ({downloaded_bytes}/{total_bytes} bytes); check tracker and peers"
+    )]
+    TorrentStalled {
+        downloaded_bytes: u64,
+        total_bytes: u64,
+        elapsed_secs: u64,
+    },
     #[error("invalid ftp url: {0}")]
     InvalidFtpUrl(String),
     #[error("invalid sftp url: {0}")]
@@ -657,10 +668,7 @@ impl DownloadEngine {
         let add_torrent = torrent_source(&request.source, protocol).await?;
         let session = Session::new_with_opts(
             request.output_dir.clone(),
-            SessionOptions {
-                ratelimits: torrent_rate_limits(options.speed_limit_bps),
-                ..Default::default()
-            },
+            torrent_session_options(options.speed_limit_bps),
         )
         .await?;
         let handle = session
@@ -682,6 +690,8 @@ impl DownloadEngine {
             initial_stats.progress_bytes,
             Some(initial_stats.total_bytes),
         );
+        let mut last_progress_at = Instant::now();
+        let mut last_progress_bytes = initial_stats.progress_bytes;
 
         let wait_handle = handle.clone();
         let mut wait_task = tokio::spawn(async move { wait_handle.wait_until_completed().await });
@@ -702,6 +712,20 @@ impl DownloadEngine {
                 _ = interval.tick() => {
                     let stats = handle.stats();
                     emit_progress(&progress, stats.progress_bytes, Some(stats.total_bytes));
+                    if stats.progress_bytes > last_progress_bytes {
+                        last_progress_at = Instant::now();
+                        last_progress_bytes = stats.progress_bytes;
+                    } else if stats.total_bytes > 0
+                        && stats.progress_bytes < stats.total_bytes
+                        && last_progress_at.elapsed() >= TORRENT_STALL_TIMEOUT
+                    {
+                        session.stop().await;
+                        return Err(DownloadError::TorrentStalled {
+                            downloaded_bytes: stats.progress_bytes,
+                            total_bytes: stats.total_bytes,
+                            elapsed_secs: last_progress_at.elapsed().as_secs(),
+                        });
+                    }
                 }
             }
         }
@@ -1220,6 +1244,19 @@ fn torrent_rate_limits(speed_limit_bps: Option<u64>) -> LimitsConfig {
     LimitsConfig {
         upload_bps: None,
         download_bps: speed_limit_nonzero_u32(speed_limit_bps),
+    }
+}
+
+fn torrent_session_options(speed_limit_bps: Option<u64>) -> SessionOptions {
+    SessionOptions {
+        // 作者: long
+        // BitTorrent 需要监听 peer 端口，tracker 才能把本机作为可连接下载端告诉做种方。
+        listen_port_range: Some(TORRENT_LISTEN_PORT_START..TORRENT_LISTEN_PORT_END),
+        // 作者: long
+        // CLI/桌面下载是一次性任务，禁用全局 DHT 持久化可避免多个本地会话争用同一份 DHT 端口状态。
+        disable_dht_persistence: true,
+        ratelimits: torrent_rate_limits(speed_limit_bps),
+        ..Default::default()
     }
 }
 
@@ -2237,6 +2274,18 @@ fn main() {{
         let decrypted = decrypt_hls_aes128(&ciphertext, key, iv).unwrap();
 
         assert_eq!(decrypted, plain);
+    }
+
+    #[test]
+    fn torrent_session_options_enable_peer_listener() {
+        let options = torrent_session_options(Some(1024));
+
+        assert_eq!(
+            options.listen_port_range,
+            Some(TORRENT_LISTEN_PORT_START..TORRENT_LISTEN_PORT_END)
+        );
+        assert!(options.disable_dht_persistence);
+        assert!(options.ratelimits.download_bps.is_some());
     }
 
     #[tokio::test]
