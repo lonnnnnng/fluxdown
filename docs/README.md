@@ -23,7 +23,7 @@ FluxDown 是一个跨平台下载器工作区：
 - 移动端：Android 和 iPhone，使用 Flutter App。
 - 共享核心：Rust core crate 提供协议检测、任务模型、任务存储、队列运行器和桌面下载执行能力。
 
-当前版本号为 `1.0.2`。发布流水线在 `.github/workflows/build.yml` 中定义，标签 `v*` 会触发 GitHub Release 发布。
+当前版本号为 `1.0.2`。发布流水线在 `.github/workflows/build.yml` 中定义，只允许在 GitHub Actions 页面手动触发；普通代码推送和 `v*` 标签推送都不会自动执行。
 
 ## 当前版本重点
 
