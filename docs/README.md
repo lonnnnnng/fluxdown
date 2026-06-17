@@ -34,6 +34,7 @@ FluxDown 是一个跨平台下载器工作区：
 - 下载执行逻辑接入并发排队、线程数、失败重试和可选限速配置。
 - Torrent/Magnet 在获取 metadata 后使用真实文件名；多文件资源会让用户选择要下载的文件。
 - Android 真机已补充本地协议资源和媒体级 HLS/torrent/magnet 前台 App 验证报告。
+- macOS CLI 已补充本地 HTTP/HLS/Torrent/Magnet 真实下载、限速、重试、暂停继续和并发排队验证；macOS GUI 已补充构建、启动和基础渲染验证。
 
 ## 维护原则
 

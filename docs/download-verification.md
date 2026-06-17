@@ -1,20 +1,20 @@
 # 下载验证状态
 
-截至 2026-06-14，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证。
+截至 2026-06-18，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证，macOS CLI 已补充本地 HTTP/HLS/Torrent/Magnet 真实下载验证，macOS GUI 已完成本地构建、启动和基础界面渲染验证。
 
 本页用于区分两类容易混淆的结论：
 
 - 构建、测试、CI 和 Release artifact 校验：确认代码能编译、测试能跑、产物存在且非空。
 - 真实下载端到端验证：在目标平台安装或启动对应 CLI/GUI/App，添加下载任务，并确认文件真实写入完成。
 
-当前可以确认的是构建和自动化测试覆盖较多，Android 真机覆盖了一批真实下载场景，但仍不能表述为“所有端都下载验证通过”。
+当前可以确认的是构建和自动化测试覆盖较多，Android 真机覆盖了一批真实下载场景，macOS CLI 覆盖了核心下载闭环；但仍不能表述为“所有端都下载验证通过”。
 
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
 | --- | --- | --- |
-| 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试和本地 HTTP 下载检查覆盖最多。 | 部分完成 |
-| macOS GUI | 已有 Tauri 构建、DMG 和 CI artifact 检查。没有安装 GUI 后通过界面完成下载验证。 | 未完成 |
+| 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/Torrent/Magnet 真实下载、限速、失败重试、暂停继续和并发排队均已验证。 | 部分完成 |
+| macOS GUI | 已完成 Tauri `.app` 构建、本地启动、窗口渲染和设置/任务操作 Tauri command 回归测试。Computer Use 读取 Tauri 窗口会被 macOS 权限弹窗卡住，尚未完成纯 GUI 点击创建任务并下载的闭环。 | 部分完成 |
 | Windows GUI | 已有 CI/Docker 构建产物和 artifact 检查。没有在 Windows 上安装或运行 GUI 完成下载验证。 | 未完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
 | Android App | 已在 Redmi Note 8 Pro 真机安装并通过正常 App 队列完成本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB/IPFS、小 HLS、小 torrent、小 magnet，以及 2026-06-14 媒体级 HLS、单文件 torrent、单文件 magnet、多文件 torrent 和多文件 magnet 选择下载验证。 | 部分完成 |
@@ -24,20 +24,20 @@
 
 | 协议/能力 | 当前验证情况 | 备注 |
 | --- | --- | --- |
-| HTTP/HTTPS | CLI 和核心层有本地下载验证。 | 证据最充分。 |
+| HTTP/HTTPS | CLI 和核心层有本地下载验证；2026-06-18 macOS CLI 已验证直接下载、队列下载、限速、失败重试、暂停继续和并发排队。 | 证据最充分。 |
 | WebDAV/WebDAVS | 核心层验证了 URL 到 HTTP/HTTPS 传输的映射和本地下载路径。 | 仍需要真实 WebDAV 服务端验证。 |
-| m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片和 master playlist 首个变体；Android 真机已验证媒体级 HLS 可生成最终 `.mp4`。 | 仍需要更多公网和边界 playlist 验证。 |
+| m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片和 master playlist 首个变体；Android 真机和 macOS CLI 均已验证媒体级 HLS 可生成最终 `.mp4`。 | 仍需要更多公网和边界 playlist 验证。 |
 | FTP/FTPS | 有实现和 URL 解析测试。 | 缺少真实 FTP/FTPS 服务端下载闭环。 |
 | SFTP | 有实现和 URL 解析测试。 | 缺少真实 SFTP 服务端下载闭环。 |
 | SMB | 有实现和 URL 解析测试。 | 缺少真实 SMB 共享下载闭环。 |
-| BitTorrent `.torrent` | Android 真机已验证本地小种子、媒体级单文件种子和多文件种子选择下载。 | 其他端仍需要真实下载验证。 |
-| Magnet | Android 真机已验证本地小磁力、媒体级单文件 magnet 和多文件 magnet 选择下载。 | 其他端仍需要真实下载验证。 |
+| BitTorrent `.torrent` | Android 真机已验证本地小种子、媒体级单文件种子和多文件种子选择下载；macOS CLI 已验证单文件和多文件本地种子真实下载、真实文件名/目录名和 SHA-256。 | Windows/Linux GUI 仍需要真实下载验证。 |
+| Magnet | Android 真机已验证本地小磁力、媒体级单文件 magnet 和多文件 magnet 选择下载；macOS CLI 已验证本地 magnet metadata 获取、真实文件名和 SHA-256。 | Windows/Linux GUI 仍需要真实下载验证。 |
 | ed2k | 核心层验证了 aMule `ed2k` CLI 移交路径。 | FluxDown 不掌控外部客户端的实际下载完成状态。 |
 | IPFS | 有网关映射实现。 | 缺少真实 IPFS 网关下载闭环。 |
 
 ## 当前准确表述
 
-FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、部分核心协议下载测试和 Android 真机 App 下载验证，但尚未完成每个平台 CLI/GUI/App 安装或启动后的真实下载端到端验证。
+FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、核心协议下载测试、Android 真机 App 下载验证和 macOS CLI 本地协议真实下载验证，但尚未完成每个平台 CLI/GUI/App 安装或启动后的真实下载端到端验证。
 
 在完成目标系统上的安装、启动、任务添加、下载完成和文件校验前，不应宣称对应端已经通过下载验证。
 
@@ -47,3 +47,54 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 2. 逐端验证最小闭环：CLI、macOS GUI、Linux GUI、Windows GUI、Android App、iPhone App。
 3. 每次验证记录：平台、版本、安装方式、下载源、输出路径、文件大小、校验和、失败日志。
 4. 再补真实公网协议：torrent、magnet、IPFS、ed2k 外部客户端移交。
+
+## 2026-06-18 macOS CLI/GUI 验证记录
+
+### 环境
+
+- 平台：macOS 本机，仓库分支 `main`。
+- 构建版本：`1.0.2`。
+- 本地资源目录：`../local_protocol_resources`。
+- 本机局域网 IP：`192.168.1.7`，本轮 CLI 下载主要使用 `127.0.0.1` 本地服务。
+- 本地 HTTP 服务：`python3 -m http.server 8765 --bind 127.0.0.1 --directory ../local_protocol_resources`。
+- 本地 Torrent tracker：`python3 ../local_protocol_resources/local_bt_tracker.py --host 0.0.0.0 --port 6969`。
+- 本地 seeder：`transmission-daemon -g ../local_protocol_resources/transmission-config -f`。
+
+### 构建和自动化检查
+
+| 检查项 | 结果 |
+| --- | --- |
+| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 9、core 44、desktop 9。 |
+| `cargo build -p fluxdown-cli --release` | 通过，生成 `target/release/fluxdown`。 |
+| `npm --workspace apps/desktop run build` | 通过。 |
+| `npm run desktop:build` | 通过，生成 `target/release/bundle/macos/FluxDown.app`。 |
+| `target/release/fluxdown doctor` | 通过；内建 HTTP/HTTPS/WebDAV/FTP/FTPS/Torrent/Magnet/m3u8/SFTP/SMB/IPFS 可执行；ed2k 为系统移交，当前 PATH 缺少可选 `ed2k` CLI。 |
+
+### CLI 真实下载
+
+| 用例 | 下载源 | 结果 |
+| --- | --- | --- |
+| HTTP 直接下载 | `http://127.0.0.1:8765/multi/20260614_bundle/readme.txt` | 通过，输出 `readme.txt`，SHA-256 为 `4b75951c517de7955172428fa7030caa7ad837580bcee33095208491031eaf93`。 |
+| HTTP 队列下载 | 同上，通过 `add`、`list`、`run --concurrency 1 --threads 4` | 通过，任务 `queued -> finished`，`total_bytes=43`，输出 hash 一致。 |
+| HLS 媒体下载 | `http://127.0.0.1:8765/hls/index.m3u8` | 通过，232 个分片输出 `index.mp4`，大小 `388653222` bytes；`ffprobe` 可识别为 `mov,mp4,m4a,3gp,3g2,mj2`，duration `1514.481333`。 |
+| 单文件 Torrent | `../local_protocol_resources/torrent/20260614.torrent` | 通过，metadata 后输出真实文件名 `20260614.mp4`，SHA-256 为 `4df2d9155b5714274f91beda0029041d9ef880f2996172adfd5bc5e29db42650`。 |
+| 单文件 Magnet | `../local_protocol_resources/torrent/20260614.magnet.txt` 中的 magnet | 通过，metadata 后输出真实文件名 `20260614.mp4`，SHA-256 同源文件。 |
+| 多文件 Torrent | `../local_protocol_resources/multi_torrent/20260614_bundle.torrent` | 通过，输出真实目录 `20260614_bundle`，内部 `20260614.mp4` 和 `readme.txt` 的 SHA-256 均与源文件一致。 |
+| 限速 | `seg_00047.ts`，`--speed-limit-mbps 0.5` | 通过，4.7 MB 文件耗时约 10 秒。 |
+| 失败重试 | 404 源，`--retry-attempts 2` | 通过，服务端看到 3 次请求，任务最终 `failed` 并记录 404 错误。 |
+| 暂停/继续 | `seg_00047.ts` 限速下载中暂停，再 `resume` 和 `run` | 通过，暂停时 partial 文件约 0.9 MB，恢复后完成，SHA-256 与源文件一致。 |
+| 并发排队 | 两个约 4.5 MB 文件，`--speed-limit-mbps 1` | 通过，并发 1 耗时约 9 秒且串行开始；并发 2 耗时约 5 秒且同时开始。 |
+
+### macOS GUI
+
+| 用例 | 结果 |
+| --- | --- |
+| 本地 `.app` 构建 | 通过，`target/release/bundle/macos/FluxDown.app` 生成。 |
+| 启动和窗口 | 通过，`FluxDown` 前台窗口尺寸约 `1180x760`，bundle id `dev.fluxdown.desktop`，版本 `1.0.2`。 |
+| UI 渲染 | 通过，截图确认中文下载列表、状态 tabs、设置入口和右下角新建按钮正常显示。 |
+| Tauri command 回归 | 通过，桌面测试覆盖任务输出路径、HLS 输出路径、暂停/恢复边界、手动启动并发约束、设置边界和保存路径解析。 |
+| 纯 GUI 下载闭环 | 未完成。Computer Use 读取 Tauri 窗口时被 macOS 权限弹窗卡住；本轮没有通过鼠标/键盘在 GUI 中创建并完成下载任务。 |
+
+### 清理状态
+
+验证结束后已确认无 `http.server 8765`、`local_bt_tracker`、`transmission-daemon`、`fluxdown-desktop` 残留进程，`8765`、`6969`、`51413` 端口无监听。
