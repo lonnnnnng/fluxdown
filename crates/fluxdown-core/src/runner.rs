@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc};
 
+const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
 #[derive(Debug, Error)]
 pub enum QueueRunnerError {
     #[error(transparent)]
@@ -63,6 +65,9 @@ impl QueueRunner {
         options: QueueRunnerOptions,
     ) -> Result<QueueRunReport, QueueRunnerError> {
         let concurrency = concurrency.max(1);
+        self.store
+            .recover_stale_running(STALE_RUNNING_TASK_TIMEOUT)
+            .await?;
         let tasks = self.store.list().await?;
         // 作者: long
         // 并发下载数约束的是全局正在执行的任务数量，已经运行的任务必须先占用槽位，新任务才会老实排队。
@@ -449,6 +454,35 @@ mod tests {
         assert_eq!(report.total_queued, 1);
         assert_eq!(report.started, 0);
         assert_eq!(still_queued.state, DownloadState::Queued);
+        let _ = tokio::fs::remove_file(path).await;
+    }
+
+    #[tokio::test]
+    async fn run_queue_recovers_stale_running_tasks_before_scheduling() {
+        let path =
+            std::env::temp_dir().join(format!("fluxdown-runner-{}.json", uuid::Uuid::new_v4()));
+        let store = TaskStore::new(&path);
+        let running = store
+            .enqueue(DownloadRequest::new("http://127.0.0.1:9/stale.bin", "/tmp"))
+            .await
+            .unwrap();
+        store
+            .enqueue(DownloadRequest::new("unknown://example", "/tmp"))
+            .await
+            .unwrap();
+        let mut running_task = running.clone();
+        running_task.set_state(DownloadState::Running);
+        running_task.updated_at_ms = running_task.updated_at_ms.saturating_sub(10 * 60 * 1000);
+        store.update(running_task).await.unwrap();
+
+        let report = QueueRunner::new(store.clone()).run_queued(1).await.unwrap();
+        let recovered = store.get(&running.id).await.unwrap();
+
+        assert_eq!(report.total_queued, 1);
+        assert_eq!(report.started, 1);
+        assert_eq!(report.failed, 1);
+        assert_eq!(recovered.state, DownloadState::Paused);
+        assert!(recovered.error.unwrap().contains("任务中断"));
         let _ = tokio::fs::remove_file(path).await;
     }
 

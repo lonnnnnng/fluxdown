@@ -6,10 +6,12 @@ use fluxdown_core::{
     runtime_support_status,
 };
 use std::path::PathBuf;
+use std::time::Duration;
 
 const MIN_CONCURRENCY: usize = 1;
 const MAX_CONCURRENCY: usize = 30;
 const MAX_RETRY_ATTEMPTS: usize = 10;
+const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug, Parser)]
 #[command(name = "fluxdown")]
@@ -130,6 +132,9 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&task)?);
         }
         Command::List => {
+            store
+                .recover_stale_running(STALE_RUNNING_TASK_TIMEOUT)
+                .await?;
             println!("{}", serde_json::to_string_pretty(&store.list().await?)?);
         }
         Command::Start {

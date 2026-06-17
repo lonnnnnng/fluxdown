@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use std::time::Duration;
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use tokio::fs;
@@ -131,6 +132,35 @@ impl TaskStore {
             .ok_or_else(|| TaskStoreError::NotFound(id.to_string()))
     }
 
+    pub async fn recover_stale_running(
+        &self,
+        max_age: Duration,
+    ) -> Result<Vec<DownloadTask>, TaskStoreError> {
+        let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        let mut file = self.read_file().await?;
+        let now = now_ms();
+        let max_age_ms = max_age.as_millis();
+        let mut recovered = Vec::new();
+
+        for task in &mut file.tasks {
+            if task.state != DownloadState::Running {
+                continue;
+            }
+            if now.saturating_sub(task.updated_at_ms) < max_age_ms {
+                continue;
+            }
+
+            task.pause_after_interruption();
+            recovered.push(task.clone());
+        }
+
+        if !recovered.is_empty() {
+            self.write_file(&file).await?;
+        }
+
+        Ok(recovered)
+    }
+
     async fn read_file(&self) -> Result<TaskStoreFile, TaskStoreError> {
         if !self.path.exists() {
             return Ok(TaskStoreFile::default());
@@ -170,6 +200,13 @@ fn persist_atomically(path: &Path, bytes: &[u8]) -> Result<(), std::io::Error> {
         .persist(path)
         .map_err(|error| std::io::Error::new(error.error.kind(), error.error))?;
     Ok(())
+}
+
+fn now_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
 }
 
 pub fn default_store_path() -> PathBuf {
@@ -231,5 +268,52 @@ mod tests {
             entry_count += 1;
         }
         assert_eq!(entry_count, 1);
+    }
+
+    #[tokio::test]
+    async fn recovers_stale_running_tasks_as_paused() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let task = store
+            .enqueue(DownloadRequest::new("https://example.com/file.bin", "/tmp"))
+            .await
+            .unwrap();
+        let mut running = task;
+        running.set_state(DownloadState::Running);
+        running.updated_at_ms = running.updated_at_ms.saturating_sub(10_000);
+        store.update(running.clone()).await.unwrap();
+
+        let recovered = store
+            .recover_stale_running(Duration::from_secs(1))
+            .await
+            .unwrap();
+        let persisted = store.get(&running.id).await.unwrap();
+
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(persisted.state, DownloadState::Paused);
+        assert_eq!(persisted.current_speed_bytes_per_second, 0);
+        assert!(persisted.error.unwrap().contains("任务中断"));
+    }
+
+    #[tokio::test]
+    async fn keeps_recent_running_tasks_active() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let task = store
+            .enqueue(DownloadRequest::new("https://example.com/file.bin", "/tmp"))
+            .await
+            .unwrap();
+        let mut running = task;
+        running.set_state(DownloadState::Running);
+        store.update(running.clone()).await.unwrap();
+
+        let recovered = store
+            .recover_stale_running(Duration::from_secs(60))
+            .await
+            .unwrap();
+        let persisted = store.get(&running.id).await.unwrap();
+
+        assert!(recovered.is_empty());
+        assert_eq!(persisted.state, DownloadState::Running);
     }
 }

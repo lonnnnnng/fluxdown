@@ -133,6 +133,13 @@ impl DownloadTask {
         self.error = Some(error.into());
     }
 
+    pub fn pause_after_interruption(&mut self) {
+        // 作者: long
+        // 进程异常退出后持久化队列里会残留 running；恢复成 paused 能保留断点，同时释放并发槽位。
+        self.set_state(DownloadState::Paused);
+        self.error = Some("任务中断，已暂停，可继续下载".to_string());
+    }
+
     pub fn reset_for_restart(&mut self) {
         self.downloaded_bytes = 0;
         self.total_bytes = None;

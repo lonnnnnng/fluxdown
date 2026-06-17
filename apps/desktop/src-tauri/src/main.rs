@@ -8,7 +8,10 @@ use std::{
     env,
     path::{Path, PathBuf},
     process::Command,
+    time::Duration,
 };
+
+const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug, Deserialize)]
 struct AddPayload {
@@ -351,6 +354,9 @@ fn reveal_path(path: &Path) -> Result<(), String> {
 async fn migrate_download_paths(
     store: &TaskStore,
 ) -> Result<Vec<DownloadTask>, fluxdown_core::TaskStoreError> {
+    store
+        .recover_stale_running(STALE_RUNNING_TASK_TIMEOUT)
+        .await?;
     let tasks = store.list().await?;
     let mut migrated = Vec::with_capacity(tasks.len());
     for mut task in tasks {
