@@ -92,7 +92,9 @@ impl DownloadTask {
         self.state = state;
         match state {
             DownloadState::Running => {
-                self.started_at_ms = Some(millis);
+                if self.started_at_ms.is_none() {
+                    self.started_at_ms = Some(millis);
+                }
                 self.finished_at_ms = None;
             }
             DownloadState::Finished | DownloadState::Failed => {
@@ -129,6 +131,16 @@ impl DownloadTask {
     pub fn fail(&mut self, error: impl Into<String>) {
         self.set_state(DownloadState::Failed);
         self.error = Some(error.into());
+    }
+
+    pub fn reset_for_restart(&mut self) {
+        self.downloaded_bytes = 0;
+        self.total_bytes = None;
+        self.current_speed_bytes_per_second = 0;
+        self.error = None;
+        self.started_at_ms = None;
+        self.finished_at_ms = None;
+        self.updated_at_ms = now_ms();
     }
 }
 
@@ -177,5 +189,28 @@ mod tests {
         assert!(task.finished_at_ms.is_some());
         assert!(task.finished_at_ms >= task.started_at_ms);
         assert_eq!(task.current_speed_bytes_per_second, 0);
+    }
+
+    #[test]
+    fn retry_keeps_first_start_time_until_explicit_restart() {
+        let mut task = DownloadTask::from_request(DownloadRequest::new(
+            "https://example.com/file.bin",
+            "/tmp",
+        ));
+
+        task.set_state(DownloadState::Running);
+        let first_started_at = task.started_at_ms;
+        task.fail("temporary failure");
+
+        task.set_state(DownloadState::Running);
+        assert_eq!(task.started_at_ms, first_started_at);
+        assert_eq!(task.finished_at_ms, None);
+
+        task.reset_for_restart();
+        assert_eq!(task.downloaded_bytes, 0);
+        assert_eq!(task.total_bytes, None);
+        assert_eq!(task.error, None);
+        assert_eq!(task.started_at_ms, None);
+        assert_eq!(task.finished_at_ms, None);
     }
 }

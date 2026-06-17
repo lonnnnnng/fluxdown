@@ -143,8 +143,7 @@ async fn run_one_with_retry(
     let max_attempts = options.retry_attempts.saturating_add(1);
     if options.restart_existing {
         remove_existing_outputs(&task).await;
-        task.set_progress(0, None);
-        task.error = None;
+        task.reset_for_restart();
     }
     for attempt in 0..max_attempts {
         let report = run_one(
