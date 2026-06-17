@@ -547,13 +547,13 @@ function App() {
     try {
       const report = await invoke<TaskRunReport>("start_download", {
         id: task.id,
-        retry_attempts: settings.retryAttempts,
-        thread_count: settings.threadCount,
-        speed_limit_mbps:
+        retryAttempts: settings.retryAttempts,
+        threadCount: settings.threadCount,
+        speedLimitMbps:
           settings.speedLimitMbps && settings.speedLimitMbps > 0
             ? settings.speedLimitMbps
             : null,
-        restart_existing: restartExisting,
+        restartExisting,
       });
       setTasks((current) =>
         current.map((item) => (item.id === task.id ? report.task : item)),
@@ -612,13 +612,13 @@ function App() {
     try {
       const report = await invoke<QueueRunReport>("run_queue", {
         concurrency: settings.concurrency,
-        retry_attempts: settings.retryAttempts,
-        thread_count: settings.threadCount,
-        speed_limit_mbps:
+        retryAttempts: settings.retryAttempts,
+        threadCount: settings.threadCount,
+        speedLimitMbps:
           settings.speedLimitMbps && settings.speedLimitMbps > 0
             ? settings.speedLimitMbps
             : null,
-        restart_existing: false,
+        restartExisting: false,
       });
       if (report.tasks.length > 0) {
         setTasks(await invoke<DownloadTask[]>("list_downloads"));

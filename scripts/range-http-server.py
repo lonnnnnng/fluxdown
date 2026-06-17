@@ -98,7 +98,10 @@ def main() -> None:
 
     handler = partial(RangeRequestHandler, directory=args.directory)
     server = ThreadingHTTPServer((args.bind, args.port), handler)
-    print(f"Serving {args.directory} on http://{args.bind}:{args.port}", flush=True)
+    # 作者: long
+    # 端口传 0 时系统会分配可用端口，日志必须输出真实端口，方便本地验证脚本直接读取服务地址。
+    host, port = server.server_address[:2]
+    print(f"Serving {args.directory} on http://{host}:{port}", flush=True)
     server.serve_forever()
 
 
