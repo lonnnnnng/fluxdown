@@ -141,6 +141,9 @@ impl QueueRunner {
         id: &str,
         options: QueueRunnerOptions,
     ) -> Result<TaskRunReport, QueueRunnerError> {
+        self.store
+            .recover_stale_running(STALE_RUNNING_TASK_TIMEOUT)
+            .await?;
         let task = self.store.get(id).await?;
         if !options.restart_existing
             && matches!(task.state, DownloadState::Finished | DownloadState::Running)
@@ -675,6 +678,30 @@ mod tests {
         assert!(report.summary.is_none());
         assert_eq!(report.task.state, DownloadState::Running);
         assert_eq!(persisted.state, DownloadState::Running);
+    }
+
+    #[tokio::test]
+    async fn start_stale_running_task_recovers_before_running() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let task = store
+            .enqueue(DownloadRequest::new("unknown://example", temp_dir.path()))
+            .await
+            .unwrap();
+        let mut running = task.clone();
+        running.set_state(DownloadState::Running);
+        running.updated_at_ms = running.updated_at_ms.saturating_sub(10 * 60 * 1000);
+        store.update(running).await.unwrap();
+
+        let report = QueueRunner::new(store.clone())
+            .run_task_with_options(&task.id, QueueRunnerOptions::default())
+            .await
+            .unwrap();
+        let persisted = store.get(&task.id).await.unwrap();
+
+        assert!(report.summary.is_none());
+        assert_eq!(report.task.state, DownloadState::Failed);
+        assert_eq!(persisted.state, DownloadState::Failed);
     }
 
     async fn wait_for_progress(store: &TaskStore, task_id: &str) {
