@@ -36,6 +36,8 @@ enum Command {
         threads: usize,
         #[arg(long = "speed-limit-mbps")]
         speed_limit_mbps: Option<f64>,
+        #[arg(long)]
+        restart: bool,
     },
     Add {
         source: String,
@@ -101,11 +103,15 @@ async fn main() -> Result<()> {
             name,
             threads,
             speed_limit_mbps,
+            restart,
         } => {
             let mut request = DownloadRequest::new(source, output);
             request.file_name = name;
             let summary = DownloadEngine::new()
-                .download_with_options(request, download_options(threads, speed_limit_mbps))
+                .download_with_options(
+                    request,
+                    download_options(threads, speed_limit_mbps).with_restart_existing(restart),
+                )
                 .await?;
             println!("{}", serde_json::to_string_pretty(&summary)?);
         }

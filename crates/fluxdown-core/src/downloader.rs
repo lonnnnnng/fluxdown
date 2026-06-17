@@ -137,6 +137,8 @@ pub struct DownloadSummary {
 pub struct DownloadOptions {
     pub thread_count: usize,
     pub speed_limit_bps: Option<u64>,
+    #[serde(default)]
+    pub restart_existing: bool,
 }
 
 impl Default for DownloadOptions {
@@ -144,6 +146,7 @@ impl Default for DownloadOptions {
         Self {
             thread_count: 1,
             speed_limit_bps: None,
+            restart_existing: false,
         }
     }
 }
@@ -153,7 +156,13 @@ impl DownloadOptions {
         Self {
             thread_count: thread_count.clamp(1, 32),
             speed_limit_bps: speed_limit_bps.filter(|limit| *limit > 0),
+            restart_existing: false,
         }
+    }
+
+    pub fn with_restart_existing(mut self, restart_existing: bool) -> Self {
+        self.restart_existing = restart_existing;
+        self
     }
 }
 
@@ -231,7 +240,11 @@ impl DownloadEngine {
         cancel: Option<CancelToken>,
         options: DownloadOptions,
     ) -> Result<DownloadSummary, DownloadError> {
-        let options = DownloadOptions::new(options.thread_count, options.speed_limit_bps);
+        let options = DownloadOptions::new(options.thread_count, options.speed_limit_bps)
+            .with_restart_existing(options.restart_existing);
+        if options.restart_existing {
+            remove_existing_outputs_for_request(&request).await?;
+        }
         match request.protocol() {
             Protocol::Http | Protocol::Https => {
                 self.download_http(request, progress, cancel, options).await
@@ -1179,6 +1192,70 @@ async fn existing_file_size(path: &Path) -> Result<u64, std::io::Error> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
         Err(error) => Err(error),
     }
+}
+
+async fn remove_existing_outputs_for_request(
+    request: &DownloadRequest,
+) -> Result<(), std::io::Error> {
+    for path in output_file_candidates_for_request(request) {
+        match fs::metadata(&path).await {
+            Ok(metadata) if metadata.is_file() => {
+                fs::remove_file(path).await?;
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn output_file_candidates_for_request(request: &DownloadRequest) -> Vec<PathBuf> {
+    let file_name = request
+        .file_name
+        .clone()
+        .unwrap_or_else(|| inferred_file_name_from_source(&request.source));
+    let primary = request.output_dir.join(&file_name);
+    let mut candidates = Vec::new();
+
+    match request.protocol() {
+        Protocol::M3u8 => {
+            let base = PathBuf::from(&file_name);
+            let mp4 = request.output_dir.join(base.with_extension("mp4"));
+            let ts = request
+                .output_dir
+                .join(PathBuf::from(&file_name).with_extension("ts"));
+            candidates.push(mp4.clone());
+            candidates.push(ts);
+            candidates.push(hls_temp_transport_path(&mp4));
+        }
+        Protocol::Torrent | Protocol::Magnet => {
+            if request.file_name.is_some() {
+                candidates.push(primary.clone());
+            }
+        }
+        _ => candidates.push(primary.clone()),
+    }
+
+    candidates.push(range_temp_output_path(&primary));
+    candidates
+}
+
+fn inferred_file_name_from_source(source: &str) -> String {
+    Url::parse(source)
+        .ok()
+        .map(|url| infer_file_name(&url, "download.bin"))
+        .unwrap_or_else(|| {
+            source
+                .split('?')
+                .next()
+                .unwrap_or(source)
+                .rsplit('/')
+                .next()
+                .filter(|segment| !segment.is_empty())
+                .unwrap_or("download.bin")
+                .to_string()
+        })
 }
 
 fn infer_total_bytes(
