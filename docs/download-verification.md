@@ -83,7 +83,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 限速 | `seg_00047.ts`，`--speed-limit-mbps 0.5` | 通过，4.7 MB 文件耗时约 10 秒。 |
 | 失败重试 | 404 源，`--retry-attempts 2` | 通过，服务端看到 3 次请求，任务最终 `failed` 并记录 404 错误。 |
 | 暂停/继续 | `seg_00047.ts` 限速下载中暂停，再 `resume` 和 `run` | 通过，暂停时 partial 文件约 0.9 MB，恢复后完成，SHA-256 与源文件一致。 |
-| CLI 跨进程暂停 | 一个 CLI 进程执行 `run --speed-limit-mbps 0.05`，另一个 CLI 进程执行 `pause <id>` | 通过，运行中任务变为 `paused`，保留 partial 文件和已下载进度，`run` 报告 `finished=0`、`failed=0`。 |
+| CLI 跨进程暂停/恢复 | 一个 CLI 进程执行 `run --speed-limit-mbps 0.05`，另一个 CLI 进程执行 `pause <id>`，随后 `resume <id>` 并再次 `run` | 通过，运行中任务先变为 `paused` 并保留 partial 文件和已下载进度；恢复后通过 HTTP Range 续传完成，最终文件内容匹配源数据。 |
 | 并发排队 | 两个约 4.5 MB 文件，`--speed-limit-mbps 1` | 通过，并发 1 耗时约 9 秒且串行开始；并发 2 耗时约 5 秒且同时开始。 |
 | 公网 WebDAVS transport | `webdavs://cloudflare.com/cdn-cgi/trace` | 通过，输出 `196` bytes，内容包含 `ip=`，SHA-256 为 `74008f0b855c810153841264bdc2136ce5fda697c658876c8932994b78a6727c`。 |
 | 公网 FTP | `ftp://demo:password@test.rebex.net/readme.txt` | 通过，输出 `379` bytes，SHA-256 为 `b004de45d8a133e9713a369f9c912237e8ad35dd9140c0279d27bada067797f4`。 |

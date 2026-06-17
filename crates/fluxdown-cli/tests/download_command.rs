@@ -402,25 +402,48 @@ fn queue_commands_add_list_and_run_http_task() {
 }
 
 #[test]
-fn queue_run_can_pause_running_task_from_separate_cli_process() {
+fn queue_run_can_pause_and_resume_running_task_from_separate_cli_process() {
     let payload = vec![b'x'; 512 * 1024];
     let total_bytes = payload.len() as u64;
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        let mut buffer = [0; 1024];
-        let _ = stream.read(&mut buffer).unwrap();
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            payload.len()
-        );
-        if stream.write_all(response.as_bytes()).is_err() {
-            return;
-        }
-        for chunk in payload.chunks(16 * 1024) {
-            if stream.write_all(chunk).is_err() {
-                break;
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0; 2048];
+            let read = stream.read(&mut buffer).unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            let start = request
+                .lines()
+                .find_map(|line| {
+                    let line = line.trim();
+                    line.strip_prefix("Range: bytes=")
+                        .or_else(|| line.strip_prefix("range: bytes="))
+                })
+                .and_then(|range| range.split('-').next())
+                .and_then(|start| start.parse::<usize>().ok())
+                .unwrap_or(0);
+            let status = if start == 0 {
+                "HTTP/1.1 200 OK".to_string()
+            } else {
+                format!(
+                    "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {}-{}/{}",
+                    start,
+                    payload.len() - 1,
+                    payload.len()
+                )
+            };
+            let response = format!(
+                "{status}\r\nAccept-Ranges: bytes\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                payload.len() - start
+            );
+            if stream.write_all(response.as_bytes()).is_err() {
+                continue;
+            }
+            for chunk in payload[start..].chunks(16 * 1024) {
+                if stream.write_all(chunk).is_err() {
+                    break;
+                }
             }
         }
     });
@@ -481,7 +504,6 @@ fn queue_run_can_pause_running_task_from_separate_cli_process() {
     assert_eq!(paused_by_command["state"], "paused");
 
     let run_output = wait_for_cli_output(run_child, Duration::from_secs(5));
-    server.join().unwrap();
     assert!(
         run_output.status.success(),
         "stderr: {}",
@@ -505,6 +527,48 @@ fn queue_run_can_pause_running_task_from_separate_cli_process() {
         .unwrap()
         .len();
     assert_eq!(partial_size, downloaded);
+
+    let resume_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "resume", &task_id])
+        .output()
+        .unwrap();
+    assert!(
+        resume_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&resume_output.stderr)
+    );
+    let resumed: Value = serde_json::from_slice(&resume_output.stdout).unwrap();
+    assert_eq!(resumed["state"], "queued");
+
+    let rerun_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "run",
+            "--concurrency",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    server.join().unwrap();
+    assert!(
+        rerun_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&rerun_output.stderr)
+    );
+    let rerun_report: Value = serde_json::from_slice(&rerun_output.stdout).unwrap();
+    assert_eq!(rerun_report["started"], 1);
+    assert_eq!(rerun_report["finished"], 1);
+    assert_eq!(rerun_report["failed"], 0);
+    assert_eq!(rerun_report["tasks"][0]["state"], "finished");
+
+    let finished_task = list_task(&store_path, &task_id);
+    assert_eq!(finished_task["state"], "finished");
+    assert_eq!(finished_task["downloaded_bytes"], total_bytes);
+    assert_eq!(
+        std::fs::read(downloads_dir.join("slow.bin")).unwrap(),
+        vec![b'x'; total_bytes as usize]
+    );
 }
 
 #[test]
