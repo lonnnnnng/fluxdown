@@ -296,6 +296,7 @@ impl DownloadEngine {
         fs::create_dir_all(&request.output_dir).await?;
         let mut url = Url::parse(&request.source)
             .map_err(|_| DownloadError::InvalidUrl(request.source.clone()))?;
+        let client = http_client_for_url(&self.client, &url)?;
         let protocol = request.protocol();
         let file_name = request
             .file_name
@@ -309,6 +310,7 @@ impl DownloadEngine {
             && options.thread_count > 1
             && let Some(summary) = self
                 .download_http_ranges(
+                    client.clone(),
                     protocol,
                     url.clone(),
                     credentials.clone(),
@@ -323,7 +325,7 @@ impl DownloadEngine {
             return Ok(summary);
         }
 
-        let mut builder = self.client.get(url);
+        let mut builder = client.get(url);
         if let Some((username, password)) = credentials {
             builder = builder.basic_auth(username, password);
         }
@@ -393,6 +395,7 @@ impl DownloadEngine {
 
     async fn download_http_ranges(
         &self,
+        client: Client,
         protocol: Protocol,
         url: Url,
         credentials: Option<(String, Option<String>)>,
@@ -402,7 +405,7 @@ impl DownloadEngine {
         progress: Option<ProgressCallback>,
         cancel: Option<CancelToken>,
     ) -> Result<Option<DownloadSummary>, DownloadError> {
-        let mut head = self.client.head(url.clone());
+        let mut head = client.head(url.clone());
         if let Some((username, password)) = &credentials {
             head = head.basic_auth(username, password.clone());
         }
@@ -449,7 +452,7 @@ impl DownloadEngine {
 
         let results = stream::iter(ranges)
             .map(|(start, end)| {
-                let client = self.client.clone();
+                let client = client.clone();
                 let url = url.clone();
                 let credentials = credentials.clone();
                 let output_path = temp_output_path.clone();
@@ -1505,15 +1508,66 @@ fn ipfs_gateway_url(source: &str) -> Result<String, DownloadError> {
         .host_str()
         .filter(|host| !host.is_empty())
         .ok_or_else(|| DownloadError::InvalidUrl(source.to_string()))?;
-    let mut path = cid.to_string();
-    if !url.path().is_empty() {
-        path.push_str(url.path());
+    let source_query = url.query_pairs().collect::<Vec<_>>();
+    let gateway_value = source_query
+        .iter()
+        .find_map(|(key, value)| {
+            if key.eq_ignore_ascii_case("gateway") {
+                Some(value.trim().to_string())
+            } else {
+                None
+            }
+        })
+        .filter(|value| !value.is_empty());
+    let mut gateway_url = match gateway_value {
+        Some(value) => Url::parse(&value).map_err(|_| DownloadError::InvalidUrl(source.into()))?,
+        None => Url::parse("https://ipfs.io").expect("default IPFS gateway URL is valid"),
+    };
+    if gateway_url.scheme() != "http" && gateway_url.scheme() != "https" {
+        return Err(DownloadError::InvalidUrl(source.to_string()));
     }
-    if let Some(query) = url.query() {
-        path.push('?');
-        path.push_str(query);
+
+    let mut path_segments = gateway_url
+        .path_segments()
+        .map(|segments| {
+            segments
+                .filter(|segment| !segment.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    path_segments.push("ipfs".to_string());
+    path_segments.push(cid.to_string());
+    if let Some(ipfs_segments) = url.path_segments() {
+        path_segments.extend(
+            ipfs_segments
+                .filter(|segment| !segment.is_empty())
+                .map(ToOwned::to_owned),
+        );
     }
-    Ok(format!("https://ipfs.io/ipfs/{path}"))
+
+    {
+        let mut output_segments = gateway_url
+            .path_segments_mut()
+            .map_err(|_| DownloadError::InvalidUrl(source.to_string()))?;
+        output_segments.clear();
+        for segment in &path_segments {
+            output_segments.push(segment);
+        }
+    }
+
+    let forwarded_query = source_query
+        .into_iter()
+        .filter(|(key, _)| !key.eq_ignore_ascii_case("gateway"))
+        .collect::<Vec<_>>();
+    if !forwarded_query.is_empty() {
+        let mut output_query = gateway_url.query_pairs_mut();
+        for (key, value) in forwarded_query {
+            output_query.append_pair(&key, &value);
+        }
+    }
+
+    Ok(gateway_url.to_string())
 }
 
 fn webdav_http_url(source: &str) -> Result<String, DownloadError> {
@@ -1534,6 +1588,24 @@ fn webdav_http_url(source: &str) -> Result<String, DownloadError> {
     Url::parse(&mapped)
         .map(|url| url.to_string())
         .map_err(|_| DownloadError::InvalidUrl(source.to_string()))
+}
+
+fn allows_bad_certificate(url: &Url) -> bool {
+    url.query_pairs().any(|(key, value)| {
+        key.eq_ignore_ascii_case("allowBadCertificate") && value.eq_ignore_ascii_case("true")
+    })
+}
+
+fn http_client_for_url(default_client: &Client, url: &Url) -> Result<Client, DownloadError> {
+    if !allows_bad_certificate(url) {
+        return Ok(default_client.clone());
+    }
+
+    // 作者: long
+    // 本地实验室 HTTPS/WebDAVS/IPFS fixture 会使用临时自签证书；只有 URL 显式 opt-in 时才放宽校验，避免影响普通公网下载的 TLS 安全边界。
+    Ok(Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()?)
 }
 
 fn hls_segment_iv(key: &Key, media_sequence: u64) -> Result<[u8; 16], DownloadError> {
@@ -1581,12 +1653,7 @@ fn decrypt_hls_aes128(
 }
 
 async fn connect_ftps(spec: &FtpDownloadSpec) -> Result<AsyncRustlsFtpStream, DownloadError> {
-    let root_store = tokio_rustls::rustls::RootCertStore::from_iter(
-        webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
-    );
-    let config = tokio_rustls::rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
+    let config = ftps_tls_config(spec.allow_bad_certificate);
     let connector = AsyncRustlsConnector::from(tokio_rustls::TlsConnector::from(Arc::new(config)));
 
     if spec.implicit_tls {
@@ -1599,6 +1666,86 @@ async fn connect_ftps(spec: &FtpDownloadSpec) -> Result<AsyncRustlsFtpStream, Do
             .into_secure(connector, &spec.host)
             .await
             .map_err(DownloadError::from)
+    }
+}
+
+fn ftps_tls_config(allow_bad_certificate: bool) -> tokio_rustls::rustls::ClientConfig {
+    let builder = tokio_rustls::rustls::ClientConfig::builder();
+    if allow_bad_certificate {
+        return builder
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(AcceptInvalidServerCertificate))
+            .with_no_client_auth();
+    }
+
+    let root_store = tokio_rustls::rustls::RootCertStore::from_iter(
+        webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+    );
+    builder
+        .with_root_certificates(root_store)
+        .with_no_client_auth()
+}
+
+#[derive(Debug)]
+struct AcceptInvalidServerCertificate;
+
+impl tokio_rustls::rustls::client::danger::ServerCertVerifier for AcceptInvalidServerCertificate {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &tokio_rustls::rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[tokio_rustls::rustls::pki_types::CertificateDer<'_>],
+        _server_name: &tokio_rustls::rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: tokio_rustls::rustls::pki_types::UnixTime,
+    ) -> Result<tokio_rustls::rustls::client::danger::ServerCertVerified, tokio_rustls::rustls::Error>
+    {
+        // 作者: long
+        // FTPS 本地实验室 fixture 使用临时自签证书；能走到这里说明 URL 已显式 opt-in，不改变默认公网证书校验策略。
+        Ok(tokio_rustls::rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &tokio_rustls::rustls::pki_types::CertificateDer<'_>,
+        _dss: &tokio_rustls::rustls::DigitallySignedStruct,
+    ) -> Result<
+        tokio_rustls::rustls::client::danger::HandshakeSignatureValid,
+        tokio_rustls::rustls::Error,
+    > {
+        Ok(tokio_rustls::rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &tokio_rustls::rustls::pki_types::CertificateDer<'_>,
+        _dss: &tokio_rustls::rustls::DigitallySignedStruct,
+    ) -> Result<
+        tokio_rustls::rustls::client::danger::HandshakeSignatureValid,
+        tokio_rustls::rustls::Error,
+    > {
+        Ok(tokio_rustls::rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<tokio_rustls::rustls::SignatureScheme> {
+        use tokio_rustls::rustls::SignatureScheme;
+
+        vec![
+            SignatureScheme::RSA_PKCS1_SHA1,
+            SignatureScheme::ECDSA_SHA1_Legacy,
+            SignatureScheme::RSA_PKCS1_SHA256,
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            SignatureScheme::RSA_PKCS1_SHA384,
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            SignatureScheme::RSA_PKCS1_SHA512,
+            SignatureScheme::ECDSA_NISTP521_SHA512,
+            SignatureScheme::RSA_PSS_SHA256,
+            SignatureScheme::RSA_PSS_SHA384,
+            SignatureScheme::RSA_PSS_SHA512,
+            SignatureScheme::ED25519,
+            SignatureScheme::ED448,
+        ]
     }
 }
 
@@ -1811,6 +1958,7 @@ struct FtpDownloadSpec {
     remote_path: String,
     file_name: String,
     implicit_tls: bool,
+    allow_bad_certificate: bool,
 }
 
 impl FtpDownloadSpec {
@@ -1856,6 +2004,7 @@ impl FtpDownloadSpec {
             remote_path: percent_decode(path),
             file_name,
             implicit_tls: scheme == "ftps" && port == 990,
+            allow_bad_certificate: allows_bad_certificate(url),
         })
     }
 }
@@ -1986,6 +2135,7 @@ mod tests {
         assert_eq!(spec.password, "p@ss");
         assert_eq!(spec.remote_path, "pub/releases/file one.bin");
         assert_eq!(spec.file_name, "file one.bin");
+        assert!(!spec.allow_bad_certificate);
     }
 
     #[test]
@@ -2011,6 +2161,19 @@ mod tests {
         assert_eq!(spec.host, "example.com");
         assert_eq!(spec.file_name, "file.bin");
         assert!(spec.implicit_tls);
+        assert!(!spec.allow_bad_certificate);
+    }
+
+    #[test]
+    fn parses_local_ftps_bad_certificate_opt_in() {
+        let url =
+            Url::parse("ftps://user:pass@127.0.0.1:2121/pub/file.bin?allowBadCertificate=true")
+                .unwrap();
+        let spec = FtpDownloadSpec::from_url(&url, None).unwrap();
+
+        assert_eq!(spec.address, "127.0.0.1:2121");
+        assert!(!spec.implicit_tls);
+        assert!(spec.allow_bad_certificate);
     }
 
     #[test]
@@ -2166,6 +2329,24 @@ fn main() {{
             ipfs_gateway_url("ipfs://bafybeigdyrzt/readme.txt").unwrap(),
             "https://ipfs.io/ipfs/bafybeigdyrzt/readme.txt",
         );
+    }
+
+    #[test]
+    fn maps_ipfs_urls_to_custom_gateway() {
+        assert_eq!(
+            ipfs_gateway_url(
+                "ipfs://bafybeigdyrzt/readme.txt?gateway=http%3A%2F%2F127.0.0.1%3A8765%2Flab&download=1"
+            )
+            .unwrap(),
+            "http://127.0.0.1:8765/lab/ipfs/bafybeigdyrzt/readme.txt?download=1",
+        );
+    }
+
+    #[test]
+    fn detects_bad_certificate_opt_in_case_insensitively() {
+        let url = Url::parse("https://127.0.0.1/file.txt?allowBadCertificate=TRUE").unwrap();
+
+        assert!(allows_bad_certificate(&url));
     }
 
     #[test]

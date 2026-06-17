@@ -1,19 +1,19 @@
 # 下载验证状态
 
-截至 2026-06-18，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证，macOS CLI 已补充本地 HTTP/HLS/Torrent/Magnet 真实下载验证，macOS GUI 已完成本地构建、启动、基础界面渲染和 Tauri command 级真实 HTTP 下载验证。
+截至 2026-06-18，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证，macOS CLI 已补充本地 HTTP/HLS/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证，macOS GUI 已完成本地构建、启动、基础界面渲染和 Tauri command 级真实 HTTP 下载验证。
 
 本页用于区分两类容易混淆的结论：
 
 - 构建、测试、CI 和 Release artifact 校验：确认代码能编译、测试能跑、产物存在且非空。
 - 真实下载端到端验证：在目标平台安装或启动对应 CLI/GUI/App，添加下载任务，并确认文件真实写入完成。
 
-当前可以确认的是构建和自动化测试覆盖较多，Android 真机覆盖了一批真实下载场景，macOS CLI 覆盖了核心下载闭环；但仍不能表述为“所有端都下载验证通过”。
+当前可以确认的是构建和自动化测试覆盖较多，Android 真机覆盖了一批真实下载场景，macOS CLI 覆盖了更多协议的下载闭环；但仍不能表述为“所有端都下载验证通过”。
 
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
 | --- | --- | --- |
-| 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/Torrent/Magnet 真实下载、限速、失败重试、暂停继续和并发排队均已验证。 | 部分完成 |
+| 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS、自定义 IPFS gateway、限速、失败重试、暂停继续和并发排队均已验证。 | 部分完成 |
 | macOS GUI | 已完成 Tauri `.app` 构建、本地启动、窗口渲染、设置/任务操作 Tauri command 回归测试，以及 Tauri command 级 HTTP 队列真实下载。Computer Use/AppleScript 鼠标自动化会触发 macOS “允许 Codex 控制其他 App”权限弹窗，`tauri-driver` 在本机 macOS 返回 `not supported on this platform`，尚未完成纯 GUI 点击创建任务并下载的闭环。 | 部分完成 |
 | Windows GUI | 已有 CI/Docker 构建产物和 artifact 检查。没有在 Windows 上安装或运行 GUI 完成下载验证。 | 未完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
@@ -24,16 +24,16 @@
 
 | 协议/能力 | 当前验证情况 | 备注 |
 | --- | --- | --- |
-| HTTP/HTTPS | CLI 和核心层有本地下载验证；2026-06-18 macOS CLI 已验证直接下载、队列下载、限速、失败重试、暂停继续和并发排队。 | 证据最充分。 |
-| WebDAV/WebDAVS | 核心层验证了 URL 到 HTTP/HTTPS 传输的映射和本地下载路径。 | 仍需要真实 WebDAV 服务端验证。 |
+| HTTP/HTTPS | CLI 和核心层有本地下载验证；2026-06-18 macOS CLI 已验证直接下载、队列下载、限速、失败重试、暂停继续、并发排队，以及本地自签 HTTPS opt-in。 | 证据最充分。 |
+| WebDAV/WebDAVS | 核心层验证了 URL 到 HTTP/HTTPS 传输的映射；2026-06-18 macOS CLI 已验证公网 WebDAVS transport 和本地自签 WebDAVS transport。 | 仍未覆盖完整 WebDAV 方法，例如 PROPFIND/目录遍历。 |
 | m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片和 master playlist 首个变体；Android 真机和 macOS CLI 均已验证媒体级 HLS 可生成最终 `.mp4`。 | 仍需要更多公网和边界 playlist 验证。 |
-| FTP/FTPS | 有实现和 URL 解析测试。 | 缺少真实 FTP/FTPS 服务端下载闭环。 |
-| SFTP | 有实现和 URL 解析测试。 | 缺少真实 SFTP 服务端下载闭环。 |
+| FTP/FTPS | 2026-06-18 macOS CLI 已验证公网 FTP 和本地自签 FTPS 下载闭环。 | Rebex 公网 FTPS 仍失败，错误为 `InvalidContentType`；本地可控 FTPS fixture 已通过。 |
+| SFTP | 2026-06-18 macOS CLI 已验证公网 SFTP 下载闭环。 | 仍缺少本地 SFTP fixture 的 macOS CLI 回归。 |
 | SMB | 有实现和 URL 解析测试。 | 缺少真实 SMB 共享下载闭环。 |
 | BitTorrent `.torrent` | Android 真机已验证本地小种子、媒体级单文件种子和多文件种子选择下载；macOS CLI 已验证单文件和多文件本地种子真实下载、真实文件名/目录名和 SHA-256。 | Windows/Linux GUI 仍需要真实下载验证。 |
 | Magnet | Android 真机已验证本地小磁力、媒体级单文件 magnet 和多文件 magnet 选择下载；macOS CLI 已验证本地 magnet metadata 获取、真实文件名和 SHA-256。 | Windows/Linux GUI 仍需要真实下载验证。 |
 | ed2k | 核心层验证了 aMule `ed2k` CLI 移交路径。 | FluxDown 不掌控外部客户端的实际下载完成状态。 |
-| IPFS | 有网关映射实现。 | 缺少真实 IPFS 网关下载闭环。 |
+| IPFS | 2026-06-18 macOS CLI 已验证公网 IPFS 网关下载和本地自定义 gateway 下载。 | 仍不运行本地 IPFS 节点。 |
 
 ## 当前准确表述
 
@@ -64,7 +64,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 
 | 检查项 | 结果 |
 | --- | --- |
-| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 9、core 44、desktop 9。 |
+| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 9、core 47、desktop 10。 |
 | `cargo build -p fluxdown-cli --release` | 通过，生成 `target/release/fluxdown`。 |
 | `npm --workspace apps/desktop run build` | 通过。 |
 | `npm run desktop:build` | 通过，生成 `target/release/bundle/macos/FluxDown.app`。 |
@@ -84,6 +84,15 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 失败重试 | 404 源，`--retry-attempts 2` | 通过，服务端看到 3 次请求，任务最终 `failed` 并记录 404 错误。 |
 | 暂停/继续 | `seg_00047.ts` 限速下载中暂停，再 `resume` 和 `run` | 通过，暂停时 partial 文件约 0.9 MB，恢复后完成，SHA-256 与源文件一致。 |
 | 并发排队 | 两个约 4.5 MB 文件，`--speed-limit-mbps 1` | 通过，并发 1 耗时约 9 秒且串行开始；并发 2 耗时约 5 秒且同时开始。 |
+| 公网 WebDAVS transport | `webdavs://cloudflare.com/cdn-cgi/trace` | 通过，输出 `196` bytes，内容包含 `ip=`，SHA-256 为 `74008f0b855c810153841264bdc2136ce5fda697c658876c8932994b78a6727c`。 |
+| 公网 FTP | `ftp://demo:password@test.rebex.net/readme.txt` | 通过，输出 `379` bytes，SHA-256 为 `b004de45d8a133e9713a369f9c912237e8ad35dd9140c0279d27bada067797f4`。 |
+| 公网 SFTP | `sftp://demo:password@test.rebex.net/readme.txt` | 通过，输出 `379` bytes，SHA-256 同 FTP Rebex readme。 |
+| 公网 IPFS | `ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244` | 通过，输出 `Hello IPFS`，`11` bytes，SHA-256 为 `651c56a2438ce5db7a62fe4009ff146ce58cbe8f97cc83ffa2e7c42d461f3ae7`。 |
+| 本地 HTTPS 自签 | `https://127.0.0.1:9444/https.txt?allowBadCertificate=true` | 通过，输出 `https-sample\n`，`13` bytes，SHA-256 为 `611db50d838121c0f8ea6dced34ec8905b92b92cb929d1f1a7d639e17cbbc096`。 |
+| 本地 WebDAVS 自签 transport | `webdavs://127.0.0.1:9444/https.txt?allowBadCertificate=true` | 通过，输出内容和 SHA-256 同本地 HTTPS。 |
+| 本地 FTPS 自签 | `ftps://flux:fluxpass@127.0.0.1:2121/readme.txt?allowBadCertificate=true` | 通过，输出 `ftps-sample\n`，`12` bytes，SHA-256 为 `f304ffd059e25791aa2be46be8d7191d3dfad846aa5addded1e232d4f5e44cc0`。 |
+| 本地 IPFS gateway | `ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt?gateway=http%3A%2F%2F127.0.0.1%3A8769` | 通过，输出 `Hello IPFS`，`10` bytes，SHA-256 为 `206f158bef5fbaeddee314d74b90d9259c5e2abee372bbac8f3c6e65fbb0d87b`。 |
+| 公网 FTPS 兼容性 | `ftps://demo:password@test.rebex.net/readme.txt` | 未通过，错误为 `Secure error: Secure error: received corrupt message of type InvalidContentType`；该公网源不作为通过标准，保留为兼容性观察项。 |
 
 ### macOS GUI
 

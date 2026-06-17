@@ -11,18 +11,18 @@
 | 协议 | 识别方式 | 桌面 CLI/GUI | Android/iPhone App | 备注 |
 | --- | --- | --- | --- | --- |
 | HTTP | `http://` | 内建 | 内建 | 支持进度、暂停、Range 续传。 |
-| HTTPS | `https://` | 内建 | 内建 | 支持 URL 用户名密码基础认证，移动端主要走普通 HTTP client。 |
+| HTTPS | `https://` | 内建 | 内建 | 支持 URL 用户名密码基础认证；本地实验室自签资源可显式使用 `allowBadCertificate=true`。 |
 | WebDAV | `webdav://` | 内建 | 内建 | 映射到 HTTP 下载。 |
 | WebDAVS | `webdavs://` | 内建 | 内建 | 映射到 HTTPS 下载。 |
 | FTP | `ftp://` | 内建 | 内建 | 被动模式、二进制传输、REST 续传。 |
-| FTPS | `ftps://` | 内建 | 内建 | 依赖 TLS 支持和服务端兼容性。 |
+| FTPS | `ftps://` | 内建 | 内建 | 依赖 TLS 支持和服务端兼容性；本地实验室自签资源可显式使用 `allowBadCertificate=true`。 |
 | SFTP | `sftp://` | 内建 | 内建 | 当前要求密码认证；不支持密钥文件配置。 |
 | SMB | `smb://` | 内建 | 内建 | SMB2/3 文件下载。 |
 | `.torrent` | URL 或路径以 `.torrent` 结尾 | 内建 | 内建 | 桌面用 `librqbit`，移动端用 `libtorrent_flutter`。 |
 | Magnet | `magnet:?` | 内建 | 内建 | 依赖 torrent 后端。 |
 | ed2k | `ed2k://` | 移交 | 移交 | 桌面优先 aMule `ed2k` CLI，否则系统 handler；移动端移交兼容 App。 |
 | m3u8/HLS | URL 或路径以 `.m3u8` 结尾 | 内建 | 内建 | VOD 播放列表，支持 AES-128 分片；移动端 Android 转封装输出 `.mp4`。 |
-| IPFS | `ipfs://` | 内建 | 内建 | 映射到 `https://ipfs.io/ipfs/...` 公共网关。 |
+| IPFS | `ipfs://` | 内建 | 内建 | 默认映射到 `https://ipfs.io/ipfs/...` 公共网关，也支持 `gateway=` 指定自定义 HTTP/HTTPS 网关。 |
 | Unknown | 未匹配 | 计划中 | 计划中 | 不会执行下载。 |
 
 ## 桌面端细节
@@ -35,6 +35,7 @@
 - 如果目标文件已存在，会发送 `Range: bytes=<existing>-`。
 - 服务端返回 `206 Partial Content` 时追加写入；返回 `200 OK` 时重新覆盖写入。
 - 支持从 URL 中提取用户名和密码并使用 Basic Auth。
+- `allowBadCertificate=true` 只用于本地实验室自签 HTTPS 资源，默认仍校验证书。
 - 文件名从 URL path 推断，缺失时使用 `download.bin`，也可由用户指定。
 
 ### WebDAV/WebDAVS
@@ -50,6 +51,7 @@
 - 支持被动模式和二进制传输。
 - 使用服务器 `SIZE` 获取总大小，使用 `REST` 从部分文件大小恢复。
 - FTPS 依赖服务端 TLS 行为，兼容性需要按目标服务器验证。
+- `allowBadCertificate=true` 只用于本地实验室自签 FTPS 资源，默认仍校验证书。
 
 ### SFTP
 
@@ -90,8 +92,9 @@
 
 ### IPFS
 
-- `ipfs://<cid>/<path>` 映射到 `https://ipfs.io/ipfs/<cid>/<path>`。
-- 实际可用性、速度和内容可访问性取决于公共网关。
+- `ipfs://<cid>/<path>` 默认映射到 `https://ipfs.io/ipfs/<cid>/<path>`。
+- `ipfs://<cid>/<path>?gateway=http%3A%2F%2F127.0.0.1%3A8765` 会改走指定网关，并生成 `<gateway>/ipfs/<cid>/<path>`。
+- 实际可用性、速度和内容可访问性取决于所选网关。
 - 当前不运行本地 IPFS 节点，也不使用 `ipfs` CLI 拉取。
 
 ## 移动端细节

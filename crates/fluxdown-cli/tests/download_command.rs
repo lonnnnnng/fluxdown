@@ -545,3 +545,54 @@ fn download_command_fetches_webdav_file_through_http_transport() {
     assert_eq!(summary["backend"], "built-in");
     assert_eq!(summary["bytes_written"], payload.len() as u64);
 }
+
+#[test]
+fn download_command_fetches_ipfs_file_through_custom_gateway() {
+    let cid = "bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244";
+    let payload = b"Hello IPFS";
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0; 1024];
+        let read = stream.read(&mut buffer).unwrap();
+        let request = String::from_utf8_lossy(&buffer[..read]);
+        assert!(request.starts_with(&format!("GET /ipfs/{cid}/readme.txt ")));
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            payload.len()
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+        stream.write_all(payload).unwrap();
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let gateway = format!("http%3A%2F%2F{address}");
+    let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "download",
+            &format!("ipfs://{cid}/readme.txt?gateway={gateway}"),
+            "--output",
+            temp_dir.path().to_str().unwrap(),
+            "--name",
+            "ipfs-local.txt",
+        ])
+        .output()
+        .unwrap();
+
+    server.join().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(temp_dir.path().join("ipfs-local.txt")).unwrap(),
+        payload
+    );
+
+    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["protocol"], "ipfs");
+    assert_eq!(summary["backend"], "built-in");
+    assert_eq!(summary["bytes_written"], payload.len() as u64);
+}
