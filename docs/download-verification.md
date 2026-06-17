@@ -101,7 +101,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 本地 `.app` 构建 | 通过，`target/release/bundle/macos/FluxDown.app` 生成。 |
 | 启动和窗口 | 通过，`FluxDown` 前台窗口尺寸约 `1180x760`，bundle id `dev.fluxdown.desktop`，版本 `1.0.2`。 |
 | UI 渲染 | 通过，截图确认中文下载列表、状态 tabs、设置入口和右下角新建按钮正常显示。 |
-| Tauri command 回归 | 通过，桌面测试覆盖任务输出路径、HLS 输出路径、暂停/恢复边界、手动启动并发约束、设置边界、保存路径解析，以及 `enqueue_download -> list_downloads -> run_queue -> list_downloads` 的 HTTP、WebDAV transport 和自定义 IPFS gateway 真实下载闭环。 |
+| Tauri command 回归 | 通过，桌面测试覆盖任务输出路径、HLS 输出路径、暂停/恢复边界、手动启动并发约束、并发 1-30 / 线程 1-32 / 重试 0-10 / 限速的设置边界、保存路径解析，以及 `enqueue_download -> list_downloads -> run_queue -> list_downloads` 的 HTTP、WebDAV transport 和自定义 IPFS gateway 真实下载闭环。 |
 | Tauri command HTTP 下载 | 通过，测试启动临时 HTTP fixture，隔离 `XDG_DATA_HOME` 队列路径，创建任务、运行队列并校验 `desktop-command.txt` 内容为 `fluxdown-desktop-command-e2e`。 |
 | Tauri command WebDAV 下载 | 通过，测试将 `webdav://` 映射到临时 HTTP fixture，校验实际请求路径和输出 `desktop-webdav.txt` 内容。 |
 | Tauri command IPFS gateway 下载 | 通过，测试将 `ipfs://...?...gateway=` 映射到临时 gateway fixture，校验实际请求 `/ipfs/<cid>/readme.txt` 和输出 `desktop-ipfs.txt` 内容。 |

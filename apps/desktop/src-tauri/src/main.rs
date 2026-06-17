@@ -12,6 +12,8 @@ use std::{
 };
 
 const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const MIN_CONCURRENCY: usize = 1;
+const MAX_CONCURRENCY: usize = 30;
 
 #[derive(Debug, Deserialize)]
 struct AddPayload {
@@ -200,7 +202,7 @@ async fn run_queue(
         .map_err(|error| error.to_string())?;
     QueueRunner::new(store)
         .run_queued_with_options(
-            concurrency,
+            clamp_concurrency(concurrency),
             runner_options(
                 retry_attempts,
                 thread_count,
@@ -235,6 +237,10 @@ fn speed_limit_mbps_to_bps(speed_limit_mbps: Option<f64>) -> Option<u64> {
         .filter(|value| *value > 0)
 }
 
+fn clamp_concurrency(concurrency: usize) -> usize {
+    concurrency.clamp(MIN_CONCURRENCY, MAX_CONCURRENCY)
+}
+
 async fn defer_direct_start_when_capacity_full(
     store: &TaskStore,
     task: DownloadTask,
@@ -245,7 +251,7 @@ async fn defer_direct_start_when_capacity_full(
         return Ok(None);
     }
 
-    let concurrency = concurrency.unwrap_or(1).clamp(1, 30);
+    let concurrency = clamp_concurrency(concurrency.unwrap_or(1));
     let running = store
         .list()
         .await?
@@ -686,6 +692,8 @@ mod tests {
     fn desktop_runner_options_clamp_settings_to_product_limits() {
         let options = runner_options(Some(99), Some(99), Some(1.5), Some(true));
 
+        assert_eq!(clamp_concurrency(0), 1);
+        assert_eq!(clamp_concurrency(31), 30);
         assert_eq!(options.retry_attempts, 10);
         assert_eq!(options.download.thread_count, 32);
         assert_eq!(options.download.speed_limit_bps, Some(1_572_864));
