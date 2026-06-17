@@ -362,6 +362,12 @@ function currentSpeed(task: DownloadTask) {
   return `${formatBytes(task.current_speed_bytes_per_second ?? 0)}/s`;
 }
 
+function taskActionTitle(task: DownloadTask) {
+  if (task.state === "running") return "点击暂停";
+  if (task.state === "finished" || task.state === "failed") return "点击重新下载";
+  return "点击开始";
+}
+
 function App() {
   const [page, setPage] = useState<Page>("queue");
   const [filter, setFilter] = useState<QueueFilter>("all");
@@ -636,7 +642,9 @@ function App() {
     if (task.state === "running") {
       pauseTask(task);
     } else {
-      startTask(task);
+      // 作者: long
+      // 已结束任务再次点击属于重新下载，必须清理旧输出，避免完整文件被 HTTP 续传逻辑误判。
+      startTask(task, task.state === "finished" || task.state === "failed");
     }
   }
 
@@ -863,7 +871,7 @@ function TaskRow({
         onMenu(task.id);
       }}
       style={{ "--progress": width } as CSSProperties}
-      title={task.state === "running" ? "点击暂停" : "点击开始"}
+      title={taskActionTitle(task)}
     >
       <div className="taskProgressFill" />
       <div className="taskMain">
