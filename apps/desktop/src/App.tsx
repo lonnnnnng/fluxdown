@@ -584,6 +584,7 @@ function App() {
     try {
       const report = await invoke<TaskRunReport>("start_download", {
         id: task.id,
+        concurrency: settings.concurrency,
         retryAttempts: settings.retryAttempts,
         threadCount: settings.threadCount,
         speedLimitMbps:

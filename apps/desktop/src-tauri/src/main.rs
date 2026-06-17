@@ -149,6 +149,7 @@ async fn reveal_task_output(id: String) -> Result<(), String> {
 #[tauri::command]
 async fn start_download(
     id: String,
+    concurrency: Option<usize>,
     retry_attempts: Option<usize>,
     thread_count: Option<usize>,
     speed_limit_mbps: Option<f64>,
@@ -158,16 +159,26 @@ async fn start_download(
     migrate_download_paths(&store)
         .await
         .map_err(|error| error.to_string())?;
+    let task = store.get(&id).await.map_err(|error| error.to_string())?;
+    let options = runner_options(
+        retry_attempts,
+        thread_count,
+        speed_limit_mbps,
+        restart_existing,
+    );
+    if let Some(task) =
+        defer_direct_start_when_capacity_full(&store, task, concurrency, options.restart_existing)
+            .await
+            .map_err(|error| error.to_string())?
+    {
+        return Ok(TaskRunReport {
+            task,
+            summary: None,
+        });
+    }
+
     QueueRunner::new(store)
-        .run_task_with_options(
-            &id,
-            runner_options(
-                retry_attempts,
-                thread_count,
-                speed_limit_mbps,
-                restart_existing,
-            ),
-        )
+        .run_task_with_options(&id, options)
         .await
         .map_err(|error| error.to_string())
 }
@@ -219,6 +230,38 @@ fn speed_limit_mbps_to_bps(speed_limit_mbps: Option<f64>) -> Option<u64> {
         .filter(|value| value.is_finite() && *value > 0.0)
         .map(|value| (value * 1024.0 * 1024.0).round() as u64)
         .filter(|value| *value > 0)
+}
+
+async fn defer_direct_start_when_capacity_full(
+    store: &TaskStore,
+    task: DownloadTask,
+    concurrency: Option<usize>,
+    restart_existing: bool,
+) -> Result<Option<DownloadTask>, fluxdown_core::TaskStoreError> {
+    if restart_existing || !matches!(task.state, DownloadState::Queued | DownloadState::Paused) {
+        return Ok(None);
+    }
+
+    let concurrency = concurrency.unwrap_or(1).clamp(1, 30);
+    let running = store
+        .list()
+        .await?
+        .into_iter()
+        .filter(|candidate| candidate.id != task.id && candidate.state == DownloadState::Running)
+        .count();
+    if running < concurrency {
+        return Ok(None);
+    }
+
+    // 作者: long
+    // 手动点击排队/暂停任务也要遵守并发下载数；容量已满时只放回队列，等正在下载的任务释放槽位。
+    if task.state == DownloadState::Paused {
+        return store
+            .set_state(&task.id, DownloadState::Queued)
+            .await
+            .map(Some);
+    }
+    Ok(Some(task))
 }
 
 async fn load_task(id: &str) -> Result<DownloadTask, String> {
@@ -452,6 +495,94 @@ mod tests {
         assert!(resume_transition(DownloadState::Running).is_err());
         assert!(resume_transition(DownloadState::Finished).is_err());
         assert!(resume_transition(DownloadState::Failed).is_err());
+    }
+
+    #[tokio::test]
+    async fn direct_start_defers_queued_task_when_capacity_is_full() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let running = store
+            .enqueue(DownloadRequest::new(
+                "http://127.0.0.1:9/running.bin",
+                temp_dir.path(),
+            ))
+            .await
+            .unwrap();
+        let queued = store
+            .enqueue(DownloadRequest::new(
+                "http://127.0.0.1:9/queued.bin",
+                temp_dir.path(),
+            ))
+            .await
+            .unwrap();
+        let mut running_task = running;
+        running_task.set_state(DownloadState::Running);
+        store.update(running_task).await.unwrap();
+
+        let deferred = defer_direct_start_when_capacity_full(&store, queued, Some(1), false)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(deferred.state, DownloadState::Queued);
+    }
+
+    #[tokio::test]
+    async fn direct_start_requeues_paused_task_when_capacity_is_full() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let running = store
+            .enqueue(DownloadRequest::new(
+                "http://127.0.0.1:9/running.bin",
+                temp_dir.path(),
+            ))
+            .await
+            .unwrap();
+        let paused = store
+            .enqueue(DownloadRequest::new(
+                "http://127.0.0.1:9/paused.bin",
+                temp_dir.path(),
+            ))
+            .await
+            .unwrap();
+        let mut running_task = running;
+        running_task.set_state(DownloadState::Running);
+        store.update(running_task).await.unwrap();
+        store
+            .set_state(&paused.id, DownloadState::Paused)
+            .await
+            .unwrap();
+        let paused = store.get(&paused.id).await.unwrap();
+
+        let deferred = defer_direct_start_when_capacity_full(&store, paused, Some(1), false)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(deferred.state, DownloadState::Queued);
+        assert_eq!(
+            store.get(&deferred.id).await.unwrap().state,
+            DownloadState::Queued
+        );
+    }
+
+    #[tokio::test]
+    async fn direct_start_allows_task_when_capacity_is_available() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let task = store
+            .enqueue(DownloadRequest::new(
+                "http://127.0.0.1:9/queued.bin",
+                temp_dir.path(),
+            ))
+            .await
+            .unwrap();
+
+        let deferred = defer_direct_start_when_capacity_full(&store, task, Some(1), false)
+            .await
+            .unwrap();
+
+        assert!(deferred.is_none());
     }
 }
 
