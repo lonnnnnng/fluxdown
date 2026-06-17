@@ -122,6 +122,14 @@ impl QueueRunner {
         options: QueueRunnerOptions,
     ) -> Result<TaskRunReport, QueueRunnerError> {
         let task = self.store.get(id).await?;
+        if !options.restart_existing
+            && matches!(task.state, DownloadState::Finished | DownloadState::Running)
+        {
+            return Ok(TaskRunReport {
+                task,
+                summary: None,
+            });
+        }
         run_one_with_retry(
             self.store.clone(),
             self.engine.clone(),
@@ -527,6 +535,60 @@ mod tests {
             b"fresh restart payload"
         );
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn start_finished_task_without_restart_is_noop() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let task = store
+            .enqueue(DownloadRequest::new(
+                "http://127.0.0.1:9/finished.bin",
+                temp_dir.path().join("downloads"),
+            ))
+            .await
+            .unwrap();
+        let mut finished = task.clone();
+        finished.set_state(DownloadState::Finished);
+        finished.set_progress(100, Some(100));
+        store.update(finished.clone()).await.unwrap();
+
+        let report = QueueRunner::new(store.clone())
+            .run_task_with_options(&task.id, QueueRunnerOptions::default())
+            .await
+            .unwrap();
+        let persisted = store.get(&task.id).await.unwrap();
+
+        assert!(report.summary.is_none());
+        assert_eq!(report.task.state, DownloadState::Finished);
+        assert_eq!(persisted.state, DownloadState::Finished);
+        assert_eq!(persisted.downloaded_bytes, 100);
+    }
+
+    #[tokio::test]
+    async fn start_running_task_without_restart_is_noop() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let task = store
+            .enqueue(DownloadRequest::new(
+                "http://127.0.0.1:9/running.bin",
+                temp_dir.path().join("downloads"),
+            ))
+            .await
+            .unwrap();
+        let mut running = task.clone();
+        running.set_state(DownloadState::Running);
+        store.update(running).await.unwrap();
+
+        let report = QueueRunner::new(store.clone())
+            .run_task_with_options(&task.id, QueueRunnerOptions::default())
+            .await
+            .unwrap();
+        let persisted = store.get(&task.id).await.unwrap();
+
+        assert!(report.summary.is_none());
+        assert_eq!(report.task.state, DownloadState::Running);
+        assert_eq!(persisted.state, DownloadState::Running);
     }
 
     async fn wait_for_progress(store: &TaskStore, task_id: &str) {
