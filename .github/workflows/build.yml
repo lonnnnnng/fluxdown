@@ -1,4 +1,5 @@
 name: Build
+run-name: ${{ inputs.publish_release && format('手动发版 {0}', github.ref_name) || format('手动打包 {0}', github.ref_name) }}
 
 on:
   # long: 构建和发布资源成本较高，只在明确发版或打包时手动启动，避免普通提交或 tag 推送重复触发。
@@ -11,6 +12,7 @@ on:
         default: false
 
 concurrency:
+  # long: 同一个 ref 上误点多次手动打包或发版时，只保留最后一次运行，避免 Actions 页面继续出现重复执行记录。
   group: build-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
