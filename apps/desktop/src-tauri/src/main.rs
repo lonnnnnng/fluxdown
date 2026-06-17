@@ -65,18 +65,55 @@ async fn list_downloads() -> Result<Vec<DownloadTask>, String> {
 
 #[tauri::command]
 async fn pause_download(id: String) -> Result<DownloadTask, String> {
-    TaskStore::new(default_store_path())
-        .set_state(&id, DownloadState::Paused)
-        .await
-        .map_err(|error| error.to_string())
+    let store = TaskStore::new(default_store_path());
+    let task = store.get(&id).await.map_err(|error| error.to_string())?;
+    if let Some(state) = pause_transition(task.state)? {
+        store
+            .set_state(&id, state)
+            .await
+            .map_err(|error| error.to_string())
+    } else {
+        Ok(task)
+    }
 }
 
 #[tauri::command]
 async fn resume_download(id: String) -> Result<DownloadTask, String> {
-    TaskStore::new(default_store_path())
-        .set_state(&id, DownloadState::Queued)
-        .await
-        .map_err(|error| error.to_string())
+    let store = TaskStore::new(default_store_path());
+    let task = store.get(&id).await.map_err(|error| error.to_string())?;
+    if let Some(state) = resume_transition(task.state)? {
+        store
+            .set_state(&id, state)
+            .await
+            .map_err(|error| error.to_string())
+    } else {
+        Ok(task)
+    }
+}
+
+fn pause_transition(state: DownloadState) -> Result<Option<DownloadState>, String> {
+    // 作者: long
+    // 桌面端点击暂停只应影响未结束任务，避免过期 UI 或直接命令把完成任务改坏。
+    match state {
+        DownloadState::Queued | DownloadState::Running => Ok(Some(DownloadState::Paused)),
+        DownloadState::Paused => Ok(None),
+        DownloadState::Finished | DownloadState::Failed => {
+            Err("only queued or running tasks can be paused".to_string())
+        }
+    }
+}
+
+fn resume_transition(state: DownloadState) -> Result<Option<DownloadState>, String> {
+    // 作者: long
+    // 恢复只把暂停任务放回队列；已结束任务需要显式重新下载，不能悄悄排队。
+    match state {
+        DownloadState::Paused => Ok(Some(DownloadState::Queued)),
+        DownloadState::Queued => Ok(None),
+        DownloadState::Running => Err("running tasks do not need resume".to_string()),
+        DownloadState::Finished | DownloadState::Failed => Err(
+            "finished or failed tasks cannot be resumed; start them again explicitly".to_string(),
+        ),
+    }
 }
 
 #[tauri::command]
@@ -391,6 +428,30 @@ mod tests {
         ));
 
         assert_eq!(resolve_task_output_path(&task), temp_dir.path());
+    }
+
+    #[test]
+    fn desktop_pause_resume_transitions_match_cli_boundaries() {
+        assert_eq!(
+            pause_transition(DownloadState::Queued).unwrap(),
+            Some(DownloadState::Paused)
+        );
+        assert_eq!(
+            pause_transition(DownloadState::Running).unwrap(),
+            Some(DownloadState::Paused)
+        );
+        assert_eq!(pause_transition(DownloadState::Paused).unwrap(), None);
+        assert!(pause_transition(DownloadState::Finished).is_err());
+        assert!(pause_transition(DownloadState::Failed).is_err());
+
+        assert_eq!(
+            resume_transition(DownloadState::Paused).unwrap(),
+            Some(DownloadState::Queued)
+        );
+        assert_eq!(resume_transition(DownloadState::Queued).unwrap(), None);
+        assert!(resume_transition(DownloadState::Running).is_err());
+        assert!(resume_transition(DownloadState::Finished).is_err());
+        assert!(resume_transition(DownloadState::Failed).is_err());
     }
 }
 
