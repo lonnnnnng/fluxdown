@@ -477,12 +477,18 @@ mod tests {
     }
 
     fn spawn_single_file_http_server(payload: &'static [u8]) -> String {
+        spawn_checked_http_server(payload, "/fixture.txt")
+    }
+
+    fn spawn_checked_http_server(payload: &'static [u8], expected_path: &'static str) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buffer = [0; 1024];
-            let _ = stream.read(&mut buffer).unwrap();
+            let read = stream.read(&mut buffer).unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            assert!(request.starts_with(&format!("GET {expected_path} ")));
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 payload.len()
@@ -491,6 +497,15 @@ mod tests {
             stream.write_all(payload).unwrap();
         });
         format!("http://{address}/fixture.txt")
+    }
+
+    fn server_address(source: &str) -> &str {
+        source
+            .strip_prefix("http://")
+            .expect("test server source should use http")
+            .split('/')
+            .next()
+            .expect("test server source should include an address")
     }
 
     #[test]
@@ -566,6 +581,79 @@ mod tests {
         assert_eq!(tasks[0].file_name.as_deref(), Some("desktop-command.txt"));
         assert_eq!(
             std::fs::read(output_dir.join("desktop-command.txt")).unwrap(),
+            payload
+        );
+    }
+
+    #[tokio::test]
+    async fn desktop_commands_download_webdav_task_through_queue() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let payload = b"fluxdown-desktop-webdav-e2e";
+        let source = spawn_checked_http_server(payload, "/remote.php/dav/files/payload.bin");
+        let address = server_address(&source);
+
+        let task = enqueue_download(AddPayload {
+            source: format!("webdav://{address}/remote.php/dav/files/payload.bin"),
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("desktop-webdav.txt".to_string()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.protocol, Protocol::Webdav);
+
+        let report = run_queue(1, Some(1), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 1);
+        assert_eq!(report.failed, 0);
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        assert_eq!(
+            std::fs::read(output_dir.join("desktop-webdav.txt")).unwrap(),
+            payload
+        );
+    }
+
+    #[tokio::test]
+    async fn desktop_commands_download_ipfs_task_through_custom_gateway() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let cid = "bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244";
+        let payload = b"Hello IPFS";
+        let source = spawn_checked_http_server(
+            payload,
+            "/ipfs/bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt",
+        );
+        let address = server_address(&source);
+        let gateway = format!("http%3A%2F%2F{address}");
+
+        let task = enqueue_download(AddPayload {
+            source: format!("ipfs://{cid}/readme.txt?gateway={gateway}"),
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("desktop-ipfs.txt".to_string()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.protocol, Protocol::Ipfs);
+
+        let report = run_queue(1, Some(1), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 1);
+        assert_eq!(report.failed, 0);
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        assert_eq!(
+            std::fs::read(output_dir.join("desktop-ipfs.txt")).unwrap(),
             payload
         );
     }
