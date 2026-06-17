@@ -1,6 +1,6 @@
 use crate::{
-    CancelToken, DownloadEngine, DownloadError, DownloadProgress, DownloadState, DownloadTask,
-    TaskStore, TaskStoreError,
+    CancelToken, DownloadEngine, DownloadError, DownloadOptions, DownloadProgress, DownloadState,
+    DownloadTask, Protocol, TaskStore, TaskStoreError,
 };
 use futures_util::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -34,6 +34,8 @@ pub struct QueueRunReport {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct QueueRunnerOptions {
     pub retry_attempts: usize,
+    pub download: DownloadOptions,
+    pub restart_existing: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -139,8 +141,20 @@ async fn run_one_with_retry(
     options: QueueRunnerOptions,
 ) -> Result<TaskRunReport, QueueRunnerError> {
     let max_attempts = options.retry_attempts.saturating_add(1);
+    if options.restart_existing {
+        remove_existing_outputs(&task).await;
+        task.set_progress(0, None);
+        task.error = None;
+    }
     for attempt in 0..max_attempts {
-        let report = run_one(store.clone(), engine.clone(), task, Arc::clone(&write_lock)).await?;
+        let report = run_one(
+            store.clone(),
+            engine.clone(),
+            task,
+            Arc::clone(&write_lock),
+            options.download,
+        )
+        .await?;
 
         if report.task.state != DownloadState::Failed || attempt + 1 >= max_attempts {
             return Ok(report);
@@ -158,6 +172,7 @@ async fn run_one(
     engine: DownloadEngine,
     mut task: DownloadTask,
     write_lock: Arc<Mutex<()>>,
+    download_options: DownloadOptions,
 ) -> Result<TaskRunReport, QueueRunnerError> {
     task.set_state(DownloadState::Running);
     {
@@ -174,6 +189,8 @@ async fn run_one(
         let cancel = cancel.clone();
         tokio::spawn(async move {
             let mut last_persist = Instant::now() - Duration::from_millis(500);
+            let mut last_speed_sample_at = Instant::now();
+            let mut last_speed_sample_bytes = 0_u64;
             while let Some(progress) = progress_rx.recv().await {
                 progress_task.set_progress(progress.downloaded_bytes, progress.total_bytes);
                 if progress.downloaded_bytes == 0 {
@@ -190,11 +207,23 @@ async fn run_one(
                         continue;
                     }
                 }
+                let speed_elapsed = last_speed_sample_at.elapsed();
+                let current_speed = if speed_elapsed.is_zero() {
+                    0
+                } else {
+                    let delta = progress_task
+                        .downloaded_bytes
+                        .saturating_sub(last_speed_sample_bytes);
+                    (delta as f64 / speed_elapsed.as_secs_f64()).round() as u64
+                };
+                last_speed_sample_at = Instant::now();
+                last_speed_sample_bytes = progress_task.downloaded_bytes;
                 match store
                     .set_progress_if_running(
                         &progress_task.id,
                         progress_task.downloaded_bytes,
                         progress_task.total_bytes,
+                        current_speed,
                     )
                     .await
                 {
@@ -243,7 +272,12 @@ async fn run_one(
     };
 
     let summary = match engine
-        .download_with_control(task.request(), Some(progress_callback), Some(cancel))
+        .download_with_control_and_options(
+            task.request(),
+            Some(progress_callback),
+            Some(cancel),
+            download_options,
+        )
         .await
     {
         Ok(summary) => {
@@ -281,25 +315,64 @@ async fn run_one(
 }
 
 async fn partial_file_size(task: &DownloadTask) -> Option<u64> {
-    let path = task
-        .file_name
-        .as_ref()
-        .map(|file_name| task.output_dir.join(file_name))
-        .or_else(|| infer_output_path(task));
-    let path = path?;
-    tokio::fs::metadata(path)
-        .await
-        .ok()
-        .map(|metadata| metadata.len())
+    for path in output_file_candidates(task) {
+        if let Ok(metadata) = tokio::fs::metadata(path).await
+            && metadata.is_file()
+        {
+            return Some(metadata.len());
+        }
+    }
+    None
 }
 
-fn infer_output_path(task: &DownloadTask) -> Option<PathBuf> {
-    let file_name = task
-        .source
-        .rsplit('/')
-        .next()
-        .filter(|segment| !segment.is_empty())?;
-    Some(task.output_dir.join(file_name))
+async fn remove_existing_outputs(task: &DownloadTask) {
+    for path in output_file_candidates(task) {
+        if path.is_file() {
+            let _ = tokio::fs::remove_file(path).await;
+        }
+    }
+}
+
+fn output_file_candidates(task: &DownloadTask) -> Vec<PathBuf> {
+    let file_name = task.file_name.clone().unwrap_or_else(|| {
+        task.source
+            .split('?')
+            .next()
+            .unwrap_or(&task.source)
+            .rsplit('/')
+            .next()
+            .filter(|segment| !segment.is_empty())
+            .unwrap_or("download.bin")
+            .to_string()
+    });
+    let primary = task.output_dir.join(&file_name);
+    let mut candidates = Vec::new();
+    match task.protocol {
+        Protocol::M3u8 => {
+            let base = PathBuf::from(&file_name);
+            candidates.push(task.output_dir.join(base.with_extension("mp4")));
+            candidates.push(
+                task.output_dir
+                    .join(PathBuf::from(&file_name).with_extension("ts")),
+            );
+        }
+        Protocol::Torrent | Protocol::Magnet => {
+            if task.file_name.is_some() {
+                candidates.push(primary.clone());
+            }
+        }
+        _ => candidates.push(primary.clone()),
+    }
+    candidates.push(range_temp_output_path(&primary));
+    candidates
+}
+
+fn range_temp_output_path(output_path: &PathBuf) -> PathBuf {
+    let file_name = output_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("download.bin");
+    output_path.with_file_name(format!(".{file_name}.part"))
 }
 
 #[cfg(test)]
@@ -377,6 +450,14 @@ mod tests {
         let run = tokio::spawn(async move { runner.run_task(&task_id).await.unwrap() });
 
         wait_for_progress(&store, &task.id).await;
+        assert!(
+            store
+                .get(&task.id)
+                .await
+                .unwrap()
+                .current_speed_bytes_per_second
+                > 0
+        );
         store
             .set_state(&task.id, DownloadState::Paused)
             .await
@@ -389,15 +470,69 @@ mod tests {
 
         assert_eq!(report.task.state, DownloadState::Paused);
         assert!(report.task.downloaded_bytes > 0);
+        assert_eq!(report.task.current_speed_bytes_per_second, 0);
         assert!(report.summary.is_none());
 
         server.abort();
     }
 
+    #[tokio::test]
+    async fn restart_existing_removes_old_output_before_download() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buffer = [0; 1024];
+            let read = stream.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            assert!(!request.to_ascii_lowercase().contains("range:"));
+
+            let payload = b"fresh restart payload";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                payload.len()
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+            stream.write_all(payload).await.unwrap();
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let output_dir = temp_dir.path().join("downloads");
+        tokio::fs::create_dir_all(&output_dir).await.unwrap();
+        tokio::fs::write(output_dir.join("file.bin"), b"stale complete file")
+            .await
+            .unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let mut request = DownloadRequest::new(format!("http://{address}/file.bin"), &output_dir);
+        request.file_name = Some("file.bin".to_string());
+        let task = store.enqueue(request).await.unwrap();
+
+        let report = QueueRunner::new(store)
+            .run_task_with_options(
+                &task.id,
+                QueueRunnerOptions {
+                    restart_existing: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(report.task.state, DownloadState::Finished);
+        assert_eq!(
+            tokio::fs::read(output_dir.join("file.bin")).await.unwrap(),
+            b"fresh restart payload"
+        );
+        server.await.unwrap();
+    }
+
     async fn wait_for_progress(store: &TaskStore, task_id: &str) {
         for _ in 0..50 {
             let task = store.get(task_id).await.unwrap();
-            if task.state == DownloadState::Running && task.downloaded_bytes > 0 {
+            if task.state == DownloadState::Running
+                && task.downloaded_bytes > 0
+                && task.current_speed_bytes_per_second > 0
+            {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(100)).await;

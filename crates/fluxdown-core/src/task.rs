@@ -45,6 +45,8 @@ pub struct DownloadTask {
     pub file_name: Option<String>,
     pub total_bytes: Option<u64>,
     pub downloaded_bytes: u64,
+    #[serde(default)]
+    pub current_speed_bytes_per_second: u64,
     pub error: Option<String>,
     pub created_at_ms: u128,
     pub updated_at_ms: u128,
@@ -64,6 +66,7 @@ impl DownloadTask {
             file_name: request.file_name,
             total_bytes: None,
             downloaded_bytes: 0,
+            current_speed_bytes_per_second: 0,
             error: None,
             created_at_ms: millis,
             updated_at_ms: millis,
@@ -80,17 +83,31 @@ impl DownloadTask {
 
     pub fn set_state(&mut self, state: DownloadState) {
         self.state = state;
+        if state != DownloadState::Running {
+            self.current_speed_bytes_per_second = 0;
+        }
         self.updated_at_ms = now_ms();
     }
 
     pub fn set_progress(&mut self, downloaded_bytes: u64, total_bytes: Option<u64>) {
+        self.set_progress_with_speed(downloaded_bytes, total_bytes, 0);
+    }
+
+    pub fn set_progress_with_speed(
+        &mut self,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+        current_speed_bytes_per_second: u64,
+    ) {
         self.downloaded_bytes = downloaded_bytes;
         self.total_bytes = total_bytes;
+        self.current_speed_bytes_per_second = current_speed_bytes_per_second;
         self.updated_at_ms = now_ms();
     }
 
     pub fn fail(&mut self, error: impl Into<String>) {
         self.state = DownloadState::Failed;
+        self.current_speed_bytes_per_second = 0;
         self.error = Some(error.into());
         self.updated_at_ms = now_ms();
     }

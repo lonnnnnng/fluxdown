@@ -52,7 +52,7 @@ type DoctorReport = {
 type DownloadState = "queued" | "running" | "finished" | "failed" | "paused";
 type QueueFilter = "all" | "queued" | "running" | "finished" | "failed";
 type Page = "queue" | "settings";
-type TaskAction = "idle" | "start" | "pause" | "remove" | "copy";
+type TaskAction = "idle" | "start" | "pause" | "remove" | "copy" | "open";
 
 type DownloadTask = {
   id: string;
@@ -64,6 +64,7 @@ type DownloadTask = {
   file_name?: string | null;
   total_bytes?: number | null;
   downloaded_bytes: number;
+  current_speed_bytes_per_second?: number;
   error?: string | null;
   created_at_ms?: number;
   updated_at_ms?: number;
@@ -238,12 +239,23 @@ function suggestedFileName(source: string) {
     const params = new URLSearchParams(source.slice("magnet:?".length));
     return params.get("dn") || "magnet-download";
   }
+  const protocol = fallbackDetect(source);
   try {
     const url = new URL(source);
     const segment = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+    if (protocol === "m3u8") {
+      const baseName = segment
+        ? segment.replace(/\.[^/.]+$/, "")
+        : url.hostname || "playlist";
+      return `${baseName}.mp4`;
+    }
     return segment || url.hostname || source;
   } catch {
-    return source.split(/[\\/]/).pop() || source;
+    const segment = source.split(/[\\/]/).pop() || source;
+    if (protocol === "m3u8") {
+      return `${segment.replace(/\.[^/.]+$/, "") || "playlist"}.mp4`;
+    }
+    return segment;
   }
 }
 
@@ -346,6 +358,10 @@ function averageSpeed(task: DownloadTask) {
   return `${formatBytes((task.downloaded_bytes * 1000) / elapsed)}/s`;
 }
 
+function currentSpeed(task: DownloadTask) {
+  return `${formatBytes(task.current_speed_bytes_per_second ?? 0)}/s`;
+}
+
 function App() {
   const [page, setPage] = useState<Page>("queue");
   const [filter, setFilter] = useState<QueueFilter>("all");
@@ -358,6 +374,7 @@ function App() {
   const [fileName, setFileName] = useState("");
   const [outputDir, setOutputDir] = useState(settings.outputDir);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [queueActive, setQueueActive] = useState(false);
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
   const [propertyTask, setPropertyTask] = useState<DownloadTask | null>(null);
   const [action, setAction] = useState<TaskAction>("idle");
@@ -399,10 +416,10 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!tasks.some((task) => task.state === "running")) return;
+    if (!queueActive && !tasks.some((task) => task.state === "running")) return;
     const timer = window.setInterval(refreshTasks, settings.refreshIntervalMs);
     return () => window.clearInterval(timer);
-  }, [settings.refreshIntervalMs, tasks]);
+  }, [queueActive, settings.refreshIntervalMs, tasks]);
 
   async function refreshTasks() {
     const result = await invoke<DownloadTask[]>("list_downloads").catch(
@@ -480,7 +497,42 @@ function App() {
     }
   }
 
-  async function startTask(task: DownloadTask) {
+  async function taskOutputPath(task: DownloadTask) {
+    return invoke<string>("task_output_path", { id: task.id }).catch(
+      () => `${task.output_dir}/${taskTitle(task)}`,
+    );
+  }
+
+  async function copyTaskPath(task: DownloadTask) {
+    const path = await taskOutputPath(task);
+    await copyText(path, "文件路径已复制");
+  }
+
+  async function openTaskOutput(task: DownloadTask) {
+    setAction("open");
+    try {
+      await invoke("open_task_output", { id: task.id });
+      setMessage(`${taskTitle(task)} 已打开`);
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      setAction("idle");
+    }
+  }
+
+  async function revealTaskOutput(task: DownloadTask, message = "已在 Finder 中显示") {
+    setAction("open");
+    try {
+      await invoke("reveal_task_output", { id: task.id });
+      setMessage(message);
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      setAction("idle");
+    }
+  }
+
+  async function startTask(task: DownloadTask, restartExisting = false) {
     if (!task.support.executable) {
       setMessage(task.support.note || "当前协议不可执行");
       return;
@@ -496,6 +548,12 @@ function App() {
       const report = await invoke<TaskRunReport>("start_download", {
         id: task.id,
         retry_attempts: settings.retryAttempts,
+        thread_count: settings.threadCount,
+        speed_limit_mbps:
+          settings.speedLimitMbps && settings.speedLimitMbps > 0
+            ? settings.speedLimitMbps
+            : null,
+        restart_existing: restartExisting,
       });
       setTasks((current) =>
         current.map((item) => (item.id === task.id ? report.task : item)),
@@ -546,21 +604,31 @@ function App() {
 
   async function redownloadTask(task: DownloadTask) {
     setMenuTaskId(null);
-    await startTask(task);
+    await startTask(task, true);
   }
 
   async function runQueue() {
+    setQueueActive(true);
     try {
       const report = await invoke<QueueRunReport>("run_queue", {
         concurrency: settings.concurrency,
         retry_attempts: settings.retryAttempts,
+        thread_count: settings.threadCount,
+        speed_limit_mbps:
+          settings.speedLimitMbps && settings.speedLimitMbps > 0
+            ? settings.speedLimitMbps
+            : null,
+        restart_existing: false,
       });
       if (report.tasks.length > 0) {
         setTasks(await invoke<DownloadTask[]>("list_downloads"));
         setMessage(`队列完成：${report.finished} 个完成，${report.failed} 个失败`);
       }
-    } catch {
+    } catch (error) {
+      setMessage(String(error));
       // Web preview or unsupported runtime: queued items stay visible.
+    } finally {
+      setQueueActive(false);
     }
   }
 
@@ -688,20 +756,28 @@ function App() {
             )
           }
           onCopyPath={() =>
-            copyText(
-              `${currentMenuTask.output_dir}/${taskTitle(currentMenuTask)}`,
-              "文件路径已复制",
-            ).then(() => setMenuTaskId(null))
+            copyTaskPath(currentMenuTask).then(() => setMenuTaskId(null))
+          }
+          onOpen={() =>
+            openTaskOutput(currentMenuTask).then(() => setMenuTaskId(null))
           }
           onProperties={() => {
             setPropertyTask(currentMenuTask);
             setMenuTaskId(null);
           }}
+          onReveal={() =>
+            revealTaskOutput(currentMenuTask).then(() => setMenuTaskId(null))
+          }
           onRedownload={() => redownloadTask(currentMenuTask)}
           onRemove={() => {
             setMenuTaskId(null);
             removeTask(currentMenuTask);
           }}
+          onShare={() =>
+            revealTaskOutput(currentMenuTask, "已定位文件，可从 Finder 使用系统分享").then(
+              () => setMenuTaskId(null),
+            )
+          }
           task={currentMenuTask}
         />
       ) : null}
@@ -800,6 +876,7 @@ function TaskRow({
           <span title="开始时间">↘ {formatClock(task.created_at_ms)}</span>
           <span title="结束时间">↗ {formatClock(task.updated_at_ms)}</span>
           <span title="共计耗时">◷ {elapsed}</span>
+          <span title="实时速度">↯ {currentSpeed(task)}</span>
           <span title="平均速度">⇅ {averageSpeed(task)}</span>
           <span title="已下载/总大小">
             {formatBytes(task.downloaded_bytes)} / {formatBytes(task.total_bytes)}
@@ -900,17 +977,23 @@ function TaskMenu({
   onClose,
   onCopyLink,
   onCopyPath,
+  onOpen,
   onProperties,
+  onReveal,
   onRedownload,
   onRemove,
+  onShare,
   task,
 }: {
   onClose: () => void;
   onCopyLink: () => void;
   onCopyPath: () => void;
+  onOpen: () => void;
   onProperties: () => void;
+  onReveal: () => void;
   onRedownload: () => void;
   onRemove: () => void;
+  onShare: () => void;
   task: DownloadTask;
 }) {
   return (
@@ -922,6 +1005,9 @@ function TaskMenu({
         </header>
         <button onClick={onCopyLink}>复制下载链接</button>
         <button onClick={onCopyPath}>复制文件路径</button>
+        <button onClick={onOpen}>打开</button>
+        <button onClick={onReveal}>在 Finder 中显示</button>
+        <button onClick={onShare}>分享</button>
         <button onClick={onProperties}>属性</button>
         <button onClick={onRedownload}>重新下载</button>
         <button className="danger" onClick={onRemove}>

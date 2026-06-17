@@ -1,23 +1,25 @@
 use crate::{Backend, DownloadRequest, Protocol, backend_availability};
 use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
-use futures_util::StreamExt;
-use librqbit::{AddTorrent, AddTorrentOptions, Session};
+use futures_util::{StreamExt, stream};
+use librqbit::{AddTorrent, AddTorrentOptions, Session, SessionOptions, limits::LimitsConfig};
 use m3u8_rs::{Key, KeyMethod};
 use percent_encoding::percent_decode_str;
 use reqwest::Client;
 use reqwest::StatusCode;
-use reqwest::header::{CONTENT_LENGTH, RANGE};
+use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, RANGE};
 use serde::{Deserialize, Serialize};
 use smb2::{ClientConfig, SmbClient};
 use ssh2::Session as SshSession;
 use std::collections::HashMap;
 use std::io::{Read, Seek};
 use std::net::{IpAddr, TcpStream};
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
+use std::time::{Duration, Instant};
 use suppaftp::{
     Mode,
     tokio::{
@@ -31,6 +33,7 @@ use thiserror::Error;
 use tokio::fs::{self, File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::process::Command;
+use tokio::sync::Mutex;
 use url::Url;
 
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
@@ -64,6 +67,8 @@ pub enum DownloadError {
     InvalidUrl(String),
     #[error(transparent)]
     Http(#[from] reqwest::Error),
+    #[error("http range download failed: {0}")]
+    HttpRange(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error("invalid m3u8 playlist")]
@@ -74,6 +79,8 @@ pub enum DownloadError {
     InvalidHlsKey(String),
     #[error("HLS segment decryption failed: {0}")]
     HlsDecrypt(String),
+    #[error("HLS MP4 remux failed: {0}")]
+    HlsRemux(String),
     #[error("invalid ftp url: {0}")]
     InvalidFtpUrl(String),
     #[error("invalid sftp url: {0}")]
@@ -126,6 +133,30 @@ pub struct DownloadSummary {
     pub segments_written: Option<usize>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct DownloadOptions {
+    pub thread_count: usize,
+    pub speed_limit_bps: Option<u64>,
+}
+
+impl Default for DownloadOptions {
+    fn default() -> Self {
+        Self {
+            thread_count: 1,
+            speed_limit_bps: None,
+        }
+    }
+}
+
+impl DownloadOptions {
+    pub fn new(thread_count: usize, speed_limit_bps: Option<u64>) -> Self {
+        Self {
+            thread_count: thread_count.clamp(1, 32),
+            speed_limit_bps: speed_limit_bps.filter(|limit| *limit > 0),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DownloadEngine {
     client: Client,
@@ -151,6 +182,15 @@ impl DownloadEngine {
         self.download_with_progress(request, None).await
     }
 
+    pub async fn download_with_options(
+        &self,
+        request: DownloadRequest,
+        options: DownloadOptions,
+    ) -> Result<DownloadSummary, DownloadError> {
+        self.download_with_progress_and_options(request, None, options)
+            .await
+    }
+
     pub async fn download_with_progress(
         &self,
         request: DownloadRequest,
@@ -159,26 +199,62 @@ impl DownloadEngine {
         self.download_with_control(request, progress, None).await
     }
 
+    pub async fn download_with_progress_and_options(
+        &self,
+        request: DownloadRequest,
+        progress: Option<ProgressCallback>,
+        options: DownloadOptions,
+    ) -> Result<DownloadSummary, DownloadError> {
+        self.download_with_control_and_options(request, progress, None, options)
+            .await
+    }
+
     pub async fn download_with_control(
         &self,
         request: DownloadRequest,
         progress: Option<ProgressCallback>,
         cancel: Option<CancelToken>,
     ) -> Result<DownloadSummary, DownloadError> {
+        self.download_with_control_and_options(
+            request,
+            progress,
+            cancel,
+            DownloadOptions::default(),
+        )
+        .await
+    }
+
+    pub async fn download_with_control_and_options(
+        &self,
+        request: DownloadRequest,
+        progress: Option<ProgressCallback>,
+        cancel: Option<CancelToken>,
+        options: DownloadOptions,
+    ) -> Result<DownloadSummary, DownloadError> {
+        let options = DownloadOptions::new(options.thread_count, options.speed_limit_bps);
         match request.protocol() {
-            Protocol::Http | Protocol::Https => self.download_http(request, progress, cancel).await,
+            Protocol::Http | Protocol::Https => {
+                self.download_http(request, progress, cancel, options).await
+            }
             Protocol::Webdav | Protocol::Webdavs => {
-                self.download_webdav(request, progress, cancel).await
+                self.download_webdav(request, progress, cancel, options)
+                    .await
             }
-            Protocol::Ftp | Protocol::Ftps => self.download_ftp(request, progress, cancel).await,
+            Protocol::Ftp | Protocol::Ftps => {
+                self.download_ftp(request, progress, cancel, options).await
+            }
             Protocol::Torrent | Protocol::Magnet => {
-                self.download_torrent(request, progress, cancel).await
+                self.download_torrent(request, progress, cancel, options)
+                    .await
             }
-            Protocol::M3u8 => self.download_m3u8(request, progress, cancel).await,
-            Protocol::Sftp => self.download_sftp(request, progress, cancel).await,
+            Protocol::M3u8 => self.download_m3u8(request, progress, cancel, options).await,
+            Protocol::Sftp => self.download_sftp(request, progress, cancel, options).await,
             Protocol::Ed2k => self.download_with_ed2k(request).await,
-            Protocol::Smb => self.download_smb(request, progress, cancel).await,
-            Protocol::Ipfs => self.download_ipfs_gateway(request, progress, cancel).await,
+            Protocol::Smb => self.download_smb(request, progress, cancel, options).await,
+            Protocol::Ipfs => {
+                self.download_ipfs_gateway(request, progress, cancel, options)
+                    .await
+            }
             protocol => Err(DownloadError::UnsupportedProtocol(protocol)),
         }
     }
@@ -188,6 +264,7 @@ impl DownloadEngine {
         request: DownloadRequest,
         progress: Option<ProgressCallback>,
         cancel: Option<CancelToken>,
+        options: DownloadOptions,
     ) -> Result<DownloadSummary, DownloadError> {
         fs::create_dir_all(&request.output_dir).await?;
         let mut url = Url::parse(&request.source)
@@ -199,6 +276,26 @@ impl DownloadEngine {
         let output_path = request.output_dir.join(file_name);
         let existing_bytes = existing_file_size(&output_path).await?;
         let credentials = url_credentials(&mut url)?;
+        let limiter = DownloadSpeedLimiter::new(options.speed_limit_bps);
+
+        if existing_bytes == 0
+            && options.thread_count > 1
+            && let Some(summary) = self
+                .download_http_ranges(
+                    protocol,
+                    url.clone(),
+                    credentials.clone(),
+                    output_path.clone(),
+                    options.thread_count,
+                    limiter.clone(),
+                    progress.clone(),
+                    cancel.clone(),
+                )
+                .await?
+        {
+            return Ok(summary);
+        }
+
         let mut builder = self.client.get(url);
         if let Some((username, password)) = credentials {
             builder = builder.basic_auth(username, password);
@@ -229,6 +326,7 @@ impl DownloadEngine {
                 return Err(DownloadError::Paused);
             }
             let chunk = chunk?;
+            limiter.wait(chunk.len() as u64).await;
             file.write_all(&chunk).await?;
             bytes_written += chunk.len() as u64;
             emit_progress(&progress, bytes_written, total_bytes);
@@ -247,16 +345,157 @@ impl DownloadEngine {
         })
     }
 
+    async fn download_http_ranges(
+        &self,
+        protocol: Protocol,
+        url: Url,
+        credentials: Option<(String, Option<String>)>,
+        output_path: PathBuf,
+        thread_count: usize,
+        limiter: DownloadSpeedLimiter,
+        progress: Option<ProgressCallback>,
+        cancel: Option<CancelToken>,
+    ) -> Result<Option<DownloadSummary>, DownloadError> {
+        let mut head = self.client.head(url.clone());
+        if let Some((username, password)) = &credentials {
+            head = head.basic_auth(username, password.clone());
+        }
+
+        let response = match head.send().await {
+            Ok(response) if response.status().is_success() => response,
+            _ => return Ok(None),
+        };
+        let accepts_ranges = response
+            .headers()
+            .get(ACCEPT_RANGES)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.eq_ignore_ascii_case("bytes"));
+        let Some(total_bytes) = infer_total_bytes(response.headers().get(CONTENT_LENGTH), 0) else {
+            return Ok(None);
+        };
+        if !accepts_ranges || total_bytes == 0 {
+            return Ok(None);
+        }
+
+        let thread_count = thread_count.min(total_bytes as usize).max(1);
+        let chunk_size = total_bytes.div_ceil(thread_count as u64);
+        let ranges = (0..thread_count)
+            .filter_map(|index| {
+                let start = index as u64 * chunk_size;
+                if start >= total_bytes {
+                    return None;
+                }
+                let end = (start + chunk_size - 1).min(total_bytes - 1);
+                Some((start, end))
+            })
+            .collect::<Vec<_>>();
+        if ranges.len() <= 1 {
+            return Ok(None);
+        }
+
+        let temp_output_path = range_temp_output_path(&output_path);
+        let _ = fs::remove_file(&temp_output_path).await;
+        let output = File::create(&temp_output_path).await?;
+        output.set_len(total_bytes).await?;
+        drop(output);
+        let downloaded = Arc::new(AtomicU64::new(0));
+        emit_progress(&progress, 0, Some(total_bytes));
+
+        let results = stream::iter(ranges)
+            .map(|(start, end)| {
+                let client = self.client.clone();
+                let url = url.clone();
+                let credentials = credentials.clone();
+                let output_path = temp_output_path.clone();
+                let progress = progress.clone();
+                let cancel = cancel.clone();
+                let limiter = limiter.clone();
+                let downloaded = Arc::clone(&downloaded);
+                async move {
+                    if is_cancelled(&cancel) {
+                        return Err(DownloadError::Paused);
+                    }
+
+                    let mut request = client
+                        .get(url)
+                        .header(RANGE, format!("bytes={start}-{end}"));
+                    if let Some((username, password)) = credentials {
+                        request = request.basic_auth(username, password);
+                    }
+                    let response = request.send().await?.error_for_status()?;
+                    if response.status() != StatusCode::PARTIAL_CONTENT {
+                        return Err(DownloadError::HttpRange(format!(
+                            "expected 206 for bytes {start}-{end}, got {}",
+                            response.status()
+                        )));
+                    }
+
+                    let mut file = OpenOptions::new().write(true).open(&output_path).await?;
+                    file.seek(std::io::SeekFrom::Start(start)).await?;
+                    let mut stream = response.bytes_stream();
+                    let mut range_written = 0_u64;
+                    while let Some(chunk) = stream.next().await {
+                        if is_cancelled(&cancel) {
+                            file.flush().await?;
+                            return Err(DownloadError::Paused);
+                        }
+                        let chunk = chunk?;
+                        limiter.wait(chunk.len() as u64).await;
+                        file.write_all(&chunk).await?;
+                        range_written += chunk.len() as u64;
+                        let total = downloaded.fetch_add(chunk.len() as u64, Ordering::SeqCst)
+                            + chunk.len() as u64;
+                        emit_progress(&progress, total, Some(total_bytes));
+                    }
+                    file.flush().await?;
+
+                    let expected = end - start + 1;
+                    if range_written != expected {
+                        return Err(DownloadError::HttpRange(format!(
+                            "expected {expected} bytes for range {start}-{end}, got {range_written}"
+                        )));
+                    }
+                    Ok(())
+                }
+            })
+            .buffer_unordered(thread_count)
+            .collect::<Vec<_>>()
+            .await;
+
+        for result in results {
+            if let Err(error) = result {
+                let _ = fs::remove_file(&temp_output_path).await;
+                return Err(error);
+            }
+        }
+
+        let _ = fs::remove_file(&output_path).await;
+        fs::rename(&temp_output_path, &output_path).await?;
+
+        Ok(Some(DownloadSummary {
+            protocol,
+            backend: Backend::BuiltIn,
+            output_path,
+            bytes_written: total_bytes,
+            resumed_from: 0,
+            total_bytes: Some(total_bytes),
+            segments_written: None,
+        }))
+    }
+
     async fn download_webdav(
         &self,
         request: DownloadRequest,
         progress: Option<ProgressCallback>,
         cancel: Option<CancelToken>,
+        options: DownloadOptions,
     ) -> Result<DownloadSummary, DownloadError> {
         let protocol = request.protocol();
         let mut http_request = request;
         http_request.source = webdav_http_url(&http_request.source)?;
-        let mut summary = self.download_http(http_request, progress, cancel).await?;
+        let mut summary = self
+            .download_http(http_request, progress, cancel, options)
+            .await?;
         summary.protocol = protocol;
         Ok(summary)
     }
@@ -266,6 +505,7 @@ impl DownloadEngine {
         request: DownloadRequest,
         progress: Option<ProgressCallback>,
         cancel: Option<CancelToken>,
+        options: DownloadOptions,
     ) -> Result<DownloadSummary, DownloadError> {
         fs::create_dir_all(&request.output_dir).await?;
         let url = Url::parse(&request.source)
@@ -275,13 +515,29 @@ impl DownloadEngine {
         if protocol == Protocol::Ftps {
             let ftp = connect_ftps(&spec).await?;
             return self
-                .download_ftp_stream(ftp, request.output_dir, spec, protocol, progress, cancel)
+                .download_ftp_stream(
+                    ftp,
+                    request.output_dir,
+                    spec,
+                    protocol,
+                    progress,
+                    cancel,
+                    options,
+                )
                 .await;
         }
 
         let ftp = AsyncFtpStream::connect(spec.address.clone()).await?;
-        self.download_ftp_stream(ftp, request.output_dir, spec, protocol, progress, cancel)
-            .await
+        self.download_ftp_stream(
+            ftp,
+            request.output_dir,
+            spec,
+            protocol,
+            progress,
+            cancel,
+            options,
+        )
+        .await
     }
 
     async fn download_ftp_stream<T>(
@@ -292,6 +548,7 @@ impl DownloadEngine {
         protocol: Protocol,
         progress: Option<ProgressCallback>,
         cancel: Option<CancelToken>,
+        options: DownloadOptions,
     ) -> Result<DownloadSummary, DownloadError>
     where
         T: TokioTlsStream + Send,
@@ -322,6 +579,7 @@ impl DownloadEngine {
         let mut bytes_written = existing_bytes;
         emit_progress(&progress, bytes_written, total_bytes);
         let mut buffer = vec![0_u8; 64 * 1024];
+        let limiter = DownloadSpeedLimiter::new(options.speed_limit_bps);
 
         loop {
             if is_cancelled(&cancel) {
@@ -335,6 +593,7 @@ impl DownloadEngine {
             if read == 0 {
                 break;
             }
+            limiter.wait(read as u64).await;
             file.write_all(&buffer[..read]).await?;
             bytes_written += read as u64;
             emit_progress(&progress, bytes_written, total_bytes);
@@ -360,16 +619,25 @@ impl DownloadEngine {
         request: DownloadRequest,
         progress: Option<ProgressCallback>,
         cancel: Option<CancelToken>,
+        options: DownloadOptions,
     ) -> Result<DownloadSummary, DownloadError> {
         fs::create_dir_all(&request.output_dir).await?;
         let protocol = request.protocol();
         let add_torrent = torrent_source(&request.source, protocol).await?;
-        let session = Session::new(request.output_dir.clone()).await?;
+        let session = Session::new_with_opts(
+            request.output_dir.clone(),
+            SessionOptions {
+                ratelimits: torrent_rate_limits(options.speed_limit_bps),
+                ..Default::default()
+            },
+        )
+        .await?;
         let handle = session
             .add_torrent(
                 add_torrent,
                 Some(AddTorrentOptions {
                     overwrite: true,
+                    ratelimits: torrent_rate_limits(options.speed_limit_bps),
                     ..Default::default()
                 }),
             )
@@ -431,6 +699,7 @@ impl DownloadEngine {
         request: DownloadRequest,
         progress: Option<ProgressCallback>,
         cancel: Option<CancelToken>,
+        options: DownloadOptions,
     ) -> Result<DownloadSummary, DownloadError> {
         fs::create_dir_all(&request.output_dir).await?;
         let url = Url::parse(&request.source)
@@ -439,9 +708,16 @@ impl DownloadEngine {
         let output_dir = request.output_dir.clone();
         let cancel_for_task = cancel.clone();
         let progress_for_task = progress.clone();
+        let speed_limit_bps = options.speed_limit_bps;
 
         tokio::task::spawn_blocking(move || {
-            download_sftp_blocking(output_dir, spec, progress_for_task, cancel_for_task)
+            download_sftp_blocking(
+                output_dir,
+                spec,
+                progress_for_task,
+                cancel_for_task,
+                speed_limit_bps,
+            )
         })
         .await
         .map_err(|error| anyhow::anyhow!("sftp task failed: {error}"))?
@@ -452,6 +728,7 @@ impl DownloadEngine {
         request: DownloadRequest,
         progress: Option<ProgressCallback>,
         cancel: Option<CancelToken>,
+        options: DownloadOptions,
     ) -> Result<DownloadSummary, DownloadError> {
         fs::create_dir_all(&request.output_dir).await?;
         let playlist_url = Url::parse(&request.source)
@@ -493,59 +770,125 @@ impl DownloadEngine {
 
         let file_name = request
             .file_name
-            .unwrap_or_else(|| infer_file_name(&playlist_url, "stream.ts"));
-        let output_path = normalize_hls_output_name(&request.output_dir.join(file_name));
-        let mut output = File::create(&output_path).await?;
+            .unwrap_or_else(|| infer_file_name(&playlist_url, "stream.mp4"));
+        let requested_output_path = request.output_dir.join(file_name);
+        let output_path = hls_mp4_output_name(&requested_output_path);
+        let temp_ts_path = hls_temp_transport_path(&output_path);
+        let fallback_ts_path = hls_transport_output_name(&requested_output_path);
+        let mut output = File::create(&temp_ts_path).await?;
         let mut bytes_written = 0;
         let mut segments_written = 0;
-        let mut key_cache = HashMap::new();
         let mut current_hls_key = None;
         emit_progress(&progress, bytes_written, None);
 
+        let mut segment_specs = Vec::with_capacity(media_playlist.segments.len());
         for (index, segment) in media_playlist.segments.iter().enumerate() {
-            if is_cancelled(&cancel) {
-                output.flush().await?;
-                return Err(DownloadError::Paused);
-            }
             let segment_url = media_playlist_url
                 .join(&segment.uri)
                 .map_err(|_| DownloadError::InvalidM3u8)?;
-            let bytes = self
-                .client
-                .get(segment_url)
-                .send()
-                .await?
-                .error_for_status()?
-                .bytes()
-                .await?;
             let segment_sequence = media_playlist.media_sequence + index as u64;
             if let Some(key) = &segment.key {
                 current_hls_key = Some(key.clone());
             }
-            let segment_bytes = self
-                .decode_hls_segment(
-                    &media_playlist_url,
-                    current_hls_key.as_ref(),
-                    bytes.as_ref(),
-                    segment_sequence,
-                    &mut key_cache,
-                )
-                .await?;
+            segment_specs.push(HlsSegmentSpec {
+                index,
+                url: segment_url,
+                media_sequence: segment_sequence,
+                key: current_hls_key.clone(),
+            });
+        }
+
+        let limiter = DownloadSpeedLimiter::new(options.speed_limit_bps);
+        let downloaded = Arc::new(AtomicU64::new(0));
+        let segment_results = stream::iter(segment_specs)
+            .map(|segment| {
+                let engine = self.clone();
+                let playlist_url = media_playlist_url.clone();
+                let cancel = cancel.clone();
+                let progress = progress.clone();
+                let downloaded = Arc::clone(&downloaded);
+                let limiter = limiter.clone();
+                async move {
+                    if is_cancelled(&cancel) {
+                        return Err(DownloadError::Paused);
+                    }
+                    let response = engine
+                        .client
+                        .get(segment.url)
+                        .send()
+                        .await?
+                        .error_for_status()?;
+                    let mut stream = response.bytes_stream();
+                    let mut bytes = Vec::new();
+                    while let Some(chunk) = stream.next().await {
+                        if is_cancelled(&cancel) {
+                            return Err(DownloadError::Paused);
+                        }
+                        let chunk = chunk?;
+                        limiter.wait(chunk.len() as u64).await;
+                        bytes.extend_from_slice(&chunk);
+                    }
+                    let mut key_cache = HashMap::new();
+                    let segment_bytes = engine
+                        .decode_hls_segment(
+                            &playlist_url,
+                            segment.key.as_ref(),
+                            bytes.as_slice(),
+                            segment.media_sequence,
+                            &mut key_cache,
+                        )
+                        .await?;
+                    let total = downloaded.fetch_add(segment_bytes.len() as u64, Ordering::SeqCst)
+                        + segment_bytes.len() as u64;
+                    emit_progress(&progress, total, None);
+                    Ok((segment.index, segment_bytes))
+                }
+            })
+            .buffer_unordered(options.thread_count)
+            .collect::<Vec<_>>()
+            .await;
+
+        let mut ordered_segments = Vec::with_capacity(segment_results.len());
+        for result in segment_results {
+            ordered_segments.push(result?);
+        }
+        ordered_segments.sort_by_key(|(index, _)| *index);
+
+        for (_, segment_bytes) in ordered_segments {
+            if is_cancelled(&cancel) {
+                output.flush().await?;
+                return Err(DownloadError::Paused);
+            }
             output.write_all(&segment_bytes).await?;
             bytes_written += segment_bytes.len() as u64;
             segments_written += 1;
-            emit_progress(&progress, bytes_written, None);
         }
 
         output.flush().await?;
+        drop(output);
+
+        let (output_path, output_bytes) =
+            match remux_hls_transport_stream(&temp_ts_path, &output_path).await {
+                Ok(bytes) => {
+                    let _ = fs::remove_file(&temp_ts_path).await;
+                    (output_path, bytes)
+                }
+                Err(_) => {
+                    if fallback_ts_path != temp_ts_path {
+                        let _ = fs::remove_file(&fallback_ts_path).await;
+                        fs::rename(&temp_ts_path, &fallback_ts_path).await?;
+                    }
+                    (fallback_ts_path, bytes_written)
+                }
+            };
 
         Ok(DownloadSummary {
             protocol: Protocol::M3u8,
             backend: Backend::BuiltIn,
             output_path,
-            bytes_written,
+            bytes_written: output_bytes,
             resumed_from: 0,
-            total_bytes: Some(bytes_written),
+            total_bytes: Some(output_bytes),
             segments_written: Some(segments_written),
         })
     }
@@ -654,6 +997,7 @@ impl DownloadEngine {
         request: DownloadRequest,
         progress: Option<ProgressCallback>,
         cancel: Option<CancelToken>,
+        options: DownloadOptions,
     ) -> Result<DownloadSummary, DownloadError> {
         fs::create_dir_all(&request.output_dir).await?;
         let url = Url::parse(&request.source)
@@ -666,6 +1010,7 @@ impl DownloadEngine {
         let total_bytes = Some(download.size());
         let mut file = File::create(&output_path).await?;
         let mut bytes_written = 0;
+        let limiter = DownloadSpeedLimiter::new(options.speed_limit_bps);
         emit_progress(&progress, bytes_written, total_bytes);
 
         while let Some(chunk) = download.next_chunk().await {
@@ -675,6 +1020,7 @@ impl DownloadEngine {
             }
 
             let chunk = chunk?;
+            limiter.wait(chunk.len() as u64).await;
             file.write_all(&chunk).await?;
             bytes_written += chunk.len() as u64;
             emit_progress(&progress, bytes_written, total_bytes);
@@ -698,14 +1044,115 @@ impl DownloadEngine {
         request: DownloadRequest,
         progress: Option<ProgressCallback>,
         cancel: Option<CancelToken>,
+        options: DownloadOptions,
     ) -> Result<DownloadSummary, DownloadError> {
         let gateway_url = ipfs_gateway_url(&request.source)?;
         let mut http_request = request;
         http_request.source = gateway_url;
-        let mut summary = self.download_http(http_request, progress, cancel).await?;
+        let mut summary = self
+            .download_http(http_request, progress, cancel, options)
+            .await?;
         summary.protocol = Protocol::Ipfs;
         Ok(summary)
     }
+}
+
+#[derive(Debug, Clone)]
+struct HlsSegmentSpec {
+    index: usize,
+    url: Url,
+    media_sequence: u64,
+    key: Option<Key>,
+}
+
+#[derive(Debug, Clone)]
+struct DownloadSpeedLimiter {
+    inner: Option<Arc<Mutex<SpeedLimiterState>>>,
+}
+
+#[derive(Debug)]
+struct SpeedLimiterState {
+    bytes_per_second: u64,
+    next_available: Instant,
+}
+
+impl DownloadSpeedLimiter {
+    fn new(speed_limit_bps: Option<u64>) -> Self {
+        Self {
+            inner: speed_limit_bps.filter(|limit| *limit > 0).map(|limit| {
+                Arc::new(Mutex::new(SpeedLimiterState {
+                    bytes_per_second: limit,
+                    next_available: Instant::now(),
+                }))
+            }),
+        }
+    }
+
+    async fn wait(&self, bytes: u64) {
+        let Some(inner) = &self.inner else {
+            return;
+        };
+        if bytes == 0 {
+            return;
+        }
+
+        let sleep_for = {
+            let mut state = inner.lock().await;
+            let now = Instant::now();
+            let start = if state.next_available > now {
+                state.next_available
+            } else {
+                now
+            };
+            let ready_at = start + transfer_duration(bytes, state.bytes_per_second);
+            state.next_available = ready_at;
+            ready_at.saturating_duration_since(now)
+        };
+        if !sleep_for.is_zero() {
+            tokio::time::sleep(sleep_for).await;
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BlockingDownloadSpeedLimiter {
+    bytes_per_second: Option<u64>,
+}
+
+impl BlockingDownloadSpeedLimiter {
+    fn new(bytes_per_second: Option<u64>) -> Self {
+        Self {
+            bytes_per_second: bytes_per_second.filter(|limit| *limit > 0),
+        }
+    }
+
+    fn wait(&self, bytes: u64) {
+        let Some(bytes_per_second) = self.bytes_per_second else {
+            return;
+        };
+        if bytes == 0 {
+            return;
+        }
+        std::thread::sleep(transfer_duration(bytes, bytes_per_second));
+    }
+}
+
+fn transfer_duration(bytes: u64, bytes_per_second: u64) -> Duration {
+    Duration::from_secs_f64(bytes as f64 / bytes_per_second.max(1) as f64)
+}
+
+fn torrent_rate_limits(speed_limit_bps: Option<u64>) -> LimitsConfig {
+    LimitsConfig {
+        upload_bps: None,
+        download_bps: speed_limit_nonzero_u32(speed_limit_bps),
+    }
+}
+
+fn speed_limit_nonzero_u32(speed_limit_bps: Option<u64>) -> Option<NonZeroU32> {
+    speed_limit_bps
+        .filter(|limit| *limit > 0)
+        .map(|limit| limit.min(u32::MAX as u64) as u32)
+        .and_then(NonZeroU32::new)
 }
 
 fn emit_progress(
@@ -898,6 +1345,7 @@ fn download_sftp_blocking(
     spec: SftpDownloadSpec,
     progress: Option<ProgressCallback>,
     cancel: Option<CancelToken>,
+    speed_limit_bps: Option<u64>,
 ) -> Result<DownloadSummary, DownloadError> {
     std::fs::create_dir_all(&output_dir)?;
     let output_path = output_dir.join(&spec.file_name);
@@ -932,6 +1380,7 @@ fn download_sftp_blocking(
     let mut bytes_written = existing_bytes;
     emit_progress(&progress, bytes_written, total_bytes);
     let mut buffer = vec![0_u8; 64 * 1024];
+    let limiter = BlockingDownloadSpeedLimiter::new(speed_limit_bps);
 
     loop {
         if is_cancelled(&cancel) {
@@ -943,6 +1392,7 @@ fn download_sftp_blocking(
         if read == 0 {
             break;
         }
+        limiter.wait(read as u64);
         std::io::Write::write_all(&mut local, &buffer[..read])?;
         bytes_written += read as u64;
         emit_progress(&progress, bytes_written, total_bytes);
@@ -1198,7 +1648,10 @@ mod tests {
     use super::*;
     use aes::cipher::{BlockEncryptMut, block_padding::Pkcs7};
     use std::fs as std_fs;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{
+        Mutex, OnceLock,
+        atomic::{AtomicUsize, Ordering as AtomicOrdering},
+    };
     use tokio::net::TcpListener;
 
     type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
@@ -1421,6 +1874,198 @@ fn main() {{
         assert_eq!(url.as_str(), "https://example.com/file.bin");
     }
 
+    #[tokio::test]
+    async fn speed_limiter_paces_initial_chunk() {
+        let limiter = DownloadSpeedLimiter::new(Some(256 * 1024));
+        let started = Instant::now();
+
+        limiter.wait(64 * 1024).await;
+
+        assert!(started.elapsed() >= Duration::from_millis(220));
+    }
+
+    #[tokio::test]
+    async fn downloads_http_ranges_when_threads_requested() {
+        let payload = Arc::new(
+            (0..(256 * 1024))
+                .map(|index| (index % 251) as u8)
+                .collect::<Vec<_>>(),
+        );
+        let range_hits = Arc::new(AtomicUsize::new(0));
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/payload.bin", server.local_addr().unwrap());
+        let server_payload = Arc::clone(&payload);
+        let server_range_hits = Arc::clone(&range_hits);
+        let server_task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = server.accept().await else {
+                    return;
+                };
+                let payload = Arc::clone(&server_payload);
+                let range_hits = Arc::clone(&server_range_hits);
+                tokio::spawn(async move {
+                    let mut buffer = [0; 2048];
+                    let Ok(read) = stream.read(&mut buffer).await else {
+                        return;
+                    };
+                    let request = String::from_utf8_lossy(&buffer[..read]);
+                    let method = request
+                        .lines()
+                        .next()
+                        .and_then(|line| line.split_whitespace().next())
+                        .unwrap_or("GET");
+
+                    if method == "HEAD" {
+                        let header = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                            payload.len()
+                        );
+                        let _ = stream.write_all(header.as_bytes()).await;
+                        let _ = stream.shutdown().await;
+                        return;
+                    }
+
+                    let (status, extra_header, body) =
+                        if let Some((start, end)) = requested_range(&request) {
+                            range_hits.fetch_add(1, AtomicOrdering::SeqCst);
+                            let body = payload[start..=end].to_vec();
+                            (
+                                "206 Partial Content",
+                                format!("Content-Range: bytes {start}-{end}/{}\r\n", payload.len()),
+                                body,
+                            )
+                        } else {
+                            ("200 OK", String::new(), payload.to_vec())
+                        };
+                    let header = format!(
+                        "HTTP/1.1 {status}\r\nContent-Length: {}\r\n{extra_header}Connection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(header.as_bytes()).await;
+                    let _ = stream.write_all(&body).await;
+                    let _ = stream.shutdown().await;
+                });
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let summary = DownloadEngine::new()
+            .download_with_options(
+                DownloadRequest::new(source, temp_dir.path()),
+                DownloadOptions::new(4, None),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(summary.bytes_written, payload.len() as u64);
+        assert_eq!(
+            fs::read(temp_dir.path().join("payload.bin")).await.unwrap(),
+            payload.as_slice(),
+        );
+        assert!(range_hits.load(AtomicOrdering::SeqCst) >= 2);
+        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn failed_http_range_download_does_not_poison_retry() {
+        let payload = Arc::new(
+            (0..(128 * 1024))
+                .map(|index| (index % 197) as u8)
+                .collect::<Vec<_>>(),
+        );
+        let failed_ranges = Arc::new(AtomicUsize::new(0));
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/payload.bin", server.local_addr().unwrap());
+        let server_payload = Arc::clone(&payload);
+        let server_failed_ranges = Arc::clone(&failed_ranges);
+        let server_task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = server.accept().await else {
+                    return;
+                };
+                let payload = Arc::clone(&server_payload);
+                let failed_ranges = Arc::clone(&server_failed_ranges);
+                tokio::spawn(async move {
+                    let mut buffer = [0; 2048];
+                    let Ok(read) = stream.read(&mut buffer).await else {
+                        return;
+                    };
+                    let request = String::from_utf8_lossy(&buffer[..read]);
+                    let method = request
+                        .lines()
+                        .next()
+                        .and_then(|line| line.split_whitespace().next())
+                        .unwrap_or("GET");
+
+                    if method == "HEAD" {
+                        let header = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                            payload.len()
+                        );
+                        let _ = stream.write_all(header.as_bytes()).await;
+                        let _ = stream.shutdown().await;
+                        return;
+                    }
+
+                    let Some((start, end)) = requested_range(&request) else {
+                        let header = "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        let _ = stream.write_all(header.as_bytes()).await;
+                        let _ = stream.shutdown().await;
+                        return;
+                    };
+                    let mut body = payload[start..=end].to_vec();
+                    if failed_ranges.fetch_add(1, AtomicOrdering::SeqCst) == 0 {
+                        body.truncate(body.len().saturating_sub(8));
+                    }
+                    let header = format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {start}-{end}/{}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                        body.len(),
+                        payload.len()
+                    );
+                    let _ = stream.write_all(header.as_bytes()).await;
+                    let _ = stream.write_all(&body).await;
+                    let _ = stream.shutdown().await;
+                });
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let request = DownloadRequest::new(source, temp_dir.path());
+        let first = DownloadEngine::new()
+            .download_with_options(request.clone(), DownloadOptions::new(4, None))
+            .await;
+
+        assert!(first.is_err());
+        assert!(!temp_dir.path().join("payload.bin").exists());
+        assert!(!range_temp_output_path(&temp_dir.path().join("payload.bin")).exists());
+
+        let summary = DownloadEngine::new()
+            .download_with_options(request, DownloadOptions::new(4, None))
+            .await
+            .unwrap();
+
+        assert_eq!(summary.bytes_written, payload.len() as u64);
+        assert_eq!(
+            fs::read(temp_dir.path().join("payload.bin")).await.unwrap(),
+            payload.as_slice(),
+        );
+        server_task.abort();
+    }
+
+    fn requested_range(request: &str) -> Option<(usize, usize)> {
+        let range = request.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if name.eq_ignore_ascii_case("range") {
+                Some(value.trim())
+            } else {
+                None
+            }
+        })?;
+        let value = range.strip_prefix("bytes=")?;
+        let (start, end) = value.split_once('-')?;
+        Some((start.parse().ok()?, end.parse().ok()?))
+    }
+
     #[test]
     fn parses_explicit_hls_iv() {
         let iv = parse_hls_hex_iv("0x0000000000000000000000000000000f").unwrap();
@@ -1594,13 +2239,67 @@ fn main() {{
     }
 }
 
-fn normalize_hls_output_name(path: &Path) -> PathBuf {
-    if path
-        .extension()
-        .is_some_and(|extension| extension == "m3u8")
-    {
-        path.with_extension("ts")
-    } else {
-        path.to_path_buf()
+async fn remux_hls_transport_stream(
+    source_ts: &Path,
+    output_mp4: &Path,
+) -> Result<u64, DownloadError> {
+    let _ = fs::remove_file(output_mp4).await;
+    let output = Command::new("ffmpeg")
+        .arg("-y")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-i")
+        .arg(source_ts)
+        .arg("-c")
+        .arg("copy")
+        .arg(output_mp4)
+        .output()
+        .await
+        .map_err(|error| DownloadError::HlsRemux(error.to_string()))?;
+
+    if !output.status.success() {
+        return Err(DownloadError::HlsRemux(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
     }
+
+    let output_bytes = fs::metadata(output_mp4).await?.len();
+    if output_bytes == 0 {
+        return Err(DownloadError::HlsRemux(
+            "ffmpeg produced an empty MP4".to_string(),
+        ));
+    }
+    Ok(output_bytes)
+}
+
+fn hls_mp4_output_name(path: &Path) -> PathBuf {
+    if path.extension().is_some_and(|extension| extension == "mp4") {
+        path.to_path_buf()
+    } else {
+        path.with_extension("mp4")
+    }
+}
+
+fn hls_transport_output_name(path: &Path) -> PathBuf {
+    if path.extension().is_some_and(|extension| extension == "ts") {
+        path.to_path_buf()
+    } else {
+        path.with_extension("ts")
+    }
+}
+
+fn hls_temp_transport_path(output_mp4: &Path) -> PathBuf {
+    let file_name = output_mp4
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("stream.mp4");
+    output_mp4.with_file_name(format!(".{file_name}.ts"))
+}
+
+fn range_temp_output_path(output_path: &Path) -> PathBuf {
+    let file_name = output_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("download.bin");
+    output_path.with_file_name(format!(".{file_name}.part"))
 }

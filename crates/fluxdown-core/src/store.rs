@@ -89,6 +89,7 @@ impl TaskStore {
         id: &str,
         downloaded_bytes: u64,
         total_bytes: Option<u64>,
+        current_speed_bytes_per_second: u64,
     ) -> Result<Option<DownloadTask>, TaskStoreError> {
         let _guard = TASK_STORE_WRITE_LOCK.lock().await;
         let mut file = self.read_file().await?;
@@ -99,7 +100,11 @@ impl TaskStore {
             return Ok(None);
         }
 
-        task.set_progress(downloaded_bytes, total_bytes);
+        task.set_progress_with_speed(
+            downloaded_bytes,
+            total_bytes,
+            current_speed_bytes_per_second,
+        );
         let updated = task.clone();
         self.write_file(&file).await?;
         Ok(Some(updated))

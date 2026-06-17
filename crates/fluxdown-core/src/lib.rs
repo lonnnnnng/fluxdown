@@ -5,7 +5,7 @@ mod store;
 mod task;
 
 pub use downloader::{
-    CancelToken, DownloadEngine, DownloadError, DownloadProgress, DownloadSummary,
+    CancelToken, DownloadEngine, DownloadError, DownloadOptions, DownloadProgress, DownloadSummary,
 };
 pub use protocol::{
     Backend, BackendAvailability, DoctorReport, Protocol, RuntimeSupportStatus, SupportStatus,

@@ -1,8 +1,9 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use fluxdown_core::{
-    DownloadEngine, DownloadRequest, DownloadState, QueueRunner, TaskStore, default_store_path,
-    detect_protocol, doctor_report, runtime_support_status,
+    DownloadEngine, DownloadOptions, DownloadRequest, DownloadState, QueueRunner,
+    QueueRunnerOptions, TaskStore, default_store_path, detect_protocol, doctor_report,
+    runtime_support_status,
 };
 use std::path::PathBuf;
 
@@ -31,6 +32,10 @@ enum Command {
         output: PathBuf,
         #[arg(short = 'n', long)]
         name: Option<String>,
+        #[arg(long, default_value_t = 1)]
+        threads: usize,
+        #[arg(long = "speed-limit-mbps")]
+        speed_limit_mbps: Option<f64>,
     },
     Add {
         source: String,
@@ -42,10 +47,26 @@ enum Command {
     List,
     Start {
         id: String,
+        #[arg(long, default_value_t = 0)]
+        retry_attempts: usize,
+        #[arg(long)]
+        restart: bool,
+        #[arg(long, default_value_t = 1)]
+        threads: usize,
+        #[arg(long = "speed-limit-mbps")]
+        speed_limit_mbps: Option<f64>,
     },
     Run {
         #[arg(short, long, default_value_t = 2)]
         concurrency: usize,
+        #[arg(long, default_value_t = 0)]
+        retry_attempts: usize,
+        #[arg(long)]
+        restart: bool,
+        #[arg(long, default_value_t = 1)]
+        threads: usize,
+        #[arg(long = "speed-limit-mbps")]
+        speed_limit_mbps: Option<f64>,
     },
     Pause {
         id: String,
@@ -78,10 +99,14 @@ async fn main() -> Result<()> {
             source,
             output,
             name,
+            threads,
+            speed_limit_mbps,
         } => {
             let mut request = DownloadRequest::new(source, output);
             request.file_name = name;
-            let summary = DownloadEngine::new().download(request).await?;
+            let summary = DownloadEngine::new()
+                .download_with_options(request, download_options(threads, speed_limit_mbps))
+                .await?;
             println!("{}", serde_json::to_string_pretty(&summary)?);
         }
         Command::Add {
@@ -97,12 +122,34 @@ async fn main() -> Result<()> {
         Command::List => {
             println!("{}", serde_json::to_string_pretty(&store.list().await?)?);
         }
-        Command::Start { id } => {
-            let report = QueueRunner::new(store).run_task(&id).await?;
+        Command::Start {
+            id,
+            retry_attempts,
+            restart,
+            threads,
+            speed_limit_mbps,
+        } => {
+            let report = QueueRunner::new(store)
+                .run_task_with_options(
+                    &id,
+                    runner_options(retry_attempts, threads, speed_limit_mbps, restart),
+                )
+                .await?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
-        Command::Run { concurrency } => {
-            let report = QueueRunner::new(store).run_queued(concurrency).await?;
+        Command::Run {
+            concurrency,
+            retry_attempts,
+            restart,
+            threads,
+            speed_limit_mbps,
+        } => {
+            let report = QueueRunner::new(store)
+                .run_queued_with_options(
+                    concurrency,
+                    runner_options(retry_attempts, threads, speed_limit_mbps, restart),
+                )
+                .await?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Command::Pause { id } => {
@@ -120,4 +167,28 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn runner_options(
+    retry_attempts: usize,
+    threads: usize,
+    speed_limit_mbps: Option<f64>,
+    restart_existing: bool,
+) -> QueueRunnerOptions {
+    QueueRunnerOptions {
+        retry_attempts,
+        download: download_options(threads, speed_limit_mbps),
+        restart_existing,
+    }
+}
+
+fn download_options(threads: usize, speed_limit_mbps: Option<f64>) -> DownloadOptions {
+    DownloadOptions::new(threads, speed_limit_mbps_to_bps(speed_limit_mbps))
+}
+
+fn speed_limit_mbps_to_bps(speed_limit_mbps: Option<f64>) -> Option<u64> {
+    speed_limit_mbps
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .map(|value| (value * 1024.0 * 1024.0).round() as u64)
+        .filter(|value| *value > 0)
 }
