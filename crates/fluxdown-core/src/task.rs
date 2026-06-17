@@ -50,6 +50,10 @@ pub struct DownloadTask {
     pub error: Option<String>,
     pub created_at_ms: u128,
     pub updated_at_ms: u128,
+    #[serde(default)]
+    pub started_at_ms: Option<u128>,
+    #[serde(default)]
+    pub finished_at_ms: Option<u128>,
 }
 
 impl DownloadTask {
@@ -70,6 +74,8 @@ impl DownloadTask {
             error: None,
             created_at_ms: millis,
             updated_at_ms: millis,
+            started_at_ms: None,
+            finished_at_ms: None,
         }
     }
 
@@ -82,11 +88,26 @@ impl DownloadTask {
     }
 
     pub fn set_state(&mut self, state: DownloadState) {
+        let millis = now_ms();
         self.state = state;
-        if state != DownloadState::Running {
-            self.current_speed_bytes_per_second = 0;
+        match state {
+            DownloadState::Running => {
+                self.started_at_ms = Some(millis);
+                self.finished_at_ms = None;
+            }
+            DownloadState::Finished | DownloadState::Failed => {
+                self.finished_at_ms = Some(millis);
+                self.current_speed_bytes_per_second = 0;
+            }
+            DownloadState::Queued => {
+                self.finished_at_ms = None;
+                self.current_speed_bytes_per_second = 0;
+            }
+            DownloadState::Paused => {
+                self.current_speed_bytes_per_second = 0;
+            }
         }
-        self.updated_at_ms = now_ms();
+        self.updated_at_ms = millis;
     }
 
     pub fn set_progress(&mut self, downloaded_bytes: u64, total_bytes: Option<u64>) {
@@ -106,10 +127,8 @@ impl DownloadTask {
     }
 
     pub fn fail(&mut self, error: impl Into<String>) {
-        self.state = DownloadState::Failed;
-        self.current_speed_bytes_per_second = 0;
+        self.set_state(DownloadState::Failed);
         self.error = Some(error.into());
-        self.updated_at_ms = now_ms();
     }
 }
 
@@ -118,4 +137,45 @@ fn now_ms() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_legacy_task_without_runtime_metrics() {
+        let task = DownloadTask::from_request(DownloadRequest::new(
+            "https://example.com/file.bin",
+            "/tmp",
+        ));
+        let mut value = serde_json::to_value(task).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("current_speed_bytes_per_second");
+        object.remove("started_at_ms");
+        object.remove("finished_at_ms");
+
+        let restored: DownloadTask = serde_json::from_value(value).unwrap();
+
+        assert_eq!(restored.current_speed_bytes_per_second, 0);
+        assert_eq!(restored.started_at_ms, None);
+        assert_eq!(restored.finished_at_ms, None);
+    }
+
+    #[test]
+    fn records_real_start_and_finish_timestamps() {
+        let mut task = DownloadTask::from_request(DownloadRequest::new(
+            "https://example.com/file.bin",
+            "/tmp",
+        ));
+
+        task.set_state(DownloadState::Running);
+        assert!(task.started_at_ms.is_some());
+        assert_eq!(task.finished_at_ms, None);
+
+        task.set_state(DownloadState::Finished);
+        assert!(task.finished_at_ms.is_some());
+        assert!(task.finished_at_ms >= task.started_at_ms);
+        assert_eq!(task.current_speed_bytes_per_second, 0);
+    }
 }

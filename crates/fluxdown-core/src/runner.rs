@@ -471,6 +471,8 @@ mod tests {
         assert_eq!(report.task.state, DownloadState::Paused);
         assert!(report.task.downloaded_bytes > 0);
         assert_eq!(report.task.current_speed_bytes_per_second, 0);
+        assert!(report.task.started_at_ms.is_some());
+        assert_eq!(report.task.finished_at_ms, None);
         assert!(report.summary.is_none());
 
         server.abort();
@@ -519,6 +521,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(report.task.state, DownloadState::Finished);
+        assert!(report.task.started_at_ms.is_some());
+        assert!(report.task.finished_at_ms >= report.task.started_at_ms);
         assert_eq!(
             tokio::fs::read(output_dir.join("file.bin")).await.unwrap(),
             b"fresh restart payload"

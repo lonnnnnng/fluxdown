@@ -68,6 +68,8 @@ type DownloadTask = {
   error?: string | null;
   created_at_ms?: number;
   updated_at_ms?: number;
+  started_at_ms?: number | null;
+  finished_at_ms?: number | null;
 };
 
 type DownloadSummary = {
@@ -351,10 +353,14 @@ function formatDuration(start?: number, end?: number) {
 }
 
 function averageSpeed(task: DownloadTask) {
-  if (!task.created_at_ms || !task.updated_at_ms || task.downloaded_bytes <= 0) {
+  const start = task.started_at_ms ?? task.created_at_ms;
+  const end =
+    task.finished_at_ms ??
+    (task.state === "running" || task.state === "paused" ? task.updated_at_ms : undefined);
+  if (!start || !end || task.downloaded_bytes <= 0) {
     return "0 B/s";
   }
-  const elapsed = Math.max(1, task.updated_at_ms - task.created_at_ms);
+  const elapsed = Math.max(1, end - start);
   return `${formatBytes((task.downloaded_bytes * 1000) / elapsed)}/s`;
 }
 
@@ -860,7 +866,11 @@ function TaskRow({
 }) {
   const progress = progressRatio(task);
   const width = `${Math.round(progress * 100)}%`;
-  const elapsed = formatDuration(task.created_at_ms, task.updated_at_ms);
+  const startedAt = task.started_at_ms ?? task.created_at_ms;
+  const finishedAt =
+    task.finished_at_ms ??
+    (task.state === "running" || task.state === "paused" ? task.updated_at_ms : undefined);
+  const elapsed = formatDuration(startedAt, finishedAt);
 
   return (
     <article
@@ -881,8 +891,8 @@ function TaskRow({
           <em>{stateLabel(task.state)}</em>
         </div>
         <div className="taskMetrics">
-          <span title="开始时间">↘ {formatClock(task.created_at_ms)}</span>
-          <span title="结束时间">↗ {formatClock(task.updated_at_ms)}</span>
+          <span title="开始时间">↘ {formatClock(startedAt)}</span>
+          <span title="结束时间">↗ {formatClock(task.finished_at_ms)}</span>
           <span title="共计耗时">◷ {elapsed}</span>
           <span title="实时速度">↯ {currentSpeed(task)}</span>
           <span title="平均速度">⇅ {averageSpeed(task)}</span>
