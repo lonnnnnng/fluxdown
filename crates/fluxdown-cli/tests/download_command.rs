@@ -1,12 +1,66 @@
 use serde_json::Value;
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::process::Command;
+use std::process::{Child, Command, Output, Stdio};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 use std::thread;
+use std::time::{Duration, Instant};
+
+fn wait_for_cli_output(mut child: Child, timeout: Duration) -> Output {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if child.try_wait().unwrap().is_some() {
+            return child.wait_with_output().unwrap();
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let output = child.wait_with_output().unwrap();
+            panic!(
+                "CLI process timed out; stdout: {}; stderr: {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn list_task(store_path: &std::path::Path, task_id: &str) -> Value {
+    let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "list"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let tasks: Value = serde_json::from_slice(&output.stdout).unwrap();
+    tasks
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|task| task["id"] == task_id)
+        .cloned()
+        .unwrap_or_else(|| panic!("task {task_id} not found in list output"))
+}
+
+fn wait_for_running_progress(store_path: &std::path::Path, task_id: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let task = list_task(store_path, task_id);
+        if task["state"] == "running" && task["downloaded_bytes"].as_u64().unwrap_or(0) > 0 {
+            return task;
+        }
+        if Instant::now() >= deadline {
+            panic!("timed out waiting for task {task_id} running progress; last task: {task}");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
 
 #[test]
 fn detect_and_support_commands_cover_webdav() {
@@ -345,6 +399,112 @@ fn queue_commands_add_list_and_run_http_task() {
     let after_invalid_transition: Value =
         serde_json::from_slice(&after_invalid_transition_output.stdout).unwrap();
     assert_eq!(after_invalid_transition[0]["state"], "finished");
+}
+
+#[test]
+fn queue_run_can_pause_running_task_from_separate_cli_process() {
+    let payload = vec![b'x'; 512 * 1024];
+    let total_bytes = payload.len() as u64;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0; 1024];
+        let _ = stream.read(&mut buffer).unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            payload.len()
+        );
+        if stream.write_all(response.as_bytes()).is_err() {
+            return;
+        }
+        for chunk in payload.chunks(16 * 1024) {
+            if stream.write_all(chunk).is_err() {
+                break;
+            }
+        }
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let downloads_dir = temp_dir.path().join("downloads");
+    let source = format!("http://{address}/slow.bin");
+    let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "add",
+            &source,
+            "--output",
+            downloads_dir.to_str().unwrap(),
+            "--name",
+            "slow.bin",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        add_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&add_output.stderr)
+    );
+    let added: Value = serde_json::from_slice(&add_output.stdout).unwrap();
+    let task_id = added["id"].as_str().unwrap().to_string();
+
+    let run_child = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "run",
+            "--concurrency",
+            "1",
+            "--speed-limit-mbps",
+            "0.05",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let running = wait_for_running_progress(&store_path, &task_id);
+    assert!(running["downloaded_bytes"].as_u64().unwrap() < total_bytes);
+
+    let pause_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "pause", &task_id])
+        .output()
+        .unwrap();
+    assert!(
+        pause_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&pause_output.stderr)
+    );
+    let paused_by_command: Value = serde_json::from_slice(&pause_output.stdout).unwrap();
+    assert_eq!(paused_by_command["state"], "paused");
+
+    let run_output = wait_for_cli_output(run_child, Duration::from_secs(5));
+    server.join().unwrap();
+    assert!(
+        run_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&run_output.stdout).unwrap();
+    assert_eq!(report["started"], 1);
+    assert_eq!(report["finished"], 0);
+    assert_eq!(report["failed"], 0);
+    assert_eq!(report["tasks"][0]["state"], "paused");
+
+    let final_task = list_task(&store_path, &task_id);
+    assert_eq!(final_task["state"], "paused");
+    let downloaded = final_task["downloaded_bytes"].as_u64().unwrap();
+    assert!(downloaded > 0, "paused task should keep partial progress");
+    assert!(
+        downloaded < total_bytes,
+        "paused task should not finish before pause"
+    );
+    let partial_size = std::fs::metadata(downloads_dir.join("slow.bin"))
+        .unwrap()
+        .len();
+    assert_eq!(partial_size, downloaded);
 }
 
 #[test]
