@@ -436,6 +436,62 @@ fn home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::LazyLock;
+    use std::thread;
+
+    static DESKTOP_COMMAND_ENV_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+        LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+    struct EnvVarGuard {
+        key: &'static str,
+        old_value: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let old_value = std::env::var_os(key);
+            // 作者: long
+            // 桌面 command 使用默认队列路径；测试时临时改 XDG_DATA_HOME，把真实用户队列和 E2E 队列隔离开。
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, old_value }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            // 作者: long
+            // 环境变量是进程级状态，测试退出时必须恢复，避免影响同一测试进程里的后续用例。
+            unsafe {
+                if let Some(old_value) = &self.old_value {
+                    std::env::set_var(self.key, old_value);
+                } else {
+                    std::env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    fn spawn_single_file_http_server(payload: &'static [u8]) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0; 1024];
+            let _ = stream.read(&mut buffer).unwrap();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                payload.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            stream.write_all(payload).unwrap();
+        });
+        format!("http://{address}/fixture.txt")
+    }
 
     #[test]
     fn resolves_regular_task_output_path() {
@@ -477,6 +533,41 @@ mod tests {
         ));
 
         assert_eq!(resolve_task_output_path(&task), temp_dir.path());
+    }
+
+    #[tokio::test]
+    async fn desktop_commands_download_http_task_through_queue() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let payload = b"fluxdown-desktop-command-e2e";
+        let source = spawn_single_file_http_server(payload);
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("desktop-command.txt".to_string()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.state, DownloadState::Queued);
+        assert_eq!(list_downloads().await.unwrap().len(), 1);
+
+        let report = run_queue(1, Some(1), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 1);
+        assert_eq!(report.failed, 0);
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        assert_eq!(tasks[0].file_name.as_deref(), Some("desktop-command.txt"));
+        assert_eq!(
+            std::fs::read(output_dir.join("desktop-command.txt")).unwrap(),
+            payload
+        );
     }
 
     #[test]

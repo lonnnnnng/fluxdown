@@ -1,6 +1,6 @@
 # 下载验证状态
 
-截至 2026-06-18，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证，macOS CLI 已补充本地 HTTP/HLS/Torrent/Magnet 真实下载验证，macOS GUI 已完成本地构建、启动和基础界面渲染验证。
+截至 2026-06-18，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证，macOS CLI 已补充本地 HTTP/HLS/Torrent/Magnet 真实下载验证，macOS GUI 已完成本地构建、启动、基础界面渲染和 Tauri command 级真实 HTTP 下载验证。
 
 本页用于区分两类容易混淆的结论：
 
@@ -14,7 +14,7 @@
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
 | --- | --- | --- |
 | 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/Torrent/Magnet 真实下载、限速、失败重试、暂停继续和并发排队均已验证。 | 部分完成 |
-| macOS GUI | 已完成 Tauri `.app` 构建、本地启动、窗口渲染和设置/任务操作 Tauri command 回归测试。Computer Use 读取 Tauri 窗口会被 macOS 权限弹窗卡住，尚未完成纯 GUI 点击创建任务并下载的闭环。 | 部分完成 |
+| macOS GUI | 已完成 Tauri `.app` 构建、本地启动、窗口渲染、设置/任务操作 Tauri command 回归测试，以及 Tauri command 级 HTTP 队列真实下载。Computer Use/AppleScript 鼠标自动化会触发 macOS “允许 Codex 控制其他 App”权限弹窗，`tauri-driver` 在本机 macOS 返回 `not supported on this platform`，尚未完成纯 GUI 点击创建任务并下载的闭环。 | 部分完成 |
 | Windows GUI | 已有 CI/Docker 构建产物和 artifact 检查。没有在 Windows 上安装或运行 GUI 完成下载验证。 | 未完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
 | Android App | 已在 Redmi Note 8 Pro 真机安装并通过正常 App 队列完成本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB/IPFS、小 HLS、小 torrent、小 magnet，以及 2026-06-14 媒体级 HLS、单文件 torrent、单文件 magnet、多文件 torrent 和多文件 magnet 选择下载验证。 | 部分完成 |
@@ -92,8 +92,9 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 本地 `.app` 构建 | 通过，`target/release/bundle/macos/FluxDown.app` 生成。 |
 | 启动和窗口 | 通过，`FluxDown` 前台窗口尺寸约 `1180x760`，bundle id `dev.fluxdown.desktop`，版本 `1.0.2`。 |
 | UI 渲染 | 通过，截图确认中文下载列表、状态 tabs、设置入口和右下角新建按钮正常显示。 |
-| Tauri command 回归 | 通过，桌面测试覆盖任务输出路径、HLS 输出路径、暂停/恢复边界、手动启动并发约束、设置边界和保存路径解析。 |
-| 纯 GUI 下载闭环 | 未完成。Computer Use 读取 Tauri 窗口时被 macOS 权限弹窗卡住；本轮没有通过鼠标/键盘在 GUI 中创建并完成下载任务。 |
+| Tauri command 回归 | 通过，桌面测试覆盖任务输出路径、HLS 输出路径、暂停/恢复边界、手动启动并发约束、设置边界、保存路径解析，以及 `enqueue_download -> list_downloads -> run_queue -> list_downloads` 的 HTTP 真实下载闭环。 |
+| Tauri command HTTP 下载 | 通过，测试启动临时 HTTP fixture，隔离 `XDG_DATA_HOME` 队列路径，创建任务、运行队列并校验 `desktop-command.txt` 内容为 `fluxdown-desktop-command-e2e`。 |
+| 纯 GUI 下载闭环 | 未完成。Computer Use/AppleScript 鼠标自动化会触发 macOS “允许 Codex 控制其他 App”权限弹窗；不能在未获用户明确授权时点击系统“允许”。尝试使用 `TAURI_WEBVIEW_AUTOMATION=true` 和 `tauri-driver 2.0.6` 替代系统辅助权限，但本机返回 `tauri-driver is not supported on this platform`。 |
 
 ### 清理状态
 
