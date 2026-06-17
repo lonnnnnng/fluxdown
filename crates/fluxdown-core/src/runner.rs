@@ -63,14 +63,29 @@ impl QueueRunner {
         options: QueueRunnerOptions,
     ) -> Result<QueueRunReport, QueueRunnerError> {
         let concurrency = concurrency.max(1);
-        let queued = self
-            .store
-            .list()
-            .await?
+        let tasks = self.store.list().await?;
+        // 作者: long
+        // 并发下载数约束的是全局正在执行的任务数量，已经运行的任务必须先占用槽位，新任务才会老实排队。
+        let running = tasks
+            .iter()
+            .filter(|task| task.state == DownloadState::Running)
+            .count();
+        let queued = tasks
             .into_iter()
             .filter(|task| task.state == DownloadState::Queued)
             .collect::<Vec<_>>();
         let total_queued = queued.len();
+        let available_slots = concurrency.saturating_sub(running);
+
+        if available_slots == 0 {
+            return Ok(QueueRunReport {
+                total_queued,
+                started: 0,
+                finished: 0,
+                failed: 0,
+                tasks: Vec::new(),
+            });
+        }
 
         let write_lock = Arc::new(Mutex::new(()));
         let results = stream::iter(queued)
@@ -84,7 +99,7 @@ impl QueueRunner {
                         .map(|report| report.task)
                 }
             })
-            .buffer_unordered(concurrency)
+            .buffer_unordered(available_slots)
             .collect::<Vec<_>>()
             .await;
 
@@ -402,6 +417,38 @@ mod tests {
         let report = QueueRunner::new(store).run_queued(2).await.unwrap();
         assert_eq!(report.total_queued, 0);
         assert_eq!(report.started, 0);
+        let _ = tokio::fs::remove_file(path).await;
+    }
+
+    #[tokio::test]
+    async fn run_queue_respects_already_running_tasks() {
+        let path =
+            std::env::temp_dir().join(format!("fluxdown-runner-{}.json", uuid::Uuid::new_v4()));
+        let store = TaskStore::new(&path);
+        let running = store
+            .enqueue(DownloadRequest::new(
+                "http://127.0.0.1:9/running.bin",
+                "/tmp",
+            ))
+            .await
+            .unwrap();
+        let queued = store
+            .enqueue(DownloadRequest::new(
+                "http://127.0.0.1:9/queued.bin",
+                "/tmp",
+            ))
+            .await
+            .unwrap();
+        let mut running_task = running.clone();
+        running_task.set_state(DownloadState::Running);
+        store.update(running_task).await.unwrap();
+
+        let report = QueueRunner::new(store.clone()).run_queued(1).await.unwrap();
+        let still_queued = store.get(&queued.id).await.unwrap();
+
+        assert_eq!(report.total_queued, 1);
+        assert_eq!(report.started, 0);
+        assert_eq!(still_queued.state, DownloadState::Queued);
         let _ = tokio::fs::remove_file(path).await;
     }
 

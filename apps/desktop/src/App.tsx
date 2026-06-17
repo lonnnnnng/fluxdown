@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
@@ -76,6 +76,7 @@ type DownloadSummary = {
   protocol: Protocol;
   backend: Backend;
   output_path: string;
+  display_name?: string | null;
   bytes_written: number;
   resumed_from: number;
   total_bytes?: number | null;
@@ -390,6 +391,7 @@ function App() {
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
   const [propertyTask, setPropertyTask] = useState<DownloadTask | null>(null);
   const [action, setAction] = useState<TaskAction>("idle");
+  const autoRunKeyRef = useRef("");
 
   const counts = useMemo(() => taskCounts(tasks), [tasks]);
   const visibleTasks = useMemo(
@@ -432,6 +434,32 @@ function App() {
     const timer = window.setInterval(refreshTasks, settings.refreshIntervalMs);
     return () => window.clearInterval(timer);
   }, [queueActive, settings.refreshIntervalMs, tasks]);
+
+  useEffect(() => {
+    if (!settings.autoStart) {
+      autoRunKeyRef.current = "";
+      return;
+    }
+    if (queueActive) return;
+    if (tasks.some((task) => task.state === "running")) {
+      autoRunKeyRef.current = "";
+      return;
+    }
+    const queuedIds = tasks
+      .filter((task) => task.state === "queued")
+      .map((task) => task.id)
+      .join(",");
+    if (!queuedIds) {
+      autoRunKeyRef.current = "";
+      return;
+    }
+    if (autoRunKeyRef.current === queuedIds) return;
+
+    // 作者: long
+    // 自动开始由队列状态驱动，已有任务运行时新任务只排队，等运行槽位释放后再按并发设置启动。
+    autoRunKeyRef.current = queuedIds;
+    void runQueue();
+  }, [queueActive, settings.autoStart, tasks]);
 
   async function refreshTasks() {
     const result = await invoke<DownloadTask[]>("list_downloads").catch(
@@ -480,9 +508,6 @@ function App() {
     setFileName("");
     setOutputDir(settings.outputDir);
     setMessage(`${taskTitle(task)} 已加入队列`);
-    if (settings.autoStart) {
-      runQueue();
-    }
   }
 
   async function pasteFromClipboard() {
