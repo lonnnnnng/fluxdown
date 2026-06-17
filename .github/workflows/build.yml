@@ -1,9 +1,7 @@
 name: Build
 
 on:
-  push:
-    tags:
-      - 'v*'
+  # long: 构建和发布资源成本较高，只在明确发版或打包时手动启动，避免普通提交或 tag 推送重复触发。
   workflow_dispatch:
 
 concurrency:
