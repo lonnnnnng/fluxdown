@@ -147,6 +147,55 @@ fn download_command_restart_replaces_existing_http_file() {
 }
 
 #[test]
+fn download_command_treats_416_as_already_complete() {
+    let payload = b"fluxdown-cli-already-complete";
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0; 2048];
+        let read = stream.read(&mut buffer).unwrap();
+        let request = String::from_utf8_lossy(&buffer[..read]);
+        assert!(request.to_ascii_lowercase().contains("range:"));
+        let response = format!(
+            "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            payload.len()
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    std::fs::write(temp_dir.path().join("payload.bin"), payload).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "download",
+            &format!("http://{address}/payload.bin"),
+            "--output",
+            temp_dir.path().to_str().unwrap(),
+            "--name",
+            "payload.bin",
+        ])
+        .output()
+        .unwrap();
+
+    server.join().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(temp_dir.path().join("payload.bin")).unwrap(),
+        payload
+    );
+
+    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["bytes_written"], payload.len() as u64);
+    assert_eq!(summary["resumed_from"], payload.len() as u64);
+    assert_eq!(summary["total_bytes"], payload.len() as u64);
+}
+
+#[test]
 fn queue_commands_add_list_and_run_http_task() {
     let payload = b"fluxdown-cli-queued-download";
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

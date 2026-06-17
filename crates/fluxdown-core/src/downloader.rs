@@ -6,7 +6,7 @@ use m3u8_rs::{Key, KeyMethod};
 use percent_encoding::percent_decode_str;
 use reqwest::Client;
 use reqwest::StatusCode;
-use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, RANGE};
+use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, RANGE};
 use serde::{Deserialize, Serialize};
 use smb2::{ClientConfig, SmbClient};
 use ssh2::Session as SshSession;
@@ -317,7 +317,24 @@ impl DownloadEngine {
             builder = builder.header(RANGE, format!("bytes={existing_bytes}-"));
         }
 
-        let response = builder.send().await?.error_for_status()?;
+        let response = builder.send().await?;
+        if existing_bytes > 0
+            && response.status() == StatusCode::RANGE_NOT_SATISFIABLE
+            && unsatisfied_range_total(response.headers().get(CONTENT_RANGE))
+                == Some(existing_bytes)
+        {
+            emit_progress(&progress, existing_bytes, Some(existing_bytes));
+            return Ok(DownloadSummary {
+                protocol,
+                backend: Backend::BuiltIn,
+                output_path,
+                bytes_written: existing_bytes,
+                resumed_from: existing_bytes,
+                total_bytes: Some(existing_bytes),
+                segments_written: None,
+            });
+        }
+        let response = response.error_for_status()?;
         let status = response.status();
         let append = existing_bytes > 0 && status == StatusCode::PARTIAL_CONTENT;
         let resumed_from = if append { existing_bytes } else { 0 };
@@ -1266,6 +1283,12 @@ fn infer_total_bytes(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u64>().ok())
         .map(|length| length + resumed_from)
+}
+
+fn unsatisfied_range_total(content_range: Option<&reqwest::header::HeaderValue>) -> Option<u64> {
+    let value = content_range?.to_str().ok()?.trim();
+    let total = value.strip_prefix("bytes */")?;
+    total.parse::<u64>().ok()
 }
 
 fn infer_file_name(url: &Url, fallback: &str) -> String {
