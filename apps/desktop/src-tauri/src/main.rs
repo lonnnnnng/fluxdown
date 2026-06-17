@@ -503,6 +503,38 @@ mod tests {
         assert!(resume_transition(DownloadState::Failed).is_err());
     }
 
+    #[test]
+    fn desktop_runner_options_clamp_settings_to_product_limits() {
+        let options = runner_options(Some(99), Some(99), Some(1.5), Some(true));
+
+        assert_eq!(options.retry_attempts, 10);
+        assert_eq!(options.download.thread_count, 32);
+        assert_eq!(options.download.speed_limit_bps, Some(1_572_864));
+        assert!(options.restart_existing);
+
+        let unlimited = runner_options(Some(0), Some(0), Some(0.0), Some(false));
+        assert_eq!(unlimited.retry_attempts, 0);
+        assert_eq!(unlimited.download.thread_count, 1);
+        assert_eq!(unlimited.download.speed_limit_bps, None);
+        assert!(!unlimited.restart_existing);
+    }
+
+    #[test]
+    fn desktop_output_dir_resolution_keeps_settings_predictable() {
+        let default_dir = default_output_dir_path();
+
+        assert_eq!(resolve_output_dir(""), default_dir);
+        assert_eq!(resolve_output_dir("./downloads"), default_dir);
+        assert_eq!(resolve_output_dir("movies"), default_dir.join("movies"));
+
+        if let Some(home) = home_dir() {
+            assert_eq!(
+                resolve_output_dir("~/FluxDownTest"),
+                home.join("FluxDownTest")
+            );
+        }
+    }
+
     #[tokio::test]
     async fn direct_start_defers_queued_task_when_capacity_is_full() {
         let temp_dir = tempfile::tempdir().unwrap();
