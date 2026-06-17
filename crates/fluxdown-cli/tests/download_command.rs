@@ -155,6 +155,30 @@ fn queue_commands_add_list_and_run_http_task() {
     assert_eq!(listed[0]["id"], task_id);
     assert_eq!(listed[0]["state"], "queued");
 
+    let pause_queued_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "pause", &task_id])
+        .output()
+        .unwrap();
+    assert!(
+        pause_queued_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&pause_queued_output.stderr)
+    );
+    let paused: Value = serde_json::from_slice(&pause_queued_output.stdout).unwrap();
+    assert_eq!(paused["state"], "paused");
+
+    let resume_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "resume", &task_id])
+        .output()
+        .unwrap();
+    assert!(
+        resume_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&resume_output.stderr)
+    );
+    let resumed: Value = serde_json::from_slice(&resume_output.stdout).unwrap();
+    assert_eq!(resumed["state"], "queued");
+
     let run_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
         .args([
             "--store",
@@ -197,6 +221,31 @@ fn queue_commands_add_list_and_run_http_task() {
     let final_list: Value = serde_json::from_slice(&final_list_output.stdout).unwrap();
     assert_eq!(final_list[0]["id"], task_id);
     assert_eq!(final_list[0]["state"], "finished");
+
+    let pause_finished_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "pause", &task_id])
+        .output()
+        .unwrap();
+    assert!(!pause_finished_output.status.success());
+
+    let resume_finished_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "resume", &task_id])
+        .output()
+        .unwrap();
+    assert!(!resume_finished_output.status.success());
+
+    let after_invalid_transition_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "list"])
+        .output()
+        .unwrap();
+    assert!(
+        after_invalid_transition_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&after_invalid_transition_output.stderr)
+    );
+    let after_invalid_transition: Value =
+        serde_json::from_slice(&after_invalid_transition_output.stdout).unwrap();
+    assert_eq!(after_invalid_transition[0]["state"], "finished");
 }
 
 #[test]

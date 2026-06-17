@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use fluxdown_core::{
     DownloadEngine, DownloadOptions, DownloadRequest, DownloadState, QueueRunner,
@@ -153,11 +153,11 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Command::Pause { id } => {
-            let task = store.set_state(&id, DownloadState::Paused).await?;
+            let task = pause_task(&store, &id).await?;
             println!("{}", serde_json::to_string_pretty(&task)?);
         }
         Command::Resume { id } => {
-            let task = store.set_state(&id, DownloadState::Queued).await?;
+            let task = resume_task(&store, &id).await?;
             println!("{}", serde_json::to_string_pretty(&task)?);
         }
         Command::Remove { id } => {
@@ -191,4 +191,33 @@ fn speed_limit_mbps_to_bps(speed_limit_mbps: Option<f64>) -> Option<u64> {
         .filter(|value| value.is_finite() && *value > 0.0)
         .map(|value| (value * 1024.0 * 1024.0).round() as u64)
         .filter(|value| *value > 0)
+}
+
+async fn pause_task(store: &TaskStore, id: &str) -> Result<fluxdown_core::DownloadTask> {
+    let task = store.get(id).await?;
+    // 作者: long
+    // 暂停只作用于未结束任务，避免命令行误操作把已完成或失败任务改成可继续状态。
+    match task.state {
+        DownloadState::Queued | DownloadState::Running => {
+            Ok(store.set_state(id, DownloadState::Paused).await?)
+        }
+        DownloadState::Paused => Ok(task),
+        DownloadState::Finished | DownloadState::Failed => {
+            bail!("only queued or running tasks can be paused")
+        }
+    }
+}
+
+async fn resume_task(store: &TaskStore, id: &str) -> Result<fluxdown_core::DownloadTask> {
+    let task = store.get(id).await?;
+    // 作者: long
+    // 恢复只把暂停任务放回队列；已结束任务需要显式 start/restart，避免隐藏的重复下载。
+    match task.state {
+        DownloadState::Paused => Ok(store.set_state(id, DownloadState::Queued).await?),
+        DownloadState::Queued => Ok(task),
+        DownloadState::Running => bail!("running tasks do not need resume"),
+        DownloadState::Finished | DownloadState::Failed => {
+            bail!("finished or failed tasks cannot be resumed; start them again explicitly")
+        }
+    }
 }
