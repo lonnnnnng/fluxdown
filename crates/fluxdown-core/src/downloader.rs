@@ -139,6 +139,8 @@ pub struct DownloadSummary {
     pub protocol: Protocol,
     pub backend: Backend,
     pub output_path: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     pub bytes_written: u64,
     pub resumed_from: u64,
     pub total_bytes: Option<u64>,
@@ -339,6 +341,7 @@ impl DownloadEngine {
             return Ok(DownloadSummary {
                 protocol,
                 backend: Backend::BuiltIn,
+                display_name: display_name_from_path(&output_path),
                 output_path,
                 bytes_written: existing_bytes,
                 resumed_from: existing_bytes,
@@ -379,6 +382,7 @@ impl DownloadEngine {
         Ok(DownloadSummary {
             protocol,
             backend: Backend::BuiltIn,
+            display_name: display_name_from_path(&output_path),
             output_path,
             bytes_written,
             resumed_from,
@@ -517,6 +521,7 @@ impl DownloadEngine {
         Ok(Some(DownloadSummary {
             protocol,
             backend: Backend::BuiltIn,
+            display_name: display_name_from_path(&output_path),
             output_path,
             bytes_written: total_bytes,
             resumed_from: 0,
@@ -648,6 +653,7 @@ impl DownloadEngine {
         Ok(DownloadSummary {
             protocol,
             backend: Backend::BuiltIn,
+            display_name: display_name_from_path(&output_path),
             output_path,
             bytes_written,
             resumed_from: existing_bytes,
@@ -736,12 +742,22 @@ impl DownloadEngine {
             final_stats.progress_bytes,
             Some(final_stats.total_bytes),
         );
+        let (output_path, display_name) = handle.with_metadata(|metadata| {
+            let file_paths = metadata
+                .file_infos
+                .iter()
+                .filter(|file| !file.attrs.padding)
+                .map(|file| file.relative_filename.clone())
+                .collect::<Vec<_>>();
+            torrent_output_details(&request.output_dir, metadata.name.as_deref(), &file_paths)
+        })?;
         session.stop().await;
 
         Ok(DownloadSummary {
             protocol,
             backend: Backend::BuiltIn,
-            output_path: request.output_dir,
+            output_path,
+            display_name,
             bytes_written: final_stats.progress_bytes,
             resumed_from: 0,
             total_bytes: Some(final_stats.total_bytes),
@@ -932,6 +948,7 @@ impl DownloadEngine {
         Ok(DownloadSummary {
             protocol: Protocol::M3u8,
             backend: Backend::BuiltIn,
+            display_name: display_name_from_path(&output_path),
             output_path,
             bytes_written: output_bytes,
             resumed_from: 0,
@@ -1084,6 +1101,7 @@ impl DownloadEngine {
             protocol,
             backend: Backend::SystemHandoff,
             output_path: request.output_dir,
+            display_name: None,
             bytes_written: 0,
             resumed_from: 0,
             total_bytes: None,
@@ -1130,6 +1148,7 @@ impl DownloadEngine {
         Ok(DownloadSummary {
             protocol: Protocol::Smb,
             backend: Backend::BuiltIn,
+            display_name: display_name_from_path(&output_path),
             output_path,
             bytes_written,
             resumed_from: 0,
@@ -1338,6 +1357,67 @@ fn output_file_candidates_for_request(request: &DownloadRequest) -> Vec<PathBuf>
 
     candidates.push(range_temp_output_path(&primary));
     candidates
+}
+
+fn display_name_from_path(output_path: &Path) -> Option<String> {
+    output_path
+        .file_name()
+        .and_then(|file_name| file_name.to_str())
+        .filter(|file_name| !file_name.trim().is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn torrent_output_details(
+    output_dir: &Path,
+    torrent_name: Option<&str>,
+    file_paths: &[PathBuf],
+) -> (PathBuf, Option<String>) {
+    if file_paths.len() == 1 {
+        let output_path = output_dir.join(&file_paths[0]);
+        let display_name =
+            display_name_from_path(&output_path).or_else(|| safe_torrent_name(torrent_name));
+        return (output_path, display_name);
+    }
+
+    // 作者: long
+    // Torrent 多文件任务最终会落到一个文件树里，队列卡片优先展示真实顶层目录，避免继续显示 .torrent 或 magnet-download。
+    let display_name =
+        common_top_level_name(file_paths).or_else(|| safe_torrent_name(torrent_name));
+    let output_path = display_name
+        .as_ref()
+        .map(|root| output_dir.join(root))
+        .filter(|path| path.exists())
+        .unwrap_or_else(|| output_dir.to_path_buf());
+
+    (output_path, display_name)
+}
+
+fn common_top_level_name(file_paths: &[PathBuf]) -> Option<String> {
+    let mut common = None;
+    for path in file_paths {
+        let name = first_path_component_name(path)?;
+        match &common {
+            None => common = Some(name),
+            Some(existing) if existing == &name => {}
+            Some(_) => return None,
+        }
+    }
+    common
+}
+
+fn first_path_component_name(path: &Path) -> Option<String> {
+    match path.components().next()? {
+        std::path::Component::Normal(component) => component.to_str().map(ToOwned::to_owned),
+        _ => None,
+    }
+}
+
+fn safe_torrent_name(name: Option<&str>) -> Option<String> {
+    let name = name?.trim();
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\\') {
+        return None;
+    }
+    Some(name.to_string())
 }
 
 fn inferred_file_name_from_source(source: &str) -> String {
@@ -1584,6 +1664,7 @@ fn download_sftp_blocking(
     Ok(DownloadSummary {
         protocol: Protocol::Sftp,
         backend: Backend::BuiltIn,
+        display_name: display_name_from_path(&output_path),
         output_path,
         bytes_written,
         resumed_from: existing_bytes,
@@ -1818,6 +1899,7 @@ async fn run_ed2k_cli(
         protocol,
         backend: Backend::Amule,
         output_path: request.output_dir,
+        display_name: None,
         bytes_written: 0,
         resumed_from: 0,
         total_bytes: None,
@@ -1837,6 +1919,61 @@ mod tests {
     use tokio::net::TcpListener;
 
     type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
+
+    #[test]
+    fn torrent_output_details_use_single_file_name() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let files = vec![PathBuf::from("20260614.mp4")];
+
+        let (output_path, display_name) =
+            torrent_output_details(temp_dir.path(), Some("download.torrent"), &files);
+
+        assert_eq!(output_path, temp_dir.path().join("20260614.mp4"));
+        assert_eq!(display_name.as_deref(), Some("20260614.mp4"));
+    }
+
+    #[test]
+    fn torrent_output_details_use_common_top_level_folder() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path().join("20260614_bundle");
+        std_fs::create_dir_all(&root).unwrap();
+        let files = vec![
+            PathBuf::from("20260614_bundle/20260614.mp4"),
+            PathBuf::from("20260614_bundle/readme.txt"),
+        ];
+
+        let (output_path, display_name) =
+            torrent_output_details(temp_dir.path(), Some("metadata-name"), &files);
+
+        assert_eq!(output_path, root);
+        assert_eq!(display_name.as_deref(), Some("20260614_bundle"));
+    }
+
+    #[test]
+    fn torrent_output_details_fall_back_to_metadata_name_without_common_root() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let files = vec![PathBuf::from("video.mp4"), PathBuf::from("readme.txt")];
+
+        let (output_path, display_name) =
+            torrent_output_details(temp_dir.path(), Some("loose-files"), &files);
+
+        assert_eq!(output_path, temp_dir.path());
+        assert_eq!(display_name.as_deref(), Some("loose-files"));
+    }
+
+    #[test]
+    fn torrent_output_details_use_existing_metadata_folder_without_common_root() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let metadata_dir = temp_dir.path().join("loose-files");
+        std_fs::create_dir_all(&metadata_dir).unwrap();
+        let files = vec![PathBuf::from("video.mp4"), PathBuf::from("readme.txt")];
+
+        let (output_path, display_name) =
+            torrent_output_details(temp_dir.path(), Some("loose-files"), &files);
+
+        assert_eq!(output_path, metadata_dir);
+        assert_eq!(display_name.as_deref(), Some("loose-files"));
+    }
 
     #[test]
     fn parses_ftp_download_specs() {
