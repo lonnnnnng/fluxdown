@@ -83,8 +83,9 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `cargo build -p fluxdown-cli --release` | 通过，生成 `target/release/fluxdown`。 |
 | `npm --workspace apps/desktop run build` | 通过。 |
 | `npm run desktop:build` | 通过，生成 `target/release/bundle/macos/FluxDown.app`。 |
-| `npm run desktop:dmg` | 通过，生成 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg`，大小 `8679773` bytes。 |
+| `npm run desktop:dmg` | 通过，打包前会对 `FluxDown.app` 执行本地 ad-hoc bundle 签名并通过 `codesign --verify --deep --strict`，生成 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg`，大小 `8681241` bytes。该签名只证明本地产物完整，不代表开发者证书签名或 notarization 已完成。 |
 | `node scripts/verify-artifacts.mjs desktop-macos` | 通过，校验 `target/release/fluxdown-desktop`、`target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg` 均存在且非空。 |
+| `npm run verify:macos-artifacts` | 通过：校验 release CLI 文件、桌面二进制、`.app` 目录、`Info.plist` 元数据、bundle 可执行文件、CLI `--version/detect/support/doctor`、`.app` ad-hoc 签名和 dmg checksum。 |
 | `target/release/fluxdown --version` | 通过，输出 `fluxdown 1.0.2`。 |
 | `target/release/fluxdown doctor` | 通过；内建 HTTP/HTTPS/WebDAV/FTP/FTPS/Torrent/Magnet/m3u8/SFTP/SMB/IPFS 可执行；ed2k 为系统移交，当前 PATH 缺少可选 `ed2k` CLI。 |
 | Release CLI smoke | 通过：`target/release/fluxdown detect 'https://example.com/file.zip'` 输出 `Https`，`support` 返回可执行状态，`doctor` JSON 中 HTTP 为 executable。 |

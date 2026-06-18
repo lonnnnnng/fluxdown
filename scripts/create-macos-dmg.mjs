@@ -31,6 +31,7 @@ function run(command, args) {
 }
 
 await ensureAppBundle()
+await signAppBundle()
 await mkdir(dirname(dmgPath), { recursive: true })
 await rm(dmgPath, { force: true })
 await run('hdiutil', [
@@ -44,3 +45,10 @@ await run('hdiutil', [
   'UDZO',
   dmgPath,
 ])
+
+async function signAppBundle() {
+  // 作者: long
+  // 本地打包没有开发者证书时也要进行 ad-hoc bundle 签名，确保 Info.plist 和资源被封入签名，避免 dmg 内的 .app 只有 linker signature。
+  await run('codesign', ['--force', '--deep', '--sign', '-', appPath])
+  await run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath])
+}
