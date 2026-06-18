@@ -64,7 +64,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 
 | 检查项 | 结果 |
 | --- | --- |
-| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 11、core 48、desktop 13。 |
+| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 12、core 48、desktop 13。 |
 | `cargo build -p fluxdown-cli --release` | 通过，生成 `target/release/fluxdown`。 |
 | `npm --workspace apps/desktop run build` | 通过。 |
 | `npm run desktop:build` | 通过，生成 `target/release/bundle/macos/FluxDown.app`。 |
@@ -75,6 +75,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 用例 | 下载源 | 结果 |
 | --- | --- | --- |
 | HTTP 直接下载 | `http://127.0.0.1:8765/multi/20260614_bundle/readme.txt` | 通过，输出 `readme.txt`，SHA-256 为 `4b75951c517de7955172428fa7030caa7ad837580bcee33095208491031eaf93`。 |
+| HTTP 多线程直连下载 | 本地支持 `HEAD` 和 `Range` 的 HTTP fixture，`download --threads 4` | 通过，CLI 层触发多个 HTTP Range 请求，输出文件内容与源 payload 完全一致。 |
 | HTTP 队列下载 | 同上，通过 `add`、`list`、`run --concurrency 1 --threads 4` | 通过，任务 `queued -> finished`，`total_bytes=43`，输出 hash 一致。 |
 | HLS 媒体下载 | `http://127.0.0.1:8765/hls/index.m3u8` | 通过，232 个分片输出 `index.mp4`，大小 `388653222` bytes；`ffprobe` 可识别为 `mov,mp4,m4a,3gp,3g2,mj2`，duration `1514.481333`。 |
 | 单文件 Torrent | `../local_protocol_resources/torrent/20260614.torrent` | 通过，metadata 后输出真实文件名 `20260614.mp4`，SHA-256 为 `4df2d9155b5714274f91beda0029041d9ef880f2996172adfd5bc5e29db42650`。 |

@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::TcpListener;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::{
@@ -75,6 +75,20 @@ fn wait_for_running_progress(store_path: &std::path::Path, task_id: &str) -> Val
     }
 }
 
+fn requested_range(request: &str) -> Option<(usize, usize)> {
+    let range = request.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if name.eq_ignore_ascii_case("range") {
+            Some(value.trim())
+        } else {
+            None
+        }
+    })?;
+    let value = range.strip_prefix("bytes=")?;
+    let (start, end) = value.split_once('-')?;
+    Some((start.parse().ok()?, end.parse().ok()?))
+}
+
 #[test]
 fn detect_and_support_commands_cover_webdav() {
     let detect_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
@@ -110,6 +124,112 @@ fn detect_and_support_commands_cover_webdav() {
     assert_eq!(support["protocol"], "webdav");
     assert_eq!(support["backend"], "built-in");
     assert_eq!(support["executable"], true);
+}
+
+#[test]
+fn download_command_uses_threads_for_http_ranges() {
+    let payload = Arc::new(
+        (0..(256 * 1024))
+            .map(|index| (index % 251) as u8)
+            .collect::<Vec<_>>(),
+    );
+    let range_hits = Arc::new(AtomicUsize::new(0));
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let server_payload = Arc::clone(&payload);
+    let server_range_hits = Arc::clone(&range_hits);
+    let server_done = Arc::clone(&done);
+    let server = thread::spawn(move || {
+        while !server_done.load(Ordering::SeqCst) {
+            let Ok((mut stream, _)) = listener.accept() else {
+                thread::sleep(Duration::from_millis(10));
+                continue;
+            };
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+            let mut buffer = [0; 2048];
+            let read = match stream.read(&mut buffer) {
+                Ok(read) => read,
+                Err(error) if error.kind() == ErrorKind::WouldBlock => continue,
+                Err(error) if error.kind() == ErrorKind::TimedOut => continue,
+                Err(error) => panic!("test fixture failed to read request: {error}"),
+            };
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            let method = request
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().next())
+                .unwrap_or("GET");
+            if method == "HEAD" {
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                    server_payload.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+                continue;
+            }
+
+            let (status, extra_header, body) = if let Some((start, end)) = requested_range(&request)
+            {
+                server_range_hits.fetch_add(1, Ordering::SeqCst);
+                (
+                    "206 Partial Content",
+                    format!(
+                        "Content-Range: bytes {start}-{end}/{}\r\nAccept-Ranges: bytes\r\n",
+                        server_payload.len()
+                    ),
+                    server_payload[start..=end].to_vec(),
+                )
+            } else {
+                (
+                    "200 OK",
+                    "Accept-Ranges: bytes\r\n".to_string(),
+                    server_payload.to_vec(),
+                )
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\n{extra_header}Connection: close\r\n\r\n",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            stream.write_all(&body).unwrap();
+        }
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "download",
+            &format!("http://{address}/payload.bin"),
+            "--output",
+            temp_dir.path().to_str().unwrap(),
+            "--name",
+            "payload.bin",
+            "--threads",
+            "4",
+        ])
+        .output()
+        .unwrap();
+
+    done.store(true, Ordering::SeqCst);
+    server.join().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(temp_dir.path().join("payload.bin")).unwrap(),
+        payload.as_slice()
+    );
+
+    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["bytes_written"], payload.len() as u64);
+    assert!(
+        range_hits.load(Ordering::SeqCst) >= 2,
+        "CLI --threads should trigger HTTP Range requests"
+    );
 }
 
 #[test]
