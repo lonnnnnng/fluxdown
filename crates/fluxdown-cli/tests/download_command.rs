@@ -89,6 +89,45 @@ fn requested_range(request: &str) -> Option<(usize, usize)> {
     Some((start.parse().ok()?, end.parse().ok()?))
 }
 
+fn spawn_hls_http_server() -> (String, Vec<u8>, thread::JoinHandle<()>) {
+    let first_segment = b"cli hls first segment".to_vec();
+    let second_segment = b"cli hls second segment".to_vec();
+    let expected = [first_segment.clone(), second_segment.clone()].concat();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        for _ in 0..3 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0; 1024];
+            let read = stream.read(&mut buffer).unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            let path = request
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .unwrap_or("/");
+            let (status, content_type, body): (&str, &str, Vec<u8>) = match path {
+                "/playlist.m3u8" => (
+                    "200 OK",
+                    "application/vnd.apple.mpegurl",
+                    b"#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1,\nseg-1.ts\n#EXTINF:1,\nseg-2.ts\n#EXT-X-ENDLIST\n"
+                        .to_vec(),
+                ),
+                "/seg-1.ts" => ("200 OK", "video/mp2t", first_segment.clone()),
+                "/seg-2.ts" => ("200 OK", "video/mp2t", second_segment.clone()),
+                _ => ("404 Not Found", "text/plain", b"not found".to_vec()),
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            stream.write_all(&body).unwrap();
+        }
+    });
+    (format!("http://{address}/playlist.m3u8"), expected, server)
+}
+
 #[test]
 fn detect_and_support_commands_cover_webdav() {
     let detect_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
@@ -142,58 +181,68 @@ fn download_command_uses_threads_for_http_ranges() {
     let server_range_hits = Arc::clone(&range_hits);
     let server_done = Arc::clone(&done);
     let server = thread::spawn(move || {
+        let mut handlers = Vec::new();
         while !server_done.load(Ordering::SeqCst) {
             let Ok((mut stream, _)) = listener.accept() else {
                 thread::sleep(Duration::from_millis(10));
                 continue;
             };
-            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-            let mut buffer = [0; 2048];
-            let read = match stream.read(&mut buffer) {
-                Ok(read) => read,
-                Err(error) if error.kind() == ErrorKind::WouldBlock => continue,
-                Err(error) if error.kind() == ErrorKind::TimedOut => continue,
-                Err(error) => panic!("test fixture failed to read request: {error}"),
-            };
-            let request = String::from_utf8_lossy(&buffer[..read]);
-            let method = request
-                .lines()
-                .next()
-                .and_then(|line| line.split_whitespace().next())
-                .unwrap_or("GET");
-            if method == "HEAD" {
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
-                    server_payload.len()
-                );
-                stream.write_all(response.as_bytes()).unwrap();
-                continue;
-            }
+            let handler_payload = Arc::clone(&server_payload);
+            let handler_range_hits = Arc::clone(&server_range_hits);
+            // 作者: long
+            // 多线程下载会同时打开多个 Range 连接，fixture 也要并发响应，才能稳定验证真实客户端行为。
+            handlers.push(thread::spawn(move || {
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let mut buffer = [0; 2048];
+                let read = match stream.read(&mut buffer) {
+                    Ok(read) => read,
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => return,
+                    Err(error) if error.kind() == ErrorKind::TimedOut => return,
+                    Err(error) => panic!("test fixture failed to read request: {error}"),
+                };
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let method = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().next())
+                    .unwrap_or("GET");
+                if method == "HEAD" {
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                        handler_payload.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                    return;
+                }
 
-            let (status, extra_header, body) = if let Some((start, end)) = requested_range(&request)
-            {
-                server_range_hits.fetch_add(1, Ordering::SeqCst);
-                (
-                    "206 Partial Content",
-                    format!(
-                        "Content-Range: bytes {start}-{end}/{}\r\nAccept-Ranges: bytes\r\n",
-                        server_payload.len()
-                    ),
-                    server_payload[start..=end].to_vec(),
-                )
-            } else {
-                (
-                    "200 OK",
-                    "Accept-Ranges: bytes\r\n".to_string(),
-                    server_payload.to_vec(),
-                )
-            };
-            let response = format!(
-                "HTTP/1.1 {status}\r\nContent-Length: {}\r\n{extra_header}Connection: close\r\n\r\n",
-                body.len()
-            );
-            stream.write_all(response.as_bytes()).unwrap();
-            stream.write_all(&body).unwrap();
+                let (status, extra_header, body) =
+                    if let Some((start, end)) = requested_range(&request) {
+                        handler_range_hits.fetch_add(1, Ordering::SeqCst);
+                        (
+                            "206 Partial Content",
+                            format!(
+                                "Content-Range: bytes {start}-{end}/{}\r\nAccept-Ranges: bytes\r\n",
+                                handler_payload.len()
+                            ),
+                            handler_payload[start..=end].to_vec(),
+                        )
+                    } else {
+                        (
+                            "200 OK",
+                            "Accept-Ranges: bytes\r\n".to_string(),
+                            handler_payload.to_vec(),
+                        )
+                    };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\n{extra_header}Connection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.write_all(&body);
+            }));
+        }
+        for handler in handlers {
+            handler.join().unwrap();
         }
     });
 
@@ -280,6 +329,48 @@ fn download_command_fetches_http_file() {
     assert_eq!(
         summary["output_path"].as_str().unwrap(),
         temp_dir.path().join("payload.bin").to_string_lossy()
+    );
+}
+
+#[test]
+fn download_command_fetches_hls_playlist() {
+    let (source, expected_payload, server) = spawn_hls_http_server();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "download",
+            &source,
+            "--output",
+            temp_dir.path().to_str().unwrap(),
+            "--name",
+            "cli-hls.m3u8",
+        ])
+        .output()
+        .unwrap();
+
+    server.join().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // 作者: long
+    // CLI 的 HLS 下载必须返回一个可被脚本读取的最终产物；测试片段不是合法媒体流，因此稳定验证 fallback 的 TS 文件。
+    assert_eq!(
+        std::fs::read(temp_dir.path().join("cli-hls.ts")).unwrap(),
+        expected_payload
+    );
+
+    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["protocol"], "m3u8");
+    assert_eq!(summary["backend"], "built-in");
+    assert_eq!(summary["bytes_written"], expected_payload.len() as u64);
+    assert_eq!(summary["total_bytes"], expected_payload.len() as u64);
+    assert_eq!(summary["segments_written"], 2);
+    assert_eq!(summary["display_name"], "cli-hls.ts");
+    assert_eq!(
+        summary["output_path"].as_str().unwrap(),
+        temp_dir.path().join("cli-hls.ts").to_string_lossy()
     );
 }
 
