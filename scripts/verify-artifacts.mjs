@@ -171,6 +171,51 @@ function readPackageVersion() {
   return JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
 }
 
+function verifyCiConfig() {
+  const workflow = readFileSync(resolve(root, '.github/workflows/build.yml'), 'utf8')
+  const onBlock = extractTopLevelBlock(workflow, 'on')
+
+  if (!/^\s{2}workflow_dispatch:\s*$/m.test(onBlock)) {
+    fail('.github/workflows/build.yml must keep workflow_dispatch as the only build trigger')
+  }
+
+  const triggerNames = [...onBlock.matchAll(/^\s{2}([A-Za-z_][\w-]*):\s*$/gm)].map((match) => match[1])
+  const forbiddenTriggers = triggerNames.filter((name) => name !== 'workflow_dispatch')
+  if (forbiddenTriggers.length > 0) {
+    fail(`.github/workflows/build.yml must not auto-run on ${forbiddenTriggers.join(', ')}`)
+  }
+
+  if (!/^concurrency:\s*$/m.test(workflow) || !/^\s{2}cancel-in-progress:\s*true\s*$/m.test(workflow)) {
+    fail('.github/workflows/build.yml must cancel duplicate manual build runs for the same ref')
+  }
+
+  if (!/inputs\.publish_release && startsWith\(github\.ref, 'refs\/tags\/v'\)/.test(workflow)) {
+    fail('.github/workflows/build.yml release job must require publish_release on a v* tag ref')
+  }
+
+  console.log('ok ci   .github/workflows/build.yml manual-only trigger policy')
+}
+
+function extractTopLevelBlock(source, key) {
+  const lines = source.split(/\r?\n/)
+  const start = lines.findIndex((line) => line === `${key}:`)
+  if (start === -1) {
+    fail(`.github/workflows/build.yml is missing top-level ${key}: block`)
+    return ''
+  }
+
+  const block = []
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index]
+    // long: workflow 触发策略只允许手动入口；遇到下一个顶层键时停止，避免把 jobs 内的配置误判为触发事件。
+    if (/^[A-Za-z_][\w-]*:\s*$/.test(line)) {
+      break
+    }
+    block.push(line)
+  }
+  return block.join('\n')
+}
+
 if (profile === 'file') {
   for (const relativePath of extra) {
     verify('file', relativePath)
@@ -186,6 +231,9 @@ if (profile === 'file') {
 } else if (profiles[profile]) {
   for (const [kind, relativePath] of profiles[profile]) {
     verify(kind, relativePath)
+  }
+  if (profile === 'ci-config') {
+    verifyCiConfig()
   }
 } else {
   console.error(`unknown artifact verification profile: ${profile}`)
