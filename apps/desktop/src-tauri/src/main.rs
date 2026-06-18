@@ -687,6 +687,12 @@ mod tests {
             .expect("test server source should include an address")
     }
 
+    fn manual_p2p_fixture(name: &str) -> String {
+        std::env::var(name).unwrap_or_else(|_| {
+            panic!("{name} is required; run scripts/verify-macos-desktop-p2p.sh instead")
+        })
+    }
+
     #[test]
     fn resolves_regular_task_output_path() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -1191,6 +1197,110 @@ mod tests {
             std::fs::read(output_dir.join("desktop-ipfs.txt")).unwrap(),
             payload
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live local tracker and seeder; use scripts/verify-macos-desktop-p2p.sh"]
+    async fn desktop_manual_downloads_single_file_torrent_through_queue() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let source = manual_p2p_fixture("FLUXDOWN_DESKTOP_P2P_TORRENT");
+        let expected_name = manual_p2p_fixture("FLUXDOWN_DESKTOP_P2P_FILE_NAME");
+        let expected_sha256 = manual_p2p_fixture("FLUXDOWN_DESKTOP_P2P_SHA256");
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("queued-sample.torrent".to_string()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.protocol, Protocol::Torrent);
+
+        let report = run_queue(1, Some(1), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 1);
+        assert_eq!(report.failed, 0);
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        assert_eq!(tasks[0].file_name.as_deref(), Some(expected_name.as_str()));
+        let output_path = PathBuf::from(task_output_path(tasks[0].id.clone()).await.unwrap());
+        assert_eq!(
+            output_path.file_name().and_then(|name| name.to_str()),
+            Some(expected_name.as_str())
+        );
+        // 作者: long
+        // Torrent metadata 到达后必须把任务卡片名从 .torrent 临时名更新为真实文件名，打开文件也要指向真实产物。
+        assert_eq!(sha256_file(&output_path), expected_sha256);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live local tracker and seeder; use scripts/verify-macos-desktop-p2p.sh"]
+    async fn desktop_manual_starts_single_file_magnet_task() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let source = manual_p2p_fixture("FLUXDOWN_DESKTOP_P2P_MAGNET");
+        let expected_name = manual_p2p_fixture("FLUXDOWN_DESKTOP_P2P_FILE_NAME");
+        let expected_sha256 = manual_p2p_fixture("FLUXDOWN_DESKTOP_P2P_SHA256");
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("magnet-download".to_string()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.protocol, Protocol::Magnet);
+
+        let report = start_download(
+            task.id.clone(),
+            Some(1),
+            Some(1),
+            Some(1),
+            None,
+            Some(false),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.task.state, DownloadState::Finished);
+        assert_eq!(
+            report.task.file_name.as_deref(),
+            Some(expected_name.as_str())
+        );
+
+        let output_path = PathBuf::from(task_output_path(task.id.clone()).await.unwrap());
+        assert_eq!(
+            output_path.file_name().and_then(|name| name.to_str()),
+            Some(expected_name.as_str())
+        );
+        // 作者: long
+        // Magnet 初始没有文件名，metadata 到达后要回写真实产物名，避免桌面列表长期显示 magnet-download。
+        assert_eq!(sha256_file(&output_path), expected_sha256);
+    }
+
+    fn sha256_file(path: &Path) -> String {
+        let output = Command::new("shasum")
+            .args(["-a", "256"])
+            .arg(path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout)
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_string()
     }
 
     #[test]
