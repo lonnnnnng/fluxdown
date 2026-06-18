@@ -83,6 +83,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm --workspace apps/desktop run build` | 通过：桌面前端新建任务协议/后端状态预览、SHA-256 输入、属性弹框、任务错误和 toast 错误脱敏改动完成 TypeScript 编译和 Vite 构建。 |
 | `npm run verify:licenses` | 通过：检查 Rust workspace、桌面运行时依赖和 Flutter 移动端运行时依赖均已列入第三方许可证清单，并确认 `libtorrent_flutter` GPL 风险提示仍保留。 |
 | `npm run verify:macos` | 通过：当前 macOS 非 GUI 总验收入口，串起 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、`npm run verify:macos-cli-release`、`npm run verify:macos-desktop-command`、`npm run verify:licenses` 和 `npm run verify:ci-config`。 |
+| `npm run audit:release` | 已执行：代码覆盖类检查已通过，包括 CLI 直连下载、桌面 command 任务启动、前端进度轮询、协议模型、移动端队列和 CI 配置；本轮未进入发版/打包阶段，因此 Linux/Windows 桌面产物、iOS simulator/framework 产物、Release staging manifest 尚不存在，审计结果为 `11 failed, 1 warning`，这些产物缺口不作为本阶段阻塞。 |
 | `cargo clippy -p fluxdown-cli --all-targets -- -D warnings` | 通过：修复 release CLI 不支持 `--version` 的基础可用性问题后，CLI 专项 Clippy 通过。 |
 | `cargo test -p fluxdown-cli` | 通过：CLI 单元 1、CLI 集成 28。 |
 | `npm run verify:macos-cli-release` | 通过：一键重新构建 `target/release/fluxdown`，依次运行 release CLI 的 HTTP/HLS、FTP/FTPS、SFTP、SMB、Torrent/Magnet、队列控制真实下载脚本，并执行 `npm run verify:macos-artifacts`。 |

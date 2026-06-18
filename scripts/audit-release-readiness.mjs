@@ -55,7 +55,7 @@ const checks = [
     label: 'Desktop CLI supports direct one-shot downloads',
     kind: 'source-contains',
     file: 'crates/fluxdown-cli/src/main.rs',
-    values: ['Command::Download', 'DownloadEngine::new().download'],
+    values: ['Command::Download', 'DownloadEngine::new()', 'download_with_options'],
   },
   {
     label: 'Desktop CLI direct download command is integration tested',
@@ -73,13 +73,13 @@ const checks = [
     label: 'Desktop GUI starts tasks through the shared progress-aware runner',
     kind: 'source-contains',
     file: 'apps/desktop/src-tauri/src/main.rs',
-    values: ['TaskRunReport', 'run_task(&id)'],
+    values: ['TaskRunReport', 'run_task_with_options(&id, options)'],
   },
   {
     label: 'Desktop GUI polls persisted progress while downloads are active',
     kind: 'source-contains',
     file: 'apps/desktop/src/App.tsx',
-    values: ['activeRuns', 'window.setInterval', 'list_downloads'],
+    values: ['activeTaskId', 'window.setInterval', 'list_downloads'],
   },
   {
     label: 'Core stored-task runner persists progress and handles pause',
