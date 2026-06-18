@@ -24,6 +24,7 @@ cargo clippy -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop --all-targets 
 cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop
 npm run verify:macos-cli-release
 npm run verify:macos-desktop-command
+npm run verify:licenses
 npm run verify:ci-config
 
 echo "macOS full non-GUI verification passed"

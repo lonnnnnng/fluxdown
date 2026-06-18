@@ -4,7 +4,7 @@
 
 ## 近期
 
-- 已补齐顶层 `LICENSE` 和人工维护的第三方许可证清单；后续补自动化扫描和 Release 随包许可证文本。
+- 已补齐顶层 `LICENSE`、人工维护的第三方许可证清单、轻量清单校验和 Release 随包许可证文本；后续补完整传递依赖 license bundle 和更严格的依赖审计。
 - 已将根 README 收敛为短快速开始、截图和关键文档入口；详细构建、签名、产物和 CI 信息继续维护在 `docs/`。
 - 已为桌面队列路径接入平台原生数据目录：macOS 使用 `~/Library/Application Support/FluxDown/queue.json`，Windows 使用 `%APPDATA%/FluxDown/queue.json`，Linux/Unix 保持 XDG 路径；macOS 会兼容读取旧版 `~/.local/share/fluxdown/queue.json`。
 - 已增加 URL 凭据脱敏，CLI JSON 输出、命令错误、桌面属性页和任务错误展示不再暴露 URL 中的用户名和密码；原始队列数据仍保留真实链接用于下载和复制。
@@ -39,4 +39,4 @@
 - JSON 队列适合早期和本地调试，但多进程并发和 schema migration 能力有限。
 - 当前错误分类主要面向开发者，用户可读性还需要增强。
 - Release 产物校验已有基础，但缺少代码签名、公证和产物签名链路。
-- 许可证扫描和依赖审计尚未进入 CI 阻断项。
+- 许可证清单已有轻量校验，但完整传递依赖 license bundle、依赖审计和 GitHub Actions 阻断项仍未完成。

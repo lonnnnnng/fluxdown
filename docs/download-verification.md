@@ -78,7 +78,8 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `cargo test -p fluxdown-core -- --nocapture` + `cargo test -p fluxdown-cli --test download_command -- --nocapture` + `cargo test -p fluxdown-desktop resolves_legacy_unsafe_file_name_inside_output_dir -- --nocapture` | 通过：下载文件名统一规范化为单文件名，覆盖用户自定义文件名、HTTP/HLS/FTP/SFTP/SMB 推断文件名、旧队列任务重跑候选路径、CLI 真实 HTTP 落盘和桌面 command 输出路径解析，避免 `../`、路径分隔符和跨平台非法字符写出保存目录。 |
 | `cargo build -p fluxdown-cli` + 临时 `HOME` 手动 CLI `add` | 通过：在隔离 `HOME=/tmp/fluxdown-native-path.../home` 且空 `XDG_DATA_HOME` 下执行 `./target/debug/fluxdown add`，队列写入 `home/Library/Application Support/FluxDown/queue.json`，确认 macOS 默认路径不再落到相对目录或旧 Unix 路径。 |
 | `npm --workspace apps/desktop run build` | 通过：桌面前端属性弹框、任务错误和 toast 错误脱敏改动完成 TypeScript 编译和 Vite 构建。 |
-| `npm run verify:macos` | 通过：当前 macOS 非 GUI 总验收入口，串起 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、`npm run verify:macos-cli-release`、`npm run verify:macos-desktop-command` 和 `npm run verify:ci-config`。 |
+| `npm run verify:licenses` | 通过：检查 Rust workspace、桌面运行时依赖和 Flutter 移动端运行时依赖均已列入第三方许可证清单，并确认 `libtorrent_flutter` GPL 风险提示仍保留。 |
+| `npm run verify:macos` | 通过：当前 macOS 非 GUI 总验收入口，串起 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、`npm run verify:macos-cli-release`、`npm run verify:macos-desktop-command`、`npm run verify:licenses` 和 `npm run verify:ci-config`。 |
 | `cargo clippy -p fluxdown-cli --all-targets -- -D warnings` | 通过：修复 release CLI 不支持 `--version` 的基础可用性问题后，CLI 专项 Clippy 通过。 |
 | `cargo test -p fluxdown-cli` | 通过：CLI 单元 1、CLI 集成 19。 |
 | `npm run verify:macos-cli-release` | 通过：一键重新构建 `target/release/fluxdown`，依次运行 release CLI 的 HTTP/HLS、FTP/FTPS、SFTP、SMB、Torrent/Magnet 真实下载脚本，并执行 `npm run verify:macos-artifacts`。 |
@@ -103,6 +104,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run desktop:dmg` | 通过，打包前会对 `FluxDown.app` 执行本地 ad-hoc bundle 签名并通过 `codesign --verify --deep --strict`，生成 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg`，大小 `8681241` bytes。该签名只证明本地产物完整，不代表开发者证书签名或 notarization 已完成。 |
 | `node scripts/verify-artifacts.mjs desktop-macos` | 通过，校验 `target/release/fluxdown-desktop`、`target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg` 均存在且非空。 |
 | `npm run verify:macos-artifacts` | 通过：校验 release CLI 文件、桌面二进制、`.app` 目录、`Info.plist` 元数据、bundle 可执行文件、CLI `--version/detect/support/doctor`、`.app` ad-hoc 签名和 dmg checksum。 |
+| Release 许可证随包文本 | 通过：本地 `release:stage` 和 GitHub Release assets 准备脚本会输出项目 `LICENSE` 与 `docs/third-party-licenses.md` 副本，`verify:release` 会检查本地 Release staging 中的许可证文件存在且非空。 |
 | `target/release/fluxdown --version` | 通过，输出 `fluxdown 1.0.2`。 |
 | `target/release/fluxdown doctor` | 通过；内建 HTTP/HTTPS/WebDAV/FTP/FTPS/Torrent/Magnet/m3u8/SFTP/SMB/IPFS 可执行；ed2k 为系统移交，当前 PATH 缺少可选 `ed2k` CLI。 |
 | Release CLI smoke | 通过：`target/release/fluxdown detect 'https://example.com/file.zip'` 输出 `https`，`support` 返回可执行状态，`doctor` JSON 中 HTTP 为 executable；release 二进制还通过了 HTTP/HLS、FTP/FTPS、SFTP、SMB、Torrent/Magnet 脚本化真实下载闭环。 |

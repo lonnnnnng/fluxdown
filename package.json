@@ -48,6 +48,7 @@
     "verify:macos-desktop-sftp": "bash scripts/verify-macos-desktop-sftp.sh",
     "verify:release": "node scripts/verify-artifacts.mjs release",
     "verify:ci-config": "node scripts/verify-artifacts.mjs ci-config",
+    "verify:licenses": "node scripts/verify-licenses.mjs",
     "verify:mobile-url-schemes": "node scripts/verify-mobile-url-schemes.mjs",
     "release:stage": "node scripts/stage-release.mjs",
     "release:manifest": "node scripts/release-manifest.mjs write",

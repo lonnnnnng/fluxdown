@@ -239,6 +239,20 @@ const artifacts = [
     path: `${releaseDir}/mobile/ios/${iosDebugFlutterFrameworkName}`,
   },
   {
+    id: 'release-license',
+    platform: 'all',
+    surface: 'legal',
+    type: 'file',
+    path: `${releaseDir}/licenses/LICENSE`,
+  },
+  {
+    id: 'release-third-party-licenses',
+    platform: 'all',
+    surface: 'legal',
+    type: 'file',
+    path: `${releaseDir}/licenses/THIRD-PARTY-LICENSES.md`,
+  },
+  {
     id: 'release-mobile-ios-ipa',
     platform: 'ios-device',
     surface: 'mobile-app',

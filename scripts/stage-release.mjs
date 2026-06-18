@@ -82,6 +82,17 @@ const optionalGlobs = [
   },
 ]
 
+const legalFiles = [
+  {
+    from: 'LICENSE',
+    to: 'licenses/LICENSE',
+  },
+  {
+    from: 'docs/third-party-licenses.md',
+    to: 'licenses/THIRD-PARTY-LICENSES.md',
+  },
+]
+
 await main()
 
 async function main() {
@@ -98,6 +109,10 @@ async function main() {
 
   for (const optional of optionalGlobs) {
     await copyOptionalGlob(optional)
+  }
+
+  for (const legalFile of legalFiles) {
+    await copyArtifact(legalFile)
   }
 
   console.log(`release staged: ${relativeFromRoot(releaseRoot)}`)

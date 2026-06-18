@@ -119,6 +119,7 @@ copyOptionalFile(
   `FluxDown-${version}-ios-release.ipa`,
 )
 
+copyProjectLegalAssets()
 writeManifest()
 writeReleaseNotes()
 
@@ -173,6 +174,12 @@ function copyAsset(source, assetName) {
   const destination = resolve(assetsDir, assetName)
   copyFileSync(source, destination)
   recordAsset(destination)
+}
+
+function copyProjectLegalAssets() {
+  // long: Release 页面直接暴露许可证文本，用户无需下载安装包也能审查自有 MIT 许可和第三方依赖风险。
+  copyAsset(resolve(root, 'LICENSE'), `FluxDown-${version}-LICENSE.txt`)
+  copyAsset(resolve(root, 'docs/third-party-licenses.md'), `FluxDown-${version}-THIRD-PARTY-LICENSES.md`)
 }
 
 function archivePaths(entries, assetName) {

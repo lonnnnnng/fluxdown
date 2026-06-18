@@ -101,6 +101,8 @@ const profiles = {
     ['file', `${releaseDir}/mobile/ios/${iosDeviceUnsignedName}`],
     ['file', `${releaseDir}/mobile/ios/${iosDebugAppFrameworkName}`],
     ['file', `${releaseDir}/mobile/ios/${iosDebugFlutterFrameworkName}`],
+    ['file', `${releaseDir}/licenses/LICENSE`],
+    ['file', `${releaseDir}/licenses/THIRD-PARTY-LICENSES.md`],
   ],
 }
 
