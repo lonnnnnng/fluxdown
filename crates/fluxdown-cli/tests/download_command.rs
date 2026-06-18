@@ -182,7 +182,7 @@ fn detect_and_support_commands_cover_webdav() {
     );
     assert_eq!(
         String::from_utf8_lossy(&detect_output.stdout).trim(),
-        "Webdavs"
+        "webdavs"
     );
 
     let support_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
@@ -201,6 +201,50 @@ fn detect_and_support_commands_cover_webdav() {
     assert_eq!(support["protocol"], "webdav");
     assert_eq!(support["backend"], "built-in");
     assert_eq!(support["executable"], true);
+}
+
+#[test]
+fn detect_command_outputs_stable_protocol_names() {
+    let cases = [
+        ("http://example.com/a.bin", "http"),
+        ("https://example.com/a.bin", "https"),
+        (
+            "webdav://cloud.example.com/remote.php/dav/files/a.zip",
+            "webdav",
+        ),
+        (
+            "webdavs://cloud.example.com/remote.php/dav/files/a.zip",
+            "webdavs",
+        ),
+        ("ftp://example.com/file.iso", "ftp"),
+        ("ftps://example.com/file.iso", "ftps"),
+        ("sftp://example.com/file.iso", "sftp"),
+        ("smb://nas/share/file.iso", "smb"),
+        ("ipfs://bafybeigdyrzt/readme.txt", "ipfs"),
+        ("magnet:?xt=urn:btih:abc", "magnet"),
+        ("ed2k://|file|x|1|hash|/", "ed2k"),
+        ("https://example.com/file.torrent?token=abc", "torrent"),
+        ("https://example.com/video.m3u8?token=abc", "m3u8"),
+        ("/tmp/local.TORRENT", "torrent"),
+        ("not-a-download-source", "unknown"),
+    ];
+
+    for (source, expected) in cases {
+        let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+            .args(["detect", source])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "source: {source}; stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            expected,
+            "{source}"
+        );
+    }
 }
 
 #[test]

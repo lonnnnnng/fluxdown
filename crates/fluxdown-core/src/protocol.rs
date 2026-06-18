@@ -22,6 +22,27 @@ pub enum Protocol {
     Unknown,
 }
 
+impl Protocol {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Protocol::Http => "http",
+            Protocol::Https => "https",
+            Protocol::Webdav => "webdav",
+            Protocol::Webdavs => "webdavs",
+            Protocol::Ftp => "ftp",
+            Protocol::Ftps => "ftps",
+            Protocol::Torrent => "torrent",
+            Protocol::Magnet => "magnet",
+            Protocol::Ed2k => "ed2k",
+            Protocol::M3u8 => "m3u8",
+            Protocol::Sftp => "sftp",
+            Protocol::Smb => "smb",
+            Protocol::Ipfs => "ipfs",
+            Protocol::Unknown => "unknown",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Backend {
@@ -306,6 +327,31 @@ mod tests {
 
         for (input, expected) in cases {
             assert_eq!(detect_protocol(input), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn protocol_names_match_serialized_queue_values() {
+        let protocols = [
+            Protocol::Http,
+            Protocol::Https,
+            Protocol::Webdav,
+            Protocol::Webdavs,
+            Protocol::Ftp,
+            Protocol::Ftps,
+            Protocol::Torrent,
+            Protocol::Magnet,
+            Protocol::Ed2k,
+            Protocol::M3u8,
+            Protocol::Sftp,
+            Protocol::Smb,
+            Protocol::Ipfs,
+            Protocol::Unknown,
+        ];
+
+        for protocol in protocols {
+            let serialized = serde_json::to_string(&protocol).unwrap();
+            assert_eq!(serialized, format!("\"{}\"", protocol.as_str()));
         }
     }
 

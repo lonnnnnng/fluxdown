@@ -107,7 +107,7 @@ async fn run_cli() -> Result<()> {
 
     match cli.command {
         Command::Detect { source } => {
-            println!("{:?}", detect_protocol(&source));
+            println!("{}", detect_protocol(&source).as_str());
         }
         Command::Support { source } => {
             let status = runtime_support_status(detect_protocol(&source)).await;
