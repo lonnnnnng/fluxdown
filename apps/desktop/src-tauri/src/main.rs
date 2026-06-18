@@ -143,10 +143,14 @@ fn resume_transition(state: DownloadState) -> Result<Option<DownloadState>, Stri
 
 #[tauri::command]
 async fn remove_download(id: String) -> Result<DownloadTask, String> {
-    TaskStore::new(default_store_path())
-        .remove(&id)
+    let store = TaskStore::new(default_store_path());
+    // 作者: long
+    // 桌面删除旧 running 任务时也先恢复中断状态，属性面板和操作结果不会继续展示假下载中。
+    store
+        .recover_stale_running(STALE_RUNNING_TASK_TIMEOUT)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    store.remove(&id).await.map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -2268,6 +2272,38 @@ mod tests {
             store.get(&running_task.id).await.unwrap().state,
             DownloadState::Paused
         );
+    }
+
+    #[tokio::test]
+    async fn desktop_remove_download_recovers_stale_running_task_before_removal() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let store = TaskStore::new(default_store_path());
+        let task = store
+            .enqueue(DownloadRequest::new(
+                "http://127.0.0.1:9/stale-remove.bin",
+                temp_dir.path(),
+            ))
+            .await
+            .unwrap();
+        let mut running_task = task;
+        running_task.set_state(DownloadState::Running);
+        running_task.set_progress_with_speed(896, Some(2048), 448);
+        running_task.updated_at_ms = 0;
+        store.update(running_task.clone()).await.unwrap();
+
+        let removed = remove_download(running_task.id.clone()).await.unwrap();
+
+        // 作者: long
+        // 删除入口返回的是操作结果；陈旧 running 要先恢复成中断态，再从队列移除，避免 UI 继续显示假运行。
+        assert_eq!(removed.state, DownloadState::Paused);
+        assert_eq!(removed.downloaded_bytes, 896);
+        assert_eq!(
+            removed.error.as_deref(),
+            Some("任务中断，已暂停，可继续下载")
+        );
+        assert!(list_downloads().await.unwrap().is_empty());
     }
 
     #[tokio::test]

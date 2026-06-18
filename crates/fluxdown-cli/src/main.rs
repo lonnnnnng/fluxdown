@@ -226,7 +226,7 @@ async fn run_cli() -> Result<()> {
             );
         }
         Command::Remove { id } => {
-            let task = store.remove(&id).await?;
+            let task = remove_task(&store, &id).await?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&task.redacted_for_display())?
@@ -316,6 +316,15 @@ async fn resume_task(store: &TaskStore, id: &str) -> Result<fluxdown_core::Downl
             bail!("finished or failed tasks cannot be resumed; start them again explicitly")
         }
     }
+}
+
+async fn remove_task(store: &TaskStore, id: &str) -> Result<fluxdown_core::DownloadTask> {
+    // 作者: long
+    // 删除崩溃残留任务前先回收陈旧 running，命令返回值才能表达真实中断原因，现役下载不会被这个窗口误判。
+    store
+        .recover_stale_running(STALE_RUNNING_TASK_TIMEOUT)
+        .await?;
+    Ok(store.remove(id).await?)
 }
 
 #[cfg(test)]

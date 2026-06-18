@@ -300,6 +300,48 @@ async fn queue_pause_recovers_stale_running_task_before_transition() {
     assert_eq!(list_task(&store_path, &running_task.id)["state"], "paused");
 }
 
+#[tokio::test]
+async fn queue_remove_recovers_stale_running_task_before_removal() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let store = TaskStore::new(&store_path);
+    let task = store
+        .enqueue(DownloadRequest::new(
+            "http://127.0.0.1:9/stale-remove.bin",
+            temp_dir.path(),
+        ))
+        .await
+        .unwrap();
+    let mut running_task = task;
+    running_task.set_state(DownloadState::Running);
+    running_task.set_progress_with_speed(640, Some(2048), 320);
+    running_task.updated_at_ms = 0;
+    store.update(running_task.clone()).await.unwrap();
+
+    let remove_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "remove",
+            &running_task.id,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        remove_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&remove_output.stderr)
+    );
+    let removed: Value = serde_json::from_slice(&remove_output.stdout).unwrap();
+
+    // 作者: long
+    // 删除陈旧 running 任务也应先标记中断，方便脚本调用方知道删除的是崩溃残留任务。
+    assert_eq!(removed["state"], "paused");
+    assert_eq!(removed["downloaded_bytes"], 640);
+    assert_eq!(removed["error"], "任务中断，已暂停，可继续下载");
+    assert!(list_tasks(&store_path).as_array().unwrap().is_empty());
+}
+
 fn wait_for_running_progress(store_path: &std::path::Path, task_id: &str) -> Value {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
