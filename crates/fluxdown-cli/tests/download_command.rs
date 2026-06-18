@@ -258,6 +258,48 @@ async fn queue_resume_recovers_stale_running_task_before_transition() {
     assert_eq!(list_task(&store_path, &running_task.id)["state"], "queued");
 }
 
+#[tokio::test]
+async fn queue_pause_recovers_stale_running_task_before_transition() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let store = TaskStore::new(&store_path);
+    let task = store
+        .enqueue(DownloadRequest::new(
+            "http://127.0.0.1:9/stale-pause.bin",
+            temp_dir.path(),
+        ))
+        .await
+        .unwrap();
+    let mut running_task = task;
+    running_task.set_state(DownloadState::Running);
+    running_task.set_progress_with_speed(384, Some(1024), 192);
+    running_task.updated_at_ms = 0;
+    store.update(running_task.clone()).await.unwrap();
+
+    let pause_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "pause",
+            &running_task.id,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        pause_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&pause_output.stderr)
+    );
+    let paused: Value = serde_json::from_slice(&pause_output.stdout).unwrap();
+
+    // 作者: long
+    // 暂停命令也要能接管异常退出留下的 running，让用户看到真实可恢复的暂停态和中断原因。
+    assert_eq!(paused["state"], "paused");
+    assert_eq!(paused["downloaded_bytes"], 384);
+    assert_eq!(paused["error"], "任务中断，已暂停，可继续下载");
+    assert_eq!(list_task(&store_path, &running_task.id)["state"], "paused");
+}
+
 fn wait_for_running_progress(store_path: &std::path::Path, task_id: &str) -> Value {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {

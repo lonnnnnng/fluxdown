@@ -2236,6 +2236,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn desktop_pause_download_recovers_stale_running_task_before_transition() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let store = TaskStore::new(default_store_path());
+        let task = store
+            .enqueue(DownloadRequest::new(
+                "http://127.0.0.1:9/stale-pause.bin",
+                temp_dir.path(),
+            ))
+            .await
+            .unwrap();
+        let mut running_task = task;
+        running_task.set_state(DownloadState::Running);
+        running_task.set_progress_with_speed(768, Some(2048), 384);
+        running_task.updated_at_ms = 0;
+        store.update(running_task.clone()).await.unwrap();
+
+        let paused = pause_download(running_task.id.clone()).await.unwrap();
+
+        // 作者: long
+        // 桌面暂停按钮也要能直接接管异常中断任务，避免旧 running 状态卡住队列调度。
+        assert_eq!(paused.state, DownloadState::Paused);
+        assert_eq!(paused.downloaded_bytes, 768);
+        assert_eq!(
+            paused.error.as_deref(),
+            Some("任务中断，已暂停，可继续下载")
+        );
+        assert_eq!(
+            store.get(&running_task.id).await.unwrap().state,
+            DownloadState::Paused
+        );
+    }
+
+    #[tokio::test]
     async fn direct_start_defers_queued_task_when_capacity_is_full() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = TaskStore::new(temp_dir.path().join("queue.json"));
