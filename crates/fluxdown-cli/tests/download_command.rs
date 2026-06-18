@@ -1,6 +1,6 @@
 use serde_json::Value;
 use std::io::{ErrorKind, Read, Write};
-use std::net::TcpListener;
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::{
     Arc,
@@ -87,6 +87,22 @@ fn requested_range(request: &str) -> Option<(usize, usize)> {
     let value = range.strip_prefix("bytes=")?;
     let (start, end) = value.split_once('-')?;
     Some((start.parse().ok()?, end.parse().ok()?))
+}
+
+fn read_http_request(stream: &mut TcpStream) -> std::io::Result<String> {
+    let mut buffer = Vec::with_capacity(2048);
+    let mut chunk = [0; 512];
+    loop {
+        let read = stream.read(&mut chunk)?;
+        if read == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+        if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+    }
+    Ok(String::from_utf8_lossy(&buffer).into_owned())
 }
 
 fn spawn_hls_http_server() -> (String, Vec<u8>, thread::JoinHandle<()>) {
@@ -215,14 +231,13 @@ fn download_command_uses_threads_for_http_ranges() {
             // 多线程下载会同时打开多个 Range 连接，fixture 也要并发响应，才能稳定验证真实客户端行为。
             handlers.push(thread::spawn(move || {
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-                let mut buffer = [0; 2048];
-                let read = match stream.read(&mut buffer) {
-                    Ok(read) => read,
+                let request = match read_http_request(&mut stream) {
+                    Ok(request) if request.is_empty() => return,
+                    Ok(request) => request,
                     Err(error) if error.kind() == ErrorKind::WouldBlock => return,
                     Err(error) if error.kind() == ErrorKind::TimedOut => return,
                     Err(error) => panic!("test fixture failed to read request: {error}"),
                 };
-                let request = String::from_utf8_lossy(&buffer[..read]);
                 let method = request
                     .lines()
                     .next()
@@ -234,6 +249,7 @@ fn download_command_uses_threads_for_http_ranges() {
                         handler_payload.len()
                     );
                     let _ = stream.write_all(response.as_bytes());
+                    let _ = stream.shutdown(Shutdown::Both);
                     return;
                 }
 
@@ -261,6 +277,7 @@ fn download_command_uses_threads_for_http_ranges() {
                 );
                 let _ = stream.write_all(response.as_bytes());
                 let _ = stream.write_all(&body);
+                let _ = stream.shutdown(Shutdown::Both);
             }));
         }
         for handler in handlers {
