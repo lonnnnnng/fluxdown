@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
@@ -274,7 +274,20 @@ function displayTaskError(task: DownloadTask) {
 }
 
 function safeErrorText(error: unknown) {
+  if (isMissingTauriBackendError(error)) {
+    // 作者: long
+    // Web 预览只能验证界面状态，不能调用桌面下载后端；用户可见提示要说明运行边界，避免暴露底层 invoke 异常。
+    return "Web 预览模式缺少桌面后端，请在桌面客户端中执行该操作";
+  }
   return redactCredentialsInText(String(error));
+}
+
+function isMissingTauriBackendError(error: unknown) {
+  const text = String(error);
+  return (
+    text.includes("Cannot read properties of undefined") &&
+    text.includes("invoke")
+  );
 }
 
 function normalizeExpectedSha256(value: string) {
@@ -475,13 +488,42 @@ function App() {
     [filter, tasks],
   );
 
+  const runQueue = useCallback(async () => {
+    setQueueActive(true);
+    try {
+      const report = await invoke<QueueRunReport>("run_queue", {
+        concurrency: settings.concurrency,
+        retryAttempts: settings.retryAttempts,
+        threadCount: settings.threadCount,
+        speedLimitMbps:
+          settings.speedLimitMbps && settings.speedLimitMbps > 0
+            ? settings.speedLimitMbps
+            : null,
+        restartExisting: false,
+      });
+      if (report.tasks.length > 0) {
+        setTasks(await invoke<DownloadTask[]>("list_downloads"));
+        setMessage(`队列完成：${report.finished} 个完成，${report.failed} 个失败`);
+      }
+    } catch (error) {
+      setMessage(
+        isMissingTauriBackendError(error)
+          ? "Web 预览模式：任务已加入本地预览队列，运行队列需要桌面后端"
+          : safeErrorText(error),
+      );
+    } finally {
+      setQueueActive(false);
+    }
+  }, [
+    settings.concurrency,
+    settings.retryAttempts,
+    settings.speedLimitMbps,
+    settings.threadCount,
+  ]);
+
   useEffect(() => {
     saveSettings(settings);
   }, [settings]);
-
-  useEffect(() => {
-    setOutputDir((current) => current || settings.outputDir);
-  }, [settings.outputDir]);
 
   useEffect(() => {
     refreshTasks();
@@ -535,17 +577,15 @@ function App() {
     // 自动开始由队列状态驱动，已有任务运行时新任务只排队，等运行槽位释放后再按并发设置启动。
     autoRunKeyRef.current = queuedIds;
     void runQueue();
-  }, [queueActive, settings.autoStart, tasks]);
+  }, [queueActive, runQueue, settings.autoStart, tasks]);
 
   useEffect(() => {
     const normalizedSource = source.trim();
     if (!newDialogOpen || !normalizedSource) {
-      setSourceSupport(null);
       return;
     }
 
     let cancelled = false;
-    setSourceSupport(fallbackSupport(normalizedSource));
     const timer = window.setTimeout(() => {
       invoke<SupportStatus>("support", { source: normalizedSource })
         .then((status) => {
@@ -620,7 +660,7 @@ function App() {
 
     setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
     setNewDialogOpen(false);
-    setSource("");
+    updateNewTaskSource("");
     setFileName("");
     setExpectedSha256("");
     setTorrentFileIndices("");
@@ -631,9 +671,9 @@ function App() {
   async function pasteFromClipboard() {
     try {
       const text = await navigator.clipboard.readText();
-      if (text.trim()) {
-        setSource(text.trim());
-        if (!fileName.trim()) setFileName(suggestedFileName(text.trim()));
+      const normalizedText = text.trim();
+      if (normalizedText) {
+        updateNewTaskSource(normalizedText);
       }
     } catch {
       setMessage("无法读取剪切板");
@@ -763,31 +803,6 @@ function App() {
     await startTask(task, true);
   }
 
-  async function runQueue() {
-    setQueueActive(true);
-    try {
-      const report = await invoke<QueueRunReport>("run_queue", {
-        concurrency: settings.concurrency,
-        retryAttempts: settings.retryAttempts,
-        threadCount: settings.threadCount,
-        speedLimitMbps:
-          settings.speedLimitMbps && settings.speedLimitMbps > 0
-            ? settings.speedLimitMbps
-            : null,
-        restartExisting: false,
-      });
-      if (report.tasks.length > 0) {
-        setTasks(await invoke<DownloadTask[]>("list_downloads"));
-        setMessage(`队列完成：${report.finished} 个完成，${report.failed} 个失败`);
-      }
-    } catch (error) {
-      setMessage(safeErrorText(error));
-      // Web preview or unsupported runtime: queued items stay visible.
-    } finally {
-      setQueueActive(false);
-    }
-  }
-
   function toggleTask(task: DownloadTask) {
     if (task.state === "running") {
       pauseTask(task);
@@ -800,7 +815,20 @@ function App() {
 
   function openNewDialog() {
     setOutputDir(settings.outputDir);
+    setSourceSupport(source.trim() ? fallbackSupport(source.trim()) : null);
     setNewDialogOpen(true);
+  }
+
+  function closeNewDialog() {
+    setNewDialogOpen(false);
+    setSourceSupport(null);
+  }
+
+  function updateNewTaskSource(value: string) {
+    const normalizedSource = value.trim();
+    setSource(value);
+    setSourceSupport(normalizedSource ? fallbackSupport(normalizedSource) : null);
+    if (!fileName.trim()) setFileName(suggestedFileName(value));
   }
 
   const currentMenuTask = tasks.find((task) => task.id === menuTaskId) ?? null;
@@ -892,16 +920,13 @@ function App() {
         <NewTaskDialog
           expectedSha256={expectedSha256}
           fileName={fileName}
-          onClose={() => setNewDialogOpen(false)}
+          onClose={closeNewDialog}
           onCreate={createTask}
           onExpectedSha256Change={setExpectedSha256}
           onFileNameChange={setFileName}
           onOutputDirChange={setOutputDir}
           onPaste={pasteFromClipboard}
-          onSourceChange={(value) => {
-            setSource(value);
-            if (!fileName.trim()) setFileName(suggestedFileName(value));
-          }}
+          onSourceChange={updateNewTaskSource}
           onTorrentFileIndicesChange={setTorrentFileIndices}
           outputDir={outputDir}
           source={source}

@@ -38,6 +38,12 @@ FluxDown is a multi-protocol downloader for desktop and mobile, with a CLI, desk
 
 ## Screenshots
 
+### Windows Desktop
+
+| Queue | New Task | Settings |
+| --- | --- | --- |
+| <img src="docs/artifacts/readme/windows/queue.png" alt="Windows queue" width="320"> | <img src="docs/artifacts/readme/windows/new-task.png" alt="Windows new task" width="320"> | <img src="docs/artifacts/readme/windows/settings.png" alt="Windows settings" width="320"> |
+
 ### macOS Desktop
 
 | Queue | New Task | Settings |
