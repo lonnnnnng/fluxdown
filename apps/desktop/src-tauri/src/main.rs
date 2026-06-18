@@ -1243,6 +1243,51 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a live local FTPS fixture; run scripts/verify-macos-desktop-ftps.sh"]
+    async fn desktop_manual_downloads_ftps_task_through_queue() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let source = manual_fixture(
+            "FLUXDOWN_DESKTOP_FTPS_SOURCE",
+            "scripts/verify-macos-desktop-ftps.sh",
+        );
+        let expected_name = manual_fixture(
+            "FLUXDOWN_DESKTOP_FTPS_FILE_NAME",
+            "scripts/verify-macos-desktop-ftps.sh",
+        );
+        let expected_sha256 = manual_fixture(
+            "FLUXDOWN_DESKTOP_FTPS_SHA256",
+            "scripts/verify-macos-desktop-ftps.sh",
+        );
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some(expected_name.clone()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.protocol, Protocol::Ftps);
+
+        let report = run_queue(1, Some(1), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 1);
+        assert_eq!(report.failed, 0);
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        assert_eq!(tasks[0].file_name.as_deref(), Some(expected_name.as_str()));
+        let output_path = PathBuf::from(task_output_path(tasks[0].id.clone()).await.unwrap());
+        // 作者: long
+        // FTPS 队列必须覆盖加密控制连接和加密数据连接，确保桌面后端不是只验证了明文 FTP。
+        assert_eq!(sha256_file(&output_path), expected_sha256);
+    }
+
+    #[tokio::test]
     #[ignore = "requires a live local Samba fixture; run scripts/verify-macos-desktop-smb.sh"]
     async fn desktop_manual_downloads_smb_task_through_queue() {
         let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;

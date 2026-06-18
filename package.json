@@ -33,6 +33,7 @@
     "verify:macos-cli-p2p": "bash scripts/verify-macos-cli-p2p.sh",
     "verify:macos-cli-sftp": "bash scripts/verify-macos-cli-sftp.sh",
     "verify:macos-cli-smb": "bash scripts/verify-macos-cli-smb.sh",
+    "verify:macos-desktop-ftps": "bash scripts/verify-macos-desktop-ftps.sh",
     "verify:macos-desktop-p2p": "bash scripts/verify-macos-desktop-p2p.sh",
     "verify:macos-desktop-smb": "bash scripts/verify-macos-desktop-smb.sh",
     "verify:macos-desktop-sftp": "bash scripts/verify-macos-desktop-sftp.sh",
