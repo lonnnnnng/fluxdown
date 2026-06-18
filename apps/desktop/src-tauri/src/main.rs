@@ -2000,6 +2000,75 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    #[ignore = "requires a live local tracker and seeder; use scripts/verify-macos-desktop-p2p.sh"]
+    async fn desktop_manual_downloads_selected_magnet_file_through_queue() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let source = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_MULTI_MAGNET",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let root = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_MULTI_ROOT",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let selected_name = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_SELECTED_NAME",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let skipped_name = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_SKIPPED_NAME",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let selected_sha256 = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_SELECTED_SHA256",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("selected-magnet".to_string()),
+            expected_sha256: None,
+            torrent_file_indices: vec![0],
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.protocol, Protocol::Magnet);
+        assert_eq!(task.torrent_file_indices, vec![0]);
+
+        let report = run_queue(1, Some(1), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 1);
+        assert_eq!(report.failed, 0);
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        assert_eq!(tasks[0].file_name.as_deref(), Some(selected_name.as_str()));
+        let output_path = PathBuf::from(task_output_path(tasks[0].id.clone()).await.unwrap());
+        assert_eq!(
+            output_path.file_name().and_then(|name| name.to_str()),
+            Some(selected_name.as_str())
+        );
+        // 作者: long
+        // 多文件 Magnet 初始只有 metadata hash，选中文件下载完成后仍要用真实文件名和真实落盘路径驱动任务卡片、打开和分享。
+        assert_eq!(sha256_file(&output_path), selected_sha256);
+        let skipped_path = output_dir.join(root).join(skipped_name);
+        assert!(
+            !skipped_path.exists()
+                || std::fs::metadata(&skipped_path)
+                    .map(|metadata| metadata.len() == 0)
+                    .unwrap_or(false),
+            "unselected magnet file was written: {}",
+            skipped_path.display()
+        );
+    }
+
     fn sha256_file(path: &Path) -> String {
         let output = Command::new("shasum")
             .args(["-a", "256"])

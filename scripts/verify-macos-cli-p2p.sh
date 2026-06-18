@@ -184,8 +184,9 @@ CONFIG_DIR="$TMP_DIR/transmission"
 TORRENT_OUT="$TMP_DIR/downloads/torrent"
 MAGNET_OUT="$TMP_DIR/downloads/magnet"
 SELECTED_OUT="$TMP_DIR/downloads/selected"
+SELECTED_MAGNET_OUT="$TMP_DIR/downloads/selected-magnet"
 STORE="$TMP_DIR/queue.json"
-mkdir -p "$SEED_DIR" "$CONFIG_DIR" "$TORRENT_OUT" "$MAGNET_OUT" "$SELECTED_OUT"
+mkdir -p "$SEED_DIR" "$CONFIG_DIR" "$TORRENT_OUT" "$MAGNET_OUT" "$SELECTED_OUT" "$SELECTED_MAGNET_OUT"
 
 SAMPLE_NAME="fluxdown-cli-p2p-sample.txt"
 SAMPLE_FILE="$SEED_DIR/$SAMPLE_NAME"
@@ -221,6 +222,7 @@ transmission-create \
   "$MULTI_DIR" >/dev/null
 
 INFO_HASH="$(transmission-show "$TORRENT_FILE" | awk '/Hash v1:/ {print $3; exit}')"
+MULTI_INFO_HASH="$(transmission-show "$MULTI_TORRENT_FILE" | awk '/Hash v1:/ {print $3; exit}')"
 TRACKER_ENCODED="$(python3 - "$TRACKER_URL" <<'PY'
 import sys
 import urllib.parse
@@ -229,6 +231,7 @@ print(urllib.parse.quote(sys.argv[1], safe=""))
 PY
 )"
 MAGNET_URI="magnet:?xt=urn:btih:$INFO_HASH&dn=$SAMPLE_NAME&tr=$TRACKER_ENCODED"
+MULTI_MAGNET_URI="magnet:?xt=urn:btih:$MULTI_INFO_HASH&dn=$MULTI_NAME&tr=$TRACKER_ENCODED"
 
 python3 "$TRACKER_SCRIPT" --host 127.0.0.1 --port "$TRACKER_PORT" \
   > "$TMP_DIR/tracker.log" 2>&1 &
@@ -257,6 +260,7 @@ echo "macOS CLI P2P fixture"
 echo "  torrent: $TORRENT_FILE"
 echo "  multi:   $MULTI_TORRENT_FILE"
 echo "  magnet:  $MAGNET_URI"
+echo "  multi magnet: $MULTI_MAGNET_URI"
 echo "  sha256:  $EXPECTED_SHA256"
 echo "  selected sha256: $SELECTED_SHA256"
 if [[ -n "$FLUXDOWN_BIN_PATH" ]]; then
@@ -313,6 +317,29 @@ assert_task_value "$SELECT_LIST" "$SELECT_ID" "file_name" "$SELECTED_NAME"
 assert_sha256 "$SELECTED_OUT/$MULTI_NAME/$SELECTED_NAME" "$SELECTED_SHA256"
 if [[ -s "$SELECTED_OUT/$MULTI_NAME/$SKIPPED_NAME" ]]; then
   echo "unselected torrent file was written: $SELECTED_OUT/$MULTI_NAME/$SKIPPED_NAME" >&2
+  exit 1
+fi
+
+SELECT_MAGNET_ADD="$TMP_DIR/selected-magnet-add.json"
+SELECT_MAGNET_RUN="$TMP_DIR/selected-magnet-run.json"
+SELECT_MAGNET_LIST="$TMP_DIR/selected-magnet-list.json"
+fluxdown --store "$STORE" add "$MULTI_MAGNET_URI" \
+  --output "$SELECTED_MAGNET_OUT" \
+  --name selected-magnet \
+  --torrent-file-index 0 \
+  > "$SELECT_MAGNET_ADD"
+SELECT_MAGNET_ID="$(json_get "$SELECT_MAGNET_ADD" "id")"
+assert_json_value "$SELECT_MAGNET_ADD" "protocol" "magnet"
+assert_json_value "$SELECT_MAGNET_ADD" "torrent_file_indices.0" "0"
+fluxdown --store "$STORE" run --concurrency 1 --retry-attempts 1 > "$SELECT_MAGNET_RUN"
+fluxdown --store "$STORE" list > "$SELECT_MAGNET_LIST"
+assert_json_value "$SELECT_MAGNET_RUN" "started" "1"
+assert_json_value "$SELECT_MAGNET_RUN" "finished" "1"
+assert_task_value "$SELECT_MAGNET_LIST" "$SELECT_MAGNET_ID" "state" "finished"
+assert_task_value "$SELECT_MAGNET_LIST" "$SELECT_MAGNET_ID" "file_name" "$SELECTED_NAME"
+assert_sha256 "$SELECTED_MAGNET_OUT/$MULTI_NAME/$SELECTED_NAME" "$SELECTED_SHA256"
+if [[ -s "$SELECTED_MAGNET_OUT/$MULTI_NAME/$SKIPPED_NAME" ]]; then
+  echo "unselected magnet file was written: $SELECTED_MAGNET_OUT/$MULTI_NAME/$SKIPPED_NAME" >&2
   exit 1
 fi
 

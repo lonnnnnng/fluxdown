@@ -127,6 +127,7 @@ transmission-create \
   "$MULTI_DIR" >/dev/null
 
 INFO_HASH="$(transmission-show "$TORRENT_FILE" | awk '/Hash v1:/ {print $3; exit}')"
+MULTI_INFO_HASH="$(transmission-show "$MULTI_TORRENT_FILE" | awk '/Hash v1:/ {print $3; exit}')"
 TRACKER_ENCODED="$(python3 - "$TRACKER_URL" <<'PY'
 import sys
 import urllib.parse
@@ -135,6 +136,7 @@ print(urllib.parse.quote(sys.argv[1], safe=""))
 PY
 )"
 MAGNET_URI="magnet:?xt=urn:btih:$INFO_HASH&dn=$SAMPLE_NAME&tr=$TRACKER_ENCODED"
+MULTI_MAGNET_URI="magnet:?xt=urn:btih:$MULTI_INFO_HASH&dn=$MULTI_NAME&tr=$TRACKER_ENCODED"
 
 python3 "$TRACKER_SCRIPT" --host 127.0.0.1 --port "$TRACKER_PORT" \
   > "$TMP_DIR/tracker.log" 2>&1 &
@@ -163,6 +165,7 @@ echo "macOS desktop P2P fixture"
 echo "  torrent: $TORRENT_FILE"
 echo "  multi:   $MULTI_TORRENT_FILE"
 echo "  magnet:  $MAGNET_URI"
+echo "  multi magnet: $MULTI_MAGNET_URI"
 echo "  sha256:  $EXPECTED_SHA256"
 echo "  selected sha256: $SELECTED_SHA256"
 
@@ -186,3 +189,10 @@ FLUXDOWN_DESKTOP_P2P_SELECTED_NAME="$SELECTED_NAME" \
 FLUXDOWN_DESKTOP_P2P_SKIPPED_NAME="$SKIPPED_NAME" \
 FLUXDOWN_DESKTOP_P2P_SELECTED_SHA256="$SELECTED_SHA256" \
   cargo test -p fluxdown-desktop desktop_manual_downloads_selected_torrent_file_through_queue -- --ignored --nocapture
+
+FLUXDOWN_DESKTOP_P2P_MULTI_MAGNET="$MULTI_MAGNET_URI" \
+FLUXDOWN_DESKTOP_P2P_MULTI_ROOT="$MULTI_NAME" \
+FLUXDOWN_DESKTOP_P2P_SELECTED_NAME="$SELECTED_NAME" \
+FLUXDOWN_DESKTOP_P2P_SKIPPED_NAME="$SKIPPED_NAME" \
+FLUXDOWN_DESKTOP_P2P_SELECTED_SHA256="$SELECTED_SHA256" \
+  cargo test -p fluxdown-desktop desktop_manual_downloads_selected_magnet_file_through_queue -- --ignored --nocapture
