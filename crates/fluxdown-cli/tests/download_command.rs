@@ -121,6 +121,100 @@ fn queue_commands_use_macos_native_default_store_path() {
     assert_eq!(listed[0]["source"], "http://127.0.0.1:9/native-store.bin");
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn queue_commands_migrate_legacy_macos_store_on_next_write() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let home_dir = temp_dir.path().join("home");
+    let downloads_dir = temp_dir.path().join("downloads");
+    let native_store = home_dir
+        .join("Library")
+        .join("Application Support")
+        .join("FluxDown")
+        .join("queue.json");
+    let legacy_store = home_dir
+        .join(".local")
+        .join("share")
+        .join("fluxdown")
+        .join("queue.json");
+
+    let legacy_add = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            legacy_store.to_str().unwrap(),
+            "add",
+            "http://127.0.0.1:9/legacy.bin",
+            "--output",
+            downloads_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        legacy_add.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&legacy_add.stderr)
+    );
+    assert!(legacy_store.exists(), "missing {}", legacy_store.display());
+    assert!(!native_store.exists());
+
+    let legacy_list = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .env("HOME", &home_dir)
+        .env_remove("XDG_DATA_HOME")
+        .args(["list"])
+        .output()
+        .unwrap();
+    assert!(
+        legacy_list.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&legacy_list.stderr)
+    );
+    let legacy_tasks: Value = serde_json::from_slice(&legacy_list.stdout).unwrap();
+    assert_eq!(legacy_tasks.as_array().unwrap().len(), 1);
+    assert_eq!(legacy_tasks[0]["source"], "http://127.0.0.1:9/legacy.bin");
+
+    let native_add = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .env("HOME", &home_dir)
+        .env_remove("XDG_DATA_HOME")
+        .args([
+            "add",
+            "http://127.0.0.1:9/native.bin",
+            "--output",
+            downloads_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        native_add.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&native_add.stderr)
+    );
+
+    // 作者: long
+    // 旧版 macOS 队列不能在升级后丢失；下一次默认写入必须把旧任务带到 Application Support 队列里。
+    assert!(native_store.exists(), "missing {}", native_store.display());
+    let migrated_list = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .env("HOME", &home_dir)
+        .env_remove("XDG_DATA_HOME")
+        .args(["list"])
+        .output()
+        .unwrap();
+    assert!(
+        migrated_list.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&migrated_list.stderr)
+    );
+    let migrated_tasks: Value = serde_json::from_slice(&migrated_list.stdout).unwrap();
+    let sources = migrated_tasks
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|task| task["source"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(sources.len(), 2);
+    assert!(sources.contains(&"http://127.0.0.1:9/legacy.bin"));
+    assert!(sources.contains(&"http://127.0.0.1:9/native.bin"));
+}
+
 fn wait_for_running_progress(store_path: &std::path::Path, task_id: &str) -> Value {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
