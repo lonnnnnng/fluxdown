@@ -148,4 +148,11 @@ FLUXDOWN_DESKTOP_P2P_TORRENT="$TORRENT_FILE" \
 FLUXDOWN_DESKTOP_P2P_MAGNET="$MAGNET_URI" \
 FLUXDOWN_DESKTOP_P2P_FILE_NAME="$SAMPLE_NAME" \
 FLUXDOWN_DESKTOP_P2P_SHA256="$EXPECTED_SHA256" \
-  cargo test -p fluxdown-desktop desktop_manual_ -- --ignored --nocapture
+  cargo test -p fluxdown-desktop desktop_manual_downloads_single_file_torrent_through_queue -- --ignored --nocapture
+
+# long: cargo test 的过滤是子串匹配，P2P 脚本只跑 magnet 用例，避免误触发 SFTP/SMB/FTPS 手动 fixture 测试。
+FLUXDOWN_DESKTOP_P2P_TORRENT="$TORRENT_FILE" \
+FLUXDOWN_DESKTOP_P2P_MAGNET="$MAGNET_URI" \
+FLUXDOWN_DESKTOP_P2P_FILE_NAME="$SAMPLE_NAME" \
+FLUXDOWN_DESKTOP_P2P_SHA256="$EXPECTED_SHA256" \
+  cargo test -p fluxdown-desktop desktop_manual_starts_single_file_magnet_task -- --ignored --nocapture

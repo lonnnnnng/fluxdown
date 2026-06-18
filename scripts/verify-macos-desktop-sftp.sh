@@ -33,7 +33,7 @@ sock.close()
 PY
 }
 
-wait_for_tcp() {
+wait_for_sftp_banner() {
   local host="$1"
   local port="$2"
   local deadline=$((SECONDS + 30))
@@ -43,9 +43,12 @@ import sys
 
 host, port = sys.argv[1], int(sys.argv[2])
 try:
-    with socket.create_connection((host, port), timeout=1):
-        pass
+    with socket.create_connection((host, port), timeout=1) as sock:
+        sock.settimeout(1)
+        banner = sock.recv(256)
 except OSError:
+    sys.exit(1)
+if not banner.startswith(b"SSH-"):
     sys.exit(1)
 PY
   do
@@ -73,7 +76,8 @@ docker run -d --platform linux/amd64 --name "$CONTAINER_NAME" \
   -v "$UPLOAD_DIR:/home/flux/upload:ro" \
   atmoz/sftp \
   flux:fluxpass:::upload >/dev/null
-wait_for_tcp 127.0.0.1 "$SFTP_PORT"
+# long: Docker 端口可连接不代表 SSHD 已准备好，等到 banner 后再交给 libssh2，避免偶发 Failed getting banner。
+wait_for_sftp_banner 127.0.0.1 "$SFTP_PORT"
 
 echo "macOS desktop SFTP fixture"
 echo "  source: $FLUXDOWN_DESKTOP_SFTP_SOURCE"
