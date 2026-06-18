@@ -585,10 +585,17 @@ mod tests {
         let tasks = list_downloads().await.unwrap();
         assert_eq!(tasks[0].state, DownloadState::Finished);
         assert_eq!(tasks[0].file_name.as_deref(), Some("desktop-command.txt"));
+        let output_path = output_dir.join("desktop-command.txt");
         assert_eq!(
-            std::fs::read(output_dir.join("desktop-command.txt")).unwrap(),
-            payload
+            task_output_path(tasks[0].id.clone()).await.unwrap(),
+            output_path.to_string_lossy()
         );
+        assert_eq!(std::fs::read(&output_path).unwrap(), payload);
+
+        let removed = remove_download(tasks[0].id.clone()).await.unwrap();
+        assert_eq!(removed.id, tasks[0].id);
+        assert!(list_downloads().await.unwrap().is_empty());
+        assert_eq!(std::fs::read(output_path).unwrap(), payload);
     }
 
     #[tokio::test]
