@@ -35,6 +35,7 @@ cargo test -p fluxdown-core -p fluxdown-cli
 npm --workspace apps/desktop run build
 cd apps/mobile && flutter analyze
 cd apps/mobile && flutter test
+npm run verify:macos
 npm run verify:ci-config
 npm run verify:mobile-url-schemes
 ```
@@ -46,6 +47,8 @@ npm test
 ```
 
 `npm test` 会运行 Rust 测试、桌面前端构建和 Flutter 测试。它需要本机已配置 Flutter。
+
+`npm run verify:macos` 是当前 macOS 非 GUI 总验收入口，会覆盖格式检查、严格 Clippy、core/CLI/desktop 测试、release CLI 全协议 fixture、桌面端 Tauri command fixture、macOS 产物校验和 CI 手动触发策略校验；它不会启动前台 GUI。
 
 ## CLI 构建
 
@@ -204,6 +207,8 @@ dist/release/FluxDown-<version>
 ```
 
 Release manifest 记录平台、产物类型、大小和 SHA-256。目录型产物例如 `.app` 和 `.xcframework` 使用文件聚合哈希。
+
+发布前还需要确认仓库根目录 [LICENSE](../LICENSE) 和 [第三方许可证清单](third-party-licenses.md) 与当前构建产物一致。移动端包含 `libtorrent_flutter` 时，必须单独完成 GPL 义务审查后再分发正式商店版本。
 
 ## GitHub Actions
 

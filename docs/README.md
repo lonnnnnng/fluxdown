@@ -12,6 +12,7 @@
 - [协议端到端测试用例](protocol-e2e-test-cases.md)：跨平台复用的 10 MB 以下协议下载测试矩阵。
 - [Android 真机协议测试报告](android-real-device-protocol-report.md)：Android 真机协议下载实测结果和未覆盖项。
 - [构建与发布](build-release.md)：本地构建命令、CI 作业、发布产物、签名配置和版本发布流程。
+- [第三方许可证清单](third-party-licenses.md)：项目自有许可证、主要直接依赖和移动端 GPL 风险边界。
 - [运维与安全](operations-security.md)：本地数据、凭据处理、第三方后端、许可证、隐私假设和排障入口。
 - [路线图](roadmap.md)：短期、中期和长期改进项。
 
@@ -35,10 +36,12 @@ FluxDown 是一个跨平台下载器工作区：
 - Torrent/Magnet 在获取 metadata 后使用真实文件名；多文件资源会让用户选择要下载的文件。
 - Android 真机已补充本地协议资源和媒体级 HLS/torrent/magnet 前台 App 验证报告。
 - macOS CLI 已补充本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证，也覆盖限速、重试、暂停继续和并发排队；macOS GUI 已补充构建、启动、基础渲染、纯 GUI HTTP/HLS/Torrent/Magnet 下载闭环和 Tauri command 级 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 下载验证，剩余纯 GUI 协议点击验证当前阶段暂缓。
+- 当前阶段跳过剩余前台 GUI 点击验证，不再占用本机桌面；后续验证优先推进非 GUI 脚本化检查、文档和发布合规收口。
+- 仓库根目录已补齐 MIT `LICENSE`，第三方依赖和移动端 GPL 风险见 [第三方许可证清单](third-party-licenses.md)。
 
 ## 维护原则
 
 - 功能文档以代码事实为准，新增协议或修改实现后同步更新 [协议支持矩阵](protocols.md)。
 - 下载验证结论变化后同步更新 [下载验证状态](download-verification.md)。
 - 构建脚本或 CI 作业变化后同步更新 [构建与发布](build-release.md)。
-- 涉及凭据、签名、第三方原生库或许可证变化时同步更新 [运维与安全](operations-security.md)。
+- 涉及凭据、签名、第三方原生库或许可证变化时同步更新 [运维与安全](operations-security.md) 和 [第三方许可证清单](third-party-licenses.md)。

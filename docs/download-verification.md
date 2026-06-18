@@ -1,6 +1,6 @@
 # 下载验证状态
 
-截至 2026-06-18，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证，macOS CLI 已补充可重复脚本化 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证，macOS GUI 已完成本地构建、启动、基础界面渲染、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，以及 Tauri command 级真实 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 下载验证。按当前验证安排，剩余纯 GUI 协议点击验证暂缓，先转入非 GUI 的脚本化验证和文档收口。
+截至 2026-06-18，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证，macOS CLI 已补充可重复脚本化 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证，macOS GUI 已完成本地构建、启动、基础界面渲染、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，以及 Tauri command 级真实 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 下载验证。按当前安排，本阶段明确跳过剩余纯 GUI 协议点击验证，不再占用本机前台操作；后续先转入非 GUI 的脚本化验证、文档和发布合规收口。
 
 本页用于区分两类容易混淆的结论：
 
@@ -44,9 +44,10 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 ## 后续验证建议
 
 1. 先建立可重复测试资源：本地 HTTP/WebDAV、FTP、SFTP、SMB 服务和小体积 HLS playlist。
-2. 逐端验证最小闭环：CLI、Linux GUI、Windows GUI、Android App、iPhone App；macOS 剩余纯 GUI 协议点击验证当前阶段暂缓，后续在不影响本机使用时再补。
+2. 逐端验证最小闭环：CLI、Linux GUI、Windows GUI、Android App、iPhone App；macOS 剩余纯 GUI 协议点击验证当前阶段跳过，后续在不影响本机使用时再补。
 3. 每次验证记录：平台、版本、安装方式、下载源、输出路径、文件大小、校验和、失败日志。
 4. 再补真实公网协议：torrent、magnet、IPFS、ed2k 外部客户端移交。
+5. 发布前补齐自动化许可证扫描和随包许可证文本，当前人工清单见 [第三方许可证清单](third-party-licenses.md)。
 
 ## 2026-06-18 macOS CLI/GUI 验证记录
 
@@ -154,6 +155,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | Tauri command IPFS gateway 下载 | 通过，测试将 `ipfs://...?...gateway=` 映射到临时 gateway fixture，校验实际请求 `/ipfs/<cid>/readme.txt` 和输出 `desktop-ipfs.txt` 内容。 |
 | Tauri command Torrent/Magnet 下载 | 通过，`npm run verify:macos-desktop-p2p` 创建临时 `fluxdown-p2p-sample.txt`，生成 tracker 为 `127.0.0.1` 的 `.torrent` 和 magnet，启动本地 tracker 与 Transmission seeder；ignored 测试确认 `.torrent` 队列下载会把任务名从 `queued-sample.torrent` 回写为真实 `fluxdown-p2p-sample.txt`，magnet 单任务启动会把任务名从 `magnet-download` 回写为真实文件名，两者输出 SHA-256 均为 `112be889b60bcb800675ca97f2dfd42a2394f80c0176c11cbd4456cacf25faa7`。 |
 | 纯 GUI 其他协议下载闭环 | 本阶段暂缓。当前纯 GUI 点击已验证 HTTP、HLS、Torrent、Magnet；FTP、FTPS、SFTP、SMB、IPFS、WebDAV 仍停留在 Tauri command 或 CLI 层真实下载验证。为避免占用本机前台操作，剩余纯 GUI 点击验证先不继续执行，后续单独安排。 |
+| 剩余前台 GUI 点击验证阶段 | 已按当前安排跳过。该阶段不是本轮阻塞项；后续如果恢复 GUI 验证，需要单独打开前台 App 并重新记录每个协议的点击、下载、落盘和 hash 证据。 |
 
 ### 清理状态
 
