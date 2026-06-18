@@ -68,14 +68,15 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 检查项 | 结果 |
 | --- | --- |
 | `cargo fmt --check` | 通过：Rust 代码格式已校验。 |
-| `cargo clippy -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop --all-targets -- -D warnings` | 通过：严格 Clippy 通过；覆盖既有队列/协议修复、URL 脱敏、CLI 错误包装、桌面展示改动，以及本轮平台原生队列路径改动。 |
-| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：补充平台原生队列路径后重新验证，CLI 单元 1、CLI 集成 20、core 53、desktop 20，desktop 另有 5 个需 live fixture 的 ignored 用例。 |
+| `cargo clippy -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop --all-targets -- -D warnings` | 通过：严格 Clippy 通过；覆盖既有队列/协议修复、URL 脱敏、CLI 错误包装、桌面展示改动、平台原生队列路径，以及本轮 CLI SHA-256 校验能力。 |
+| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 26、core 63、desktop 21，desktop 另有 5 个需 live fixture 的 ignored 用例；新增覆盖直连下载 SHA-256 成功/失败、非法 hash 在 `--restart` 清理前失败、队列任务 SHA-256 持久化和失败状态。 |
 | `cargo test -p fluxdown-core task::tests::redacts -- --nocapture` | 通过：验证任务展示副本会隐藏 URL 用户名和密码，也会处理嵌套 gateway URL。 |
 | `cargo test -p fluxdown-cli queue_commands_redact_url_credentials_from_json_output -- --nocapture` | 通过：验证 CLI `add/list` JSON 输出隐藏 `ftp://user:p%40ss@...` 凭据，同时队列文件仍保存原始链接用于真实下载。 |
 | `cargo test -p fluxdown-core task::tests::redacts_credentials_from_magnet_tracker_urls_in_text -- --nocapture` + `cargo test -p fluxdown-cli --test download_command queue_commands_redact_magnet_tracker_credentials_from_json_output -- --nocapture` | 通过：验证错误文本和 CLI `add/list` JSON 输出会隐藏 magnet tracker 嵌套 URL 中的用户名和密码，队列文件仍保留原始 magnet 链接用于真实下载。 |
 | `cargo test -p fluxdown-core store::tests:: -- --nocapture` | 通过：验证 `XDG_DATA_HOME` 显式覆盖、macOS 默认使用 `~/Library/Application Support/FluxDown/queue.json`，以及新路径缺失时读取旧版 `~/.local/share/fluxdown/queue.json` 并在写入时迁移。 |
 | `cargo test -p fluxdown-core protocol::tests:: -- --nocapture` + `cargo test -p fluxdown-cli --test download_command -- --nocapture` | 通过：CLI `detect` 输出改为与队列 JSON 一致的稳定小写协议名，覆盖 HTTP/HTTPS/WebDAV/FTP/SFTP/SMB/IPFS/Torrent/Magnet/ed2k/m3u8/unknown。 |
 | `cargo test -p fluxdown-core -- --nocapture` + `cargo test -p fluxdown-cli --test download_command -- --nocapture` + `cargo test -p fluxdown-desktop resolves_legacy_unsafe_file_name_inside_output_dir -- --nocapture` | 通过：下载文件名统一规范化为单文件名，覆盖用户自定义文件名、HTTP/HLS/FTP/SFTP/SMB 推断文件名、旧队列任务重跑候选路径、CLI 真实 HTTP 落盘和桌面 command 输出路径解析，避免 `../`、路径分隔符和跨平台非法字符写出保存目录。 |
+| `cargo test -p fluxdown-core task::tests::normalizes_expected_sha256_when_creating_task -- --nocapture` + `cargo test -p fluxdown-cli --test download_command -- --nocapture` | 通过：验证 `expected_sha256` 兼容旧队列 JSON、输入规范化为小写 64 位 hash、CLI `download --sha256` 成功时 summary 返回实际 hash、hash 不匹配时直连命令失败，非法 hash 不会在 `--restart` 时先删除旧文件，队列任务校验失败时进入 `failed` 并记录 mismatch 错误。 |
 | `cargo build -p fluxdown-cli` + 临时 `HOME` 手动 CLI `add` | 通过：在隔离 `HOME=/tmp/fluxdown-native-path.../home` 且空 `XDG_DATA_HOME` 下执行 `./target/debug/fluxdown add`，队列写入 `home/Library/Application Support/FluxDown/queue.json`，确认 macOS 默认路径不再落到相对目录或旧 Unix 路径。 |
 | `npm --workspace apps/desktop run build` | 通过：桌面前端属性弹框、任务错误和 toast 错误脱敏改动完成 TypeScript 编译和 Vite 构建。 |
 | `npm run verify:licenses` | 通过：检查 Rust workspace、桌面运行时依赖和 Flutter 移动端运行时依赖均已列入第三方许可证清单，并确认 `libtorrent_flutter` GPL 风险提示仍保留。 |

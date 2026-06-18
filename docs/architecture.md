@@ -67,6 +67,7 @@ flowchart TD
 - 来源：`source`、`protocol`、`support`。
 - 状态：`queued`、`running`、`finished`、`failed`、`paused`。
 - 输出：`output_dir`、`file_name`。
+- 校验：`expected_sha256`。
 - 进度：`total_bytes`、`downloaded_bytes`。
 - 错误：`error`。
 - 时间：`created_at_ms`、`updated_at_ms`。

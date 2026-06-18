@@ -9,6 +9,8 @@ pub struct DownloadRequest {
     pub source: String,
     pub output_dir: PathBuf,
     pub file_name: Option<String>,
+    #[serde(default)]
+    pub expected_sha256: Option<String>,
 }
 
 impl DownloadRequest {
@@ -17,6 +19,7 @@ impl DownloadRequest {
             source: source.into(),
             output_dir: output_dir.into(),
             file_name: None,
+            expected_sha256: None,
         }
     }
 
@@ -44,6 +47,8 @@ pub struct DownloadTask {
     pub state: DownloadState,
     pub output_dir: PathBuf,
     pub file_name: Option<String>,
+    #[serde(default)]
+    pub expected_sha256: Option<String>,
     pub total_bytes: Option<u64>,
     pub downloaded_bytes: u64,
     #[serde(default)]
@@ -73,6 +78,10 @@ impl DownloadTask {
             state: DownloadState::Queued,
             output_dir: request.output_dir,
             file_name,
+            expected_sha256: request
+                .expected_sha256
+                .as_deref()
+                .map(normalize_sha256_text),
             total_bytes: None,
             downloaded_bytes: 0,
             current_speed_bytes_per_second: 0,
@@ -92,6 +101,7 @@ impl DownloadTask {
                 .file_name
                 .as_deref()
                 .map(|name| sanitize_download_file_name(name, "download.bin")),
+            expected_sha256: self.expected_sha256.as_deref().map(normalize_sha256_text),
         }
     }
 
@@ -164,6 +174,15 @@ impl DownloadTask {
         task.error = task.error.as_deref().map(redact_url_credentials_in_text);
         task
     }
+}
+
+pub fn normalize_sha256_text(value: &str) -> String {
+    value
+        .trim()
+        .strip_prefix("sha256:")
+        .unwrap_or_else(|| value.trim())
+        .trim()
+        .to_ascii_lowercase()
 }
 
 pub fn sanitize_download_file_name(name: &str, fallback: &str) -> String {
@@ -330,12 +349,33 @@ mod tests {
         object.remove("current_speed_bytes_per_second");
         object.remove("started_at_ms");
         object.remove("finished_at_ms");
+        object.remove("expected_sha256");
 
         let restored: DownloadTask = serde_json::from_value(value).unwrap();
 
         assert_eq!(restored.current_speed_bytes_per_second, 0);
         assert_eq!(restored.started_at_ms, None);
         assert_eq!(restored.finished_at_ms, None);
+        assert_eq!(restored.expected_sha256, None);
+    }
+
+    #[test]
+    fn normalizes_expected_sha256_when_creating_task() {
+        let mut request = DownloadRequest::new("https://example.com/file.bin", "/tmp");
+        request.expected_sha256 = Some(
+            " sha256:671E23B189BB7A2041EFF1B29F077B4E59460D30DB56248FDCCCAFA012BABFC8 ".to_string(),
+        );
+
+        let task = DownloadTask::from_request(request);
+
+        assert_eq!(
+            task.expected_sha256.as_deref(),
+            Some("671e23b189bb7a2041eff1b29f077b4e59460d30db56248fdcccafa012babfc8")
+        );
+        assert_eq!(
+            task.request().expected_sha256.as_deref(),
+            Some("671e23b189bb7a2041eff1b29f077b4e59460d30db56248fdcccafa012babfc8")
+        );
     }
 
     #[test]

@@ -9,6 +9,7 @@
 - 已为桌面队列路径接入平台原生数据目录：macOS 使用 `~/Library/Application Support/FluxDown/queue.json`，Windows 使用 `%APPDATA%/FluxDown/queue.json`，Linux/Unix 保持 XDG 路径；macOS 会兼容读取旧版 `~/.local/share/fluxdown/queue.json`。
 - 已增加 URL 凭据脱敏，CLI JSON 输出、命令错误、桌面属性页和任务错误展示不再暴露 URL 中的用户名和密码；原始队列数据仍保留真实链接用于下载和复制。
 - 已增加下载文件名规范化，CLI/桌面端会把用户另存名、协议推断名和旧队列文件名收敛为单文件名，避免异常文件名写出保存目录。
+- 已为桌面 CLI 和共享 Rust 下载核心增加按任务 SHA-256 校验；`download` 和 `add` 可配置期望 hash，校验失败会让直连命令报错或队列任务失败。
 - 扩展 CLI 集成测试，覆盖队列生命周期和更多协议检测样例。
 - 为 HLS、FTP、SFTP、SMB 增加更多边界单元测试。
 - 为移动端 App 增加协议下载 mock 测试和队列恢复测试。
@@ -18,7 +19,7 @@
 - 统一桌面和移动端任务 JSON schema，或提供导入导出转换工具。
 - 移动端考虑通过 FFI 复用 Rust core 的协议检测和任务模型。
 - 增加下载速度、剩余时间、失败重试、限速和并发策略。
-- 增加按任务的校验和验证，例如 SHA-256。
+- 将 SHA-256 校验入口补到桌面 GUI，并在移动端任务模型中对齐校验字段。
 - 增加更完整的 torrent 任务信息：文件列表、tracker、peer、下载/上传速率。
 - HLS 增加 variant 选择、分片重试、断点恢复和可选转封装。
 - IPFS 支持自定义网关或本地节点。

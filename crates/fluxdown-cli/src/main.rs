@@ -45,6 +45,8 @@ enum Command {
         threads: usize,
         #[arg(long = "speed-limit-mbps")]
         speed_limit_mbps: Option<f64>,
+        #[arg(long = "sha256")]
+        expected_sha256: Option<String>,
         #[arg(long)]
         restart: bool,
     },
@@ -54,6 +56,8 @@ enum Command {
         output: PathBuf,
         #[arg(short = 'n', long)]
         name: Option<String>,
+        #[arg(long = "sha256")]
+        expected_sha256: Option<String>,
     },
     List,
     Start {
@@ -122,10 +126,12 @@ async fn run_cli() -> Result<()> {
             name,
             threads,
             speed_limit_mbps,
+            expected_sha256,
             restart,
         } => {
             let mut request = DownloadRequest::new(source, output);
             request.file_name = name;
+            request.expected_sha256 = expected_sha256;
             let summary = DownloadEngine::new()
                 .download_with_options(
                     request,
@@ -138,9 +144,11 @@ async fn run_cli() -> Result<()> {
             source,
             output,
             name,
+            expected_sha256,
         } => {
             let mut request = DownloadRequest::new(source, output);
             request.file_name = name;
+            request.expected_sha256 = expected_sha256;
             let task = store.enqueue(request).await?;
             println!(
                 "{}",

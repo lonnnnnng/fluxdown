@@ -79,7 +79,7 @@ cargo run -p fluxdown-cli -- add "https://example.com/file.zip" --output ./downl
 cargo run -p fluxdown-cli -- run --concurrency 2
 ```
 
-`download` 会立即执行下载并打印 JSON 摘要；`add` 会把任务写入队列；`run` 按并发数执行排队任务。macOS 默认队列文件位于 `~/Library/Application Support/FluxDown/queue.json`；`XDG_DATA_HOME` 或 CLI `--store /path/to/queue.json` 可覆盖默认路径，旧版 `~/.local/share/fluxdown/queue.json` 会在新路径不存在时自动读取并迁移。
+`download` 会立即执行下载并打印 JSON 摘要；`add` 会把任务写入队列；`run` 按并发数执行排队任务。`download` 和 `add` 可传 `--sha256 <64位hex>` 校验最终文件，直连校验失败会返回非零，队列校验失败会把任务标记为 `failed`。macOS 默认队列文件位于 `~/Library/Application Support/FluxDown/queue.json`；`XDG_DATA_HOME` 或 CLI `--store /path/to/queue.json` 可覆盖默认路径，旧版 `~/.local/share/fluxdown/queue.json` 会在新路径不存在时自动读取并迁移。
 
 ### 桌面端
 

@@ -1,5 +1,6 @@
 use crate::{
-    Backend, DownloadRequest, Protocol, backend_availability, sanitize_download_file_name,
+    Backend, DownloadRequest, Protocol, backend_availability, normalize_sha256_text,
+    sanitize_download_file_name,
 };
 use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
 use futures_util::{StreamExt, stream};
@@ -10,6 +11,7 @@ use reqwest::Client;
 use reqwest::StatusCode;
 use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, RANGE};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use smb2::{ClientConfig, SmbClient};
 use ssh2::Session as SshSession;
 use std::collections::HashMap;
@@ -111,6 +113,16 @@ pub enum DownloadError {
     Torrent(#[from] anyhow::Error),
     #[error("download was paused")]
     Paused,
+    #[error("invalid SHA-256 checksum `{value}`; expected 64 hex characters")]
+    InvalidSha256 { value: String },
+    #[error("SHA-256 checksum only supports file outputs: {path}")]
+    Sha256UnsupportedOutput { path: String },
+    #[error("SHA-256 mismatch for {path}: expected {expected}, got {actual}")]
+    Sha256Mismatch {
+        expected: String,
+        actual: String,
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,6 +159,7 @@ pub struct DownloadSummary {
     pub resumed_from: u64,
     pub total_bytes: Option<u64>,
     pub segments_written: Option<usize>,
+    pub sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -279,10 +292,15 @@ impl DownloadEngine {
     ) -> Result<DownloadSummary, DownloadError> {
         let options = DownloadOptions::new(options.thread_count, options.speed_limit_bps)
             .with_restart_existing(options.restart_existing);
+        let expected_sha256 = request
+            .expected_sha256
+            .as_deref()
+            .map(normalized_expected_sha256)
+            .transpose()?;
         if options.restart_existing {
             remove_existing_outputs_for_request(&request).await?;
         }
-        match request.protocol() {
+        let mut summary = match request.protocol() {
             Protocol::Http | Protocol::Https => {
                 self.download_http(request, progress, cancel, options).await
             }
@@ -306,7 +324,9 @@ impl DownloadEngine {
                     .await
             }
             protocol => Err(DownloadError::UnsupportedProtocol(protocol)),
-        }
+        }?;
+        validate_summary_sha256(&mut summary, expected_sha256.as_deref()).await?;
+        Ok(summary)
     }
 
     async fn download_http(
@@ -373,6 +393,7 @@ impl DownloadEngine {
                 resumed_from: existing_bytes,
                 total_bytes: Some(existing_bytes),
                 segments_written: None,
+                sha256: None,
             });
         }
         let response = response.error_for_status()?;
@@ -414,6 +435,7 @@ impl DownloadEngine {
             resumed_from,
             total_bytes,
             segments_written: None,
+            sha256: None,
         })
     }
 
@@ -557,6 +579,7 @@ impl DownloadEngine {
             resumed_from: 0,
             total_bytes: Some(total_bytes),
             segments_written: None,
+            sha256: None,
         }))
     }
 
@@ -696,6 +719,7 @@ impl DownloadEngine {
             resumed_from: existing_bytes,
             total_bytes,
             segments_written: None,
+            sha256: None,
         })
     }
 
@@ -799,6 +823,7 @@ impl DownloadEngine {
             resumed_from: 0,
             total_bytes: Some(final_stats.total_bytes),
             segments_written: None,
+            sha256: None,
         })
     }
 
@@ -992,6 +1017,7 @@ impl DownloadEngine {
             resumed_from: 0,
             total_bytes: Some(output_bytes),
             segments_written: Some(segments_written),
+            sha256: None,
         })
     }
 
@@ -1144,6 +1170,7 @@ impl DownloadEngine {
             resumed_from: 0,
             total_bytes: None,
             segments_written: None,
+            sha256: None,
         })
     }
 
@@ -1192,6 +1219,7 @@ impl DownloadEngine {
             resumed_from: 0,
             total_bytes,
             segments_written: None,
+            sha256: None,
         })
     }
 
@@ -1348,6 +1376,64 @@ async fn existing_file_size(path: &Path) -> Result<u64, std::io::Error> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
         Err(error) => Err(error),
     }
+}
+
+async fn validate_summary_sha256(
+    summary: &mut DownloadSummary,
+    expected_sha256: Option<&str>,
+) -> Result<(), DownloadError> {
+    let Some(expected_sha256) = expected_sha256 else {
+        return Ok(());
+    };
+
+    let expected = normalized_expected_sha256(expected_sha256)?;
+    let actual = sha256_file(&summary.output_path).await?;
+    if actual != expected {
+        return Err(DownloadError::Sha256Mismatch {
+            expected,
+            actual,
+            path: summary.output_path.display().to_string(),
+        });
+    }
+    summary.sha256 = Some(actual);
+    Ok(())
+}
+
+fn normalized_expected_sha256(value: &str) -> Result<String, DownloadError> {
+    let normalized = normalize_sha256_text(value);
+    if normalized.len() == 64
+        && normalized
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    {
+        Ok(normalized)
+    } else {
+        Err(DownloadError::InvalidSha256 {
+            value: value.to_string(),
+        })
+    }
+}
+
+async fn sha256_file(path: &Path) -> Result<String, DownloadError> {
+    let metadata = fs::metadata(path).await?;
+    if !metadata.is_file() {
+        return Err(DownloadError::Sha256UnsupportedOutput {
+            path: path.display().to_string(),
+        });
+    }
+
+    let mut file = File::open(path).await?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 async fn remove_existing_outputs_for_request(
@@ -1855,6 +1941,7 @@ fn download_sftp_blocking(
         resumed_from: existing_bytes,
         total_bytes,
         segments_written: None,
+        sha256: None,
     })
 }
 
@@ -2099,6 +2186,7 @@ async fn run_ed2k_cli(
         resumed_from: 0,
         total_bytes: None,
         segments_written: None,
+        sha256: None,
     })
 }
 
@@ -2264,6 +2352,7 @@ mod tests {
             source: "https://example.com/live/index.m3u8".to_string(),
             output_dir: PathBuf::from("/tmp/fluxdown"),
             file_name: Some("../movie:name.m3u8".to_string()),
+            expected_sha256: None,
         };
         let candidates = output_file_candidates_for_request(&hls_request);
         assert!(candidates.contains(&PathBuf::from("/tmp/fluxdown/_movie_name.mp4")));

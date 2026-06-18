@@ -15,6 +15,7 @@
 | `reqwest` | HTTP/HTTPS/WebDAV/IPFS gateway 传输 | MIT OR Apache-2.0 |
 | `tokio` | 异步运行时 | MIT |
 | `serde` / `serde_json` | 队列和命令 JSON 序列化 | MIT OR Apache-2.0 |
+| `sha2` | 下载完成后的 SHA-256 校验 | MIT OR Apache-2.0 |
 | `librqbit` | BitTorrent / Magnet 下载 | Apache-2.0 |
 | `m3u8-rs` | HLS playlist 解析 | MIT |
 | `suppaftp` | FTP/FTPS 下载 | MIT OR Apache-2.0 |

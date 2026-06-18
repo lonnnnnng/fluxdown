@@ -374,6 +374,7 @@ fn download_command_uses_threads_for_http_ranges() {
 #[test]
 fn download_command_fetches_http_file() {
     let payload = b"fluxdown-cli-direct-download";
+    let expected_sha256 = "671e23b189bb7a2041eff1b29f077b4e59460d30db56248fdcccafa012babfc8";
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = thread::spawn(move || {
@@ -397,6 +398,8 @@ fn download_command_fetches_http_file() {
             temp_dir.path().to_str().unwrap(),
             "--name",
             "payload.bin",
+            "--sha256",
+            expected_sha256,
         ])
         .output()
         .unwrap();
@@ -416,9 +419,80 @@ fn download_command_fetches_http_file() {
     assert_eq!(summary["protocol"], "http");
     assert_eq!(summary["backend"], "built-in");
     assert_eq!(summary["bytes_written"], payload.len() as u64);
+    assert_eq!(summary["sha256"], expected_sha256);
     assert_eq!(
         summary["output_path"].as_str().unwrap(),
         temp_dir.path().join("payload.bin").to_string_lossy()
+    );
+}
+
+#[test]
+fn download_command_fails_when_sha256_mismatches() {
+    let payload = b"fluxdown-cli-direct-download";
+    let wrong_sha256 = "8810ad581e59f2bc3928b261707a71308f7e139eb04820366dc4d5c18d980225";
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0; 1024];
+        let _ = stream.read(&mut buffer).unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            payload.len()
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+        stream.write_all(payload).unwrap();
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "download",
+            &format!("http://{address}/file.bin"),
+            "--output",
+            temp_dir.path().to_str().unwrap(),
+            "--name",
+            "payload.bin",
+            "--sha256",
+            wrong_sha256,
+        ])
+        .output()
+        .unwrap();
+
+    server.join().unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("SHA-256 mismatch"), "{stderr}");
+    assert!(stderr.contains(wrong_sha256), "{stderr}");
+}
+
+#[test]
+fn download_command_rejects_invalid_sha256_before_restart_cleanup() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let output_path = temp_dir.path().join("payload.bin");
+    std::fs::write(&output_path, b"keep-existing-output").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "download",
+            "http://127.0.0.1:9/payload.bin",
+            "--output",
+            temp_dir.path().to_str().unwrap(),
+            "--name",
+            "payload.bin",
+            "--sha256",
+            "not-a-sha256",
+            "--restart",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid SHA-256 checksum"), "{stderr}");
+    assert_eq!(
+        std::fs::read(&output_path).unwrap(),
+        b"keep-existing-output"
     );
 }
 
@@ -750,6 +824,7 @@ fn download_command_treats_416_as_already_complete() {
 #[test]
 fn queue_commands_add_list_and_run_http_task() {
     let payload = b"fluxdown-cli-queued-download";
+    let expected_sha256 = "dc5c62fa4e33d514df73305388ed24022ba3823d7529bc13a97a749bc9f505b3";
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = thread::spawn(move || {
@@ -779,6 +854,8 @@ fn queue_commands_add_list_and_run_http_task() {
             downloads_dir.to_str().unwrap(),
             "--name",
             "queued.bin",
+            "--sha256",
+            expected_sha256,
         ])
         .output()
         .unwrap();
@@ -791,6 +868,7 @@ fn queue_commands_add_list_and_run_http_task() {
     let task_id = added["id"].as_str().unwrap().to_string();
     assert_eq!(added["state"], "queued");
     assert_eq!(added["source"], source);
+    assert_eq!(added["expected_sha256"], expected_sha256);
 
     let list_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
         .args(["--store", store_path.to_str().unwrap(), "list"])
@@ -805,6 +883,7 @@ fn queue_commands_add_list_and_run_http_task() {
     assert_eq!(listed.as_array().unwrap().len(), 1);
     assert_eq!(listed[0]["id"], task_id);
     assert_eq!(listed[0]["state"], "queued");
+    assert_eq!(listed[0]["expected_sha256"], expected_sha256);
 
     let pause_queued_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
         .args(["--store", store_path.to_str().unwrap(), "pause", &task_id])
@@ -859,6 +938,7 @@ fn queue_commands_add_list_and_run_http_task() {
     assert_eq!(report["tasks"][0]["id"], task_id);
     assert_eq!(report["tasks"][0]["state"], "finished");
     assert_eq!(report["tasks"][0]["downloaded_bytes"], payload.len() as u64);
+    assert_eq!(report["tasks"][0]["expected_sha256"], expected_sha256);
 
     let final_list_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
         .args(["--store", store_path.to_str().unwrap(), "list"])
@@ -872,6 +952,7 @@ fn queue_commands_add_list_and_run_http_task() {
     let final_list: Value = serde_json::from_slice(&final_list_output.stdout).unwrap();
     assert_eq!(final_list[0]["id"], task_id);
     assert_eq!(final_list[0]["state"], "finished");
+    assert_eq!(final_list[0]["expected_sha256"], expected_sha256);
 
     let pause_finished_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
         .args(["--store", store_path.to_str().unwrap(), "pause", &task_id])
@@ -897,6 +978,78 @@ fn queue_commands_add_list_and_run_http_task() {
     let after_invalid_transition: Value =
         serde_json::from_slice(&after_invalid_transition_output.stdout).unwrap();
     assert_eq!(after_invalid_transition[0]["state"], "finished");
+}
+
+#[test]
+fn queue_run_marks_task_failed_when_sha256_mismatches() {
+    let payload = b"fluxdown-cli-queued-download";
+    let wrong_sha256 = "8810ad581e59f2bc3928b261707a71308f7e139eb04820366dc4d5c18d980225";
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0; 1024];
+        let _ = stream.read(&mut buffer).unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            payload.len()
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+        stream.write_all(payload).unwrap();
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let downloads_dir = temp_dir.path().join("downloads");
+    let source = format!("http://{address}/queued.bin");
+
+    let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "add",
+            &source,
+            "--output",
+            downloads_dir.to_str().unwrap(),
+            "--name",
+            "queued.bin",
+            "--sha256",
+            wrong_sha256,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        add_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&add_output.stderr)
+    );
+
+    let run_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "run",
+            "--concurrency",
+            "1",
+            "--retry-attempts",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    server.join().unwrap();
+    assert!(
+        run_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&run_output.stdout).unwrap();
+    assert_eq!(report["finished"], 0);
+    assert_eq!(report["failed"], 1);
+    assert_eq!(report["tasks"][0]["state"], "failed");
+    let error = report["tasks"][0]["error"].as_str().unwrap();
+    assert!(error.contains("SHA-256 mismatch"), "{error}");
+    assert!(error.contains(wrong_sha256), "{error}");
 }
 
 #[test]
