@@ -407,10 +407,10 @@ fn expand_home(value: &str) -> PathBuf {
     if value == "~" {
         return home_dir().unwrap_or_else(default_output_dir_path);
     }
-    if let Some(rest) = value.strip_prefix("~/") {
-        if let Some(home) = home_dir() {
-            return home.join(rest);
-        }
+    if let Some(rest) = value.strip_prefix("~/")
+        && let Some(home) = home_dir()
+    {
+        return home.join(rest);
     }
     PathBuf::from(value)
 }
@@ -438,6 +438,29 @@ fn home_dir() -> Option<PathBuf> {
                 path.to_string_lossy()
             )))
         })
+}
+
+fn main() {
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            detect,
+            support,
+            doctor,
+            default_output_dir,
+            plan_download,
+            enqueue_download,
+            list_downloads,
+            pause_download,
+            resume_download,
+            remove_download,
+            task_output_path,
+            open_task_output,
+            reveal_task_output,
+            start_download,
+            run_queue
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running FluxDown desktop app");
 }
 
 #[cfg(test)]
@@ -665,10 +688,10 @@ mod tests {
                 .unwrap()
                 .into_iter()
                 .find(|task| task.id == id)
+                && task.state == DownloadState::Running
+                && task.downloaded_bytes > 0
             {
-                if task.state == DownloadState::Running && task.downloaded_bytes > 0 {
-                    return task;
-                }
+                return task;
             }
             assert!(
                 Instant::now() < deadline,
@@ -1605,27 +1628,4 @@ mod tests {
 
         assert!(deferred.is_none());
     }
-}
-
-fn main() {
-    tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![
-            detect,
-            support,
-            doctor,
-            default_output_dir,
-            plan_download,
-            enqueue_download,
-            list_downloads,
-            pause_download,
-            resume_download,
-            remove_download,
-            task_output_path,
-            open_task_output,
-            reveal_task_output,
-            start_download,
-            run_queue
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running FluxDown desktop app");
 }

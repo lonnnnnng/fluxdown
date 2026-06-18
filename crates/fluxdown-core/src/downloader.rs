@@ -185,6 +185,27 @@ pub struct DownloadEngine {
     client: Client,
 }
 
+struct HttpRangeDownload {
+    client: Client,
+    protocol: Protocol,
+    url: Url,
+    credentials: Option<(String, Option<String>)>,
+    output_path: PathBuf,
+    thread_count: usize,
+    limiter: DownloadSpeedLimiter,
+    progress: Option<ProgressCallback>,
+    cancel: Option<CancelToken>,
+}
+
+struct FtpDownloadContext {
+    output_dir: PathBuf,
+    spec: FtpDownloadSpec,
+    protocol: Protocol,
+    progress: Option<ProgressCallback>,
+    cancel: Option<CancelToken>,
+    options: DownloadOptions,
+}
+
 impl Default for DownloadEngine {
     fn default() -> Self {
         Self::new()
@@ -309,17 +330,17 @@ impl DownloadEngine {
         if existing_bytes == 0
             && options.thread_count > 1
             && let Some(summary) = self
-                .download_http_ranges(
-                    client.clone(),
+                .download_http_ranges(HttpRangeDownload {
+                    client: client.clone(),
                     protocol,
-                    url.clone(),
-                    credentials.clone(),
-                    output_path.clone(),
-                    options.thread_count,
-                    limiter.clone(),
-                    progress.clone(),
-                    cancel.clone(),
-                )
+                    url: url.clone(),
+                    credentials: credentials.clone(),
+                    output_path: output_path.clone(),
+                    thread_count: options.thread_count,
+                    limiter: limiter.clone(),
+                    progress: progress.clone(),
+                    cancel: cancel.clone(),
+                })
                 .await?
         {
             return Ok(summary);
@@ -395,16 +416,19 @@ impl DownloadEngine {
 
     async fn download_http_ranges(
         &self,
-        client: Client,
-        protocol: Protocol,
-        url: Url,
-        credentials: Option<(String, Option<String>)>,
-        output_path: PathBuf,
-        thread_count: usize,
-        limiter: DownloadSpeedLimiter,
-        progress: Option<ProgressCallback>,
-        cancel: Option<CancelToken>,
+        context: HttpRangeDownload,
     ) -> Result<Option<DownloadSummary>, DownloadError> {
+        let HttpRangeDownload {
+            client,
+            protocol,
+            url,
+            credentials,
+            output_path,
+            thread_count,
+            limiter,
+            progress,
+            cancel,
+        } = context;
         let mut head = client.head(url.clone());
         if let Some((username, password)) = &credentials {
             head = head.basic_auth(username, password.clone());
@@ -567,12 +591,14 @@ impl DownloadEngine {
             return self
                 .download_ftp_stream(
                     ftp,
-                    request.output_dir,
-                    spec,
-                    protocol,
-                    progress,
-                    cancel,
-                    options,
+                    FtpDownloadContext {
+                        output_dir: request.output_dir,
+                        spec,
+                        protocol,
+                        progress,
+                        cancel,
+                        options,
+                    },
                 )
                 .await;
         }
@@ -580,12 +606,14 @@ impl DownloadEngine {
         let ftp = AsyncFtpStream::connect(spec.address.clone()).await?;
         self.download_ftp_stream(
             ftp,
-            request.output_dir,
-            spec,
-            protocol,
-            progress,
-            cancel,
-            options,
+            FtpDownloadContext {
+                output_dir: request.output_dir,
+                spec,
+                protocol,
+                progress,
+                cancel,
+                options,
+            },
         )
         .await
     }
@@ -593,16 +621,19 @@ impl DownloadEngine {
     async fn download_ftp_stream<T>(
         &self,
         mut ftp: ImplAsyncFtpStream<T>,
-        output_dir: PathBuf,
-        spec: FtpDownloadSpec,
-        protocol: Protocol,
-        progress: Option<ProgressCallback>,
-        cancel: Option<CancelToken>,
-        options: DownloadOptions,
+        context: FtpDownloadContext,
     ) -> Result<DownloadSummary, DownloadError>
     where
         T: TokioTlsStream + Send,
     {
+        let FtpDownloadContext {
+            output_dir,
+            spec,
+            protocol,
+            progress,
+            cancel,
+            options,
+        } = context;
         fs::create_dir_all(&output_dir).await?;
         let output_path = output_dir.join(&spec.file_name);
         let existing_bytes = existing_file_size(&output_path).await?;
@@ -2056,16 +2087,82 @@ async fn run_ed2k_cli(
     })
 }
 
+async fn remux_hls_transport_stream(
+    source_ts: &Path,
+    output_mp4: &Path,
+) -> Result<u64, DownloadError> {
+    let _ = fs::remove_file(output_mp4).await;
+    let output = Command::new("ffmpeg")
+        .arg("-y")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-i")
+        .arg(source_ts)
+        .arg("-c")
+        .arg("copy")
+        .arg(output_mp4)
+        .output()
+        .await
+        .map_err(|error| DownloadError::HlsRemux(error.to_string()))?;
+
+    if !output.status.success() {
+        return Err(DownloadError::HlsRemux(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
+    }
+
+    let output_bytes = fs::metadata(output_mp4).await?.len();
+    if output_bytes == 0 {
+        return Err(DownloadError::HlsRemux(
+            "ffmpeg produced an empty MP4".to_string(),
+        ));
+    }
+    Ok(output_bytes)
+}
+
+fn hls_mp4_output_name(path: &Path) -> PathBuf {
+    if path.extension().is_some_and(|extension| extension == "mp4") {
+        path.to_path_buf()
+    } else {
+        path.with_extension("mp4")
+    }
+}
+
+fn hls_transport_output_name(path: &Path) -> PathBuf {
+    if path.extension().is_some_and(|extension| extension == "ts") {
+        path.to_path_buf()
+    } else {
+        path.with_extension("ts")
+    }
+}
+
+fn hls_temp_transport_path(output_mp4: &Path) -> PathBuf {
+    let file_name = output_mp4
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("stream.mp4");
+    output_mp4.with_file_name(format!(".{file_name}.ts"))
+}
+
+fn range_temp_output_path(output_path: &Path) -> PathBuf {
+    let file_name = output_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("download.bin");
+    output_path.with_file_name(format!(".{file_name}.part"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use aes::cipher::{BlockEncryptMut, block_padding::Pkcs7};
     use std::fs as std_fs;
     use std::sync::{
-        Mutex, OnceLock,
+        OnceLock,
         atomic::{AtomicUsize, Ordering as AtomicOrdering},
     };
     use tokio::net::TcpListener;
+    use tokio::sync::Mutex as AsyncMutex;
 
     type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 
@@ -2236,8 +2333,8 @@ mod tests {
 
     #[tokio::test]
     async fn runs_ed2k_cli_backend_when_available() {
-        static PATH_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let _guard = PATH_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        static PATH_LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
+        let _guard = PATH_LOCK.get_or_init(|| AsyncMutex::new(())).lock().await;
         let temp_dir = tempfile::tempdir().unwrap();
         let log_path = temp_dir.path().join("ed2k-args.log");
         let command_path = fake_ed2k_command(temp_dir.path(), &log_path);
@@ -2814,69 +2911,4 @@ fn main() {{
         );
         server_task.abort();
     }
-}
-
-async fn remux_hls_transport_stream(
-    source_ts: &Path,
-    output_mp4: &Path,
-) -> Result<u64, DownloadError> {
-    let _ = fs::remove_file(output_mp4).await;
-    let output = Command::new("ffmpeg")
-        .arg("-y")
-        .arg("-loglevel")
-        .arg("error")
-        .arg("-i")
-        .arg(source_ts)
-        .arg("-c")
-        .arg("copy")
-        .arg(output_mp4)
-        .output()
-        .await
-        .map_err(|error| DownloadError::HlsRemux(error.to_string()))?;
-
-    if !output.status.success() {
-        return Err(DownloadError::HlsRemux(
-            String::from_utf8_lossy(&output.stderr).trim().to_string(),
-        ));
-    }
-
-    let output_bytes = fs::metadata(output_mp4).await?.len();
-    if output_bytes == 0 {
-        return Err(DownloadError::HlsRemux(
-            "ffmpeg produced an empty MP4".to_string(),
-        ));
-    }
-    Ok(output_bytes)
-}
-
-fn hls_mp4_output_name(path: &Path) -> PathBuf {
-    if path.extension().is_some_and(|extension| extension == "mp4") {
-        path.to_path_buf()
-    } else {
-        path.with_extension("mp4")
-    }
-}
-
-fn hls_transport_output_name(path: &Path) -> PathBuf {
-    if path.extension().is_some_and(|extension| extension == "ts") {
-        path.to_path_buf()
-    } else {
-        path.with_extension("ts")
-    }
-}
-
-fn hls_temp_transport_path(output_mp4: &Path) -> PathBuf {
-    let file_name = output_mp4
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("stream.mp4");
-    output_mp4.with_file_name(format!(".{file_name}.ts"))
-}
-
-fn range_temp_output_path(output_path: &Path) -> PathBuf {
-    let file_name = output_path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("download.bin");
-    output_path.with_file_name(format!(".{file_name}.part"))
 }

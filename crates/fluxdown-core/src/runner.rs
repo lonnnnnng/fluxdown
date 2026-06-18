@@ -4,7 +4,7 @@ use crate::{
 };
 use futures_util::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -231,11 +231,11 @@ async fn run_one(
                 }
                 last_persist = Instant::now();
                 let _guard = write_lock.lock().await;
-                if let Ok(current) = store.get(&progress_task.id).await {
-                    if current.state == DownloadState::Paused {
-                        cancel.cancel();
-                        continue;
-                    }
+                if let Ok(current) = store.get(&progress_task.id).await
+                    && current.state == DownloadState::Paused
+                {
+                    cancel.cancel();
+                    continue;
                 }
                 let speed_elapsed = last_speed_sample_at.elapsed();
                 let current_speed = if speed_elapsed.is_zero() {
@@ -406,7 +406,7 @@ fn output_file_candidates(task: &DownloadTask) -> Vec<PathBuf> {
     candidates
 }
 
-fn range_temp_output_path(output_path: &PathBuf) -> PathBuf {
+fn range_temp_output_path(output_path: &Path) -> PathBuf {
     let file_name = output_path
         .file_name()
         .and_then(|value| value.to_str())

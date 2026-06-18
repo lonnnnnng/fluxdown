@@ -66,6 +66,8 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 
 | 检查项 | 结果 |
 | --- | --- |
+| `cargo fmt --check` | 通过：Rust 代码格式已校验。 |
+| `cargo clippy -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop --all-targets -- -D warnings` | 通过：已修复 HTTP Range/FTP 内部参数结构、队列进度暂停判断、路径参数类型、HLS 辅助函数位置、ed2k 测试 PATH 锁和桌面端嵌套判断等 Clippy 门禁问题。 |
 | `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 19、core 48、desktop 20。 |
 | `npm run verify:macos-cli-ftp-ftps` | 通过：脚本启动临时 FTP 和显式 TLS FTPS fixture，验证 CLI FTP/FTPS 直连下载和队列下载。 |
 | `npm run verify:macos-cli-http-hls` | 通过：脚本启动临时 Range HTTP server，验证 CLI HTTP 直连/队列和 HLS 直连/队列/单任务启动。 |
