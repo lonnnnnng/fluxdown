@@ -211,11 +211,14 @@ payloads = {
     "/slow.bin": bytes(index % 251 for index in range(768 * 1024)),
     "/remove.bin": bytes((index * 3) % 251 for index in range(768 * 1024)),
     "/flaky.bin": b"fluxdown retry payload\n",
+    "/restart.bin": b"fluxdown restart payload\n",
     "/parallel-a.bin": bytes(index % 199 for index in range(512 * 1024)),
     "/parallel-b.bin": bytes((index * 5) % 199 for index in range(512 * 1024)),
 }
 stats = {
     "flaky_requests": 0,
+    "restart_requests": 0,
+    "restart_range_requests": 0,
     "active_parallel": 0,
     "max_active_parallel": 0,
 }
@@ -251,6 +254,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
                 return
+        if self.path == "/restart.bin":
+            with lock:
+                stats["restart_requests"] += 1
+                if self.headers.get("Range"):
+                    stats["restart_range_requests"] += 1
         body = payloads.get(self.path)
         if body is None:
             self.send_response(404)
@@ -331,7 +339,8 @@ DOWNLOAD_DIR="$TMP_DIR/downloads"
 PAUSE_STORE="$TMP_DIR/pause-queue.json"
 REMOVE_STORE="$TMP_DIR/remove-queue.json"
 RETRY_STORE="$TMP_DIR/retry-queue.json"
-mkdir -p "$DOWNLOAD_DIR/pause" "$DOWNLOAD_DIR/remove" "$DOWNLOAD_DIR/retry" "$DOWNLOAD_DIR/parallel-one" "$DOWNLOAD_DIR/parallel-two"
+RESTART_STORE="$TMP_DIR/restart-queue.json"
+mkdir -p "$DOWNLOAD_DIR/pause" "$DOWNLOAD_DIR/remove" "$DOWNLOAD_DIR/retry" "$DOWNLOAD_DIR/restart" "$DOWNLOAD_DIR/parallel-one" "$DOWNLOAD_DIR/parallel-two"
 
 SLOW_SHA256="$(python3 - <<'PY' | shasum -a 256 | awk '{print $1}'
 import sys
@@ -344,6 +353,7 @@ sys.stdout.buffer.write(bytes((index * 3) % 251 for index in range(768 * 1024)))
 PY
 )"
 FLAKY_SHA256="$(printf 'fluxdown retry payload\n' | shasum -a 256 | awk '{print $1}')"
+RESTART_SHA256="$(printf 'fluxdown restart payload\n' | shasum -a 256 | awk '{print $1}')"
 PARALLEL_A_SHA256="$(python3 - <<'PY' | shasum -a 256 | awk '{print $1}'
 import sys
 sys.stdout.buffer.write(bytes(index % 199 for index in range(512 * 1024)))
@@ -376,7 +386,7 @@ fluxdown --store "$PAUSE_STORE" add "$BASE_URL/slow.bin" \
   --sha256 "$SLOW_SHA256" \
   > "$PAUSE_ADD"
 PAUSE_ID="$(json_get "$PAUSE_ADD" "id")"
-fluxdown --store "$PAUSE_STORE" start "$PAUSE_ID" > "$PAUSE_START" 2> "$TMP_DIR/pause-start.err" &
+fluxdown --store "$PAUSE_STORE" start "$PAUSE_ID" --speed-limit-mbps 0.05 > "$PAUSE_START" 2> "$TMP_DIR/pause-start.err" &
 PAUSE_PID="$!"
 wait_for_task_progress "$PAUSE_STORE" "$PAUSE_ID" "$PAUSE_LIST"
 fluxdown --store "$PAUSE_STORE" pause "$PAUSE_ID" > "$TMP_DIR/pause-command.json"
@@ -423,6 +433,34 @@ assert_task_value "$RETRY_LIST" "$RETRY_ID" "state" "finished"
 assert_sha256 "$DOWNLOAD_DIR/retry/retry.bin" "$FLAKY_SHA256"
 if [[ "$(server_stat flaky_requests)" != "2" ]]; then
   echo "expected flaky fixture to be requested twice" >&2
+  exit 1
+fi
+
+RESTART_ADD="$TMP_DIR/restart-add.json"
+RESTART_START="$TMP_DIR/restart-start.json"
+RESTART_SECOND_START="$TMP_DIR/restart-second-start.json"
+RESTART_LIST="$TMP_DIR/restart-list.json"
+fluxdown --store "$RESTART_STORE" add "$BASE_URL/restart.bin" \
+  --output "$DOWNLOAD_DIR/restart" \
+  --name restart.bin \
+  --sha256 "$RESTART_SHA256" \
+  > "$RESTART_ADD"
+RESTART_ID="$(json_get "$RESTART_ADD" "id")"
+fluxdown --store "$RESTART_STORE" start "$RESTART_ID" > "$RESTART_START"
+assert_json_value "$RESTART_START" "task.state" "finished"
+assert_sha256 "$DOWNLOAD_DIR/restart/restart.bin" "$RESTART_SHA256"
+printf 'stale complete file\n' > "$DOWNLOAD_DIR/restart/restart.bin"
+fluxdown --store "$RESTART_STORE" start "$RESTART_ID" --restart > "$RESTART_SECOND_START"
+fluxdown --store "$RESTART_STORE" list > "$RESTART_LIST"
+assert_json_value "$RESTART_SECOND_START" "task.state" "finished"
+assert_task_value "$RESTART_LIST" "$RESTART_ID" "state" "finished"
+assert_sha256 "$DOWNLOAD_DIR/restart/restart.bin" "$RESTART_SHA256"
+if [[ "$(server_stat restart_requests)" != "2" ]]; then
+  echo "expected restart fixture to be requested twice" >&2
+  exit 1
+fi
+if [[ "$(server_stat restart_range_requests)" != "0" ]]; then
+  echo "expected restart fixture to avoid Range requests after --restart" >&2
   exit 1
 fi
 

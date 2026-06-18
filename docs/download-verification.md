@@ -93,7 +93,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run verify:macos-cli-release-sftp` | 通过：强制使用 `target/release/fluxdown`，验证 release CLI 二进制的 SFTP 直连下载、队列下载和 SHA-256 落盘校验。 |
 | `npm run verify:macos-cli-release-smb` | 通过：强制使用 `target/release/fluxdown`，验证 release CLI 二进制的 SMB 直连下载、队列下载和 SHA-256 落盘校验；脚本已改为等待真实 SMB 下载 readiness，避免 Samba TCP 已打开但协议未准备好时偶发 `Disconnected from server`。 |
 | `npm run verify:macos-cli-release-p2p` | 通过：强制使用 `target/release/fluxdown`，验证 release CLI 二进制的 `.torrent add -> run -> list` 和 magnet `add -> start -> list`，任务名会回写为真实文件名且 SHA-256 匹配。 |
-| `npm run verify:macos-cli-release-queue-controls` | 通过：强制使用 `target/release/fluxdown`，启动本地慢速 HTTP fixture，验证 release CLI 的运行中暂停/继续、运行中删除、失败重试、并发 1 串行和并发 2 并行，以及所有完成文件的 SHA-256 落盘校验。 |
+| `npm run verify:macos-cli-release-queue-controls` | 通过：强制使用 `target/release/fluxdown`，启动本地慢速 HTTP fixture，验证 release CLI 的运行中暂停/继续、运行中删除、失败重试、`start --restart` 重新下载替换旧文件、并发 1 串行和并发 2 并行，以及所有完成文件的 SHA-256 落盘校验。 |
 | `scripts/verify-macos-cli-p2p.sh` | 通过：脚本创建临时小文件、生成 torrent/magnet、启动本地 tracker 和 Transmission seeder，验证 CLI `.torrent` 队列下载和 magnet `start` 单任务下载。 |
 | `npm run verify:macos-cli-sftp` | 通过：脚本启动临时 Docker SFTP 服务，等待 SSH banner 后验证 CLI SFTP 直连下载和队列下载。 |
 | `npm run verify:macos-cli-smb` | 通过：脚本启动临时 Docker Samba 共享，验证 CLI SMB 直连下载和队列下载。 |
@@ -128,6 +128,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 多文件 Torrent | `../local_protocol_resources/multi_torrent/20260614_bundle.torrent` | 通过，输出真实目录 `20260614_bundle`，内部 `20260614.mp4` 和 `readme.txt` 的 SHA-256 均与源文件一致。 |
 | 小体积 Torrent/Magnet 脚本化回归 | `scripts/verify-macos-cli-p2p.sh` 临时生成的 `fluxdown-cli-p2p-sample.txt`、`.torrent` 和 magnet | 通过，`.torrent` 通过 `add -> run -> list` 队列路径完成，magnet 通过 `add -> start -> list` 单任务路径完成；两者均把任务名回写为真实 `fluxdown-cli-p2p-sample.txt`，输出 SHA-256 为 `a40673900248536479693b16710628925f18643bf01b20208da668b9ad101b24`。 |
 | 限速 | `seg_00047.ts`，`--speed-limit-mbps 0.5` | 通过，4.7 MB 文件耗时约 10 秒。 |
+| 重新下载 | `npm run verify:macos-cli-release-queue-controls` 的本地 restart fixture；CLI 集成 `queue_start_restart_replaces_existing_http_output`；桌面 command `restart_existing` fixture | 通过，release CLI 脚本确认同一个已完成任务执行 `start --restart` 会重新请求源文件、替换被改写的旧输出、最终 SHA-256 匹配，且服务端没有收到 `Range` 请求；CLI 集成和桌面 command 用例也覆盖同类重新下载行为。 |
 | 失败重试 | 404 源，`--retry-attempts 2`；一次 500 后恢复的 HTTP 源默认不传 `--retry-attempts`；`npm run verify:macos-cli-release-queue-controls` 的本地 flaky fixture；桌面 command flaky HTTP fixture | 通过，显式重试 2 次时服务端看到 3 次请求，任务最终 `failed` 并记录 404 错误；默认不传重试参数时会自动重试 1 次并完成下载，显式 `--retry-attempts 0` 表示不重试；release CLI 脚本确认首次 500、重试后完成且 SHA-256 匹配；桌面 command 用例确认首次 500 后第二次请求成功并真实落盘。 |
 | 暂停/继续 | `seg_00047.ts` 限速下载中暂停，再 `resume` 和 `run`；`npm run verify:macos-cli-release-queue-controls` 的本地慢速 HTTP fixture | 通过，暂停时 partial 文件约 0.9 MB，恢复后完成，SHA-256 与源文件一致；release CLI 脚本确认任务运行中可暂停为 `paused`、恢复为 `queued`，再次运行后完成并通过 SHA-256 校验。 |
 | CLI 跨进程暂停/恢复 | 一个 CLI 进程执行 `run --speed-limit-mbps 0.05`，另一个 CLI 进程执行 `pause <id>`，随后 `resume <id>` 并再次 `run` | 通过，运行中任务先变为 `paused` 并保留 partial 文件和已下载进度；恢复后通过 HTTP Range 续传完成，最终文件内容匹配源数据；release CLI 队列控制脚本已覆盖同类跨进程路径。 |
