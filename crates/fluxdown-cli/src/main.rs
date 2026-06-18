@@ -18,6 +18,7 @@ const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 #[derive(Debug, Parser)]
 #[command(name = "fluxdown")]
 #[command(about = "Cross-platform downloader CLI")]
+#[command(version)]
 struct Cli {
     #[arg(long, global = true)]
     store: Option<PathBuf>,

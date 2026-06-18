@@ -69,6 +69,8 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `cargo fmt --check` | 通过：Rust 代码格式已校验。 |
 | `cargo clippy -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop --all-targets -- -D warnings` | 通过：已修复 HTTP Range/FTP 内部参数结构、队列进度暂停判断、路径参数类型、HLS 辅助函数位置、ed2k 测试 PATH 锁和桌面端嵌套判断等 Clippy 门禁问题。 |
 | `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 19、core 48、desktop 20。 |
+| `cargo clippy -p fluxdown-cli --all-targets -- -D warnings` | 通过：修复 release CLI 不支持 `--version` 的基础可用性问题后，CLI 专项 Clippy 通过。 |
+| `cargo test -p fluxdown-cli` | 通过：CLI 单元 1、CLI 集成 19。 |
 | `npm run verify:macos-cli-ftp-ftps` | 通过：脚本启动临时 FTP 和显式 TLS FTPS fixture，验证 CLI FTP/FTPS 直连下载和队列下载。 |
 | `npm run verify:macos-cli-http-hls` | 通过：脚本启动临时 Range HTTP server，验证 CLI HTTP 直连/队列和 HLS 直连/队列/单任务启动。 |
 | `scripts/verify-macos-cli-p2p.sh` | 通过：脚本创建临时小文件、生成 torrent/magnet、启动本地 tracker 和 Transmission seeder，验证 CLI `.torrent` 队列下载和 magnet `start` 单任务下载。 |
@@ -81,7 +83,11 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `cargo build -p fluxdown-cli --release` | 通过，生成 `target/release/fluxdown`。 |
 | `npm --workspace apps/desktop run build` | 通过。 |
 | `npm run desktop:build` | 通过，生成 `target/release/bundle/macos/FluxDown.app`。 |
+| `npm run desktop:dmg` | 通过，生成 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg`，大小 `8679773` bytes。 |
+| `node scripts/verify-artifacts.mjs desktop-macos` | 通过，校验 `target/release/fluxdown-desktop`、`target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg` 均存在且非空。 |
+| `target/release/fluxdown --version` | 通过，输出 `fluxdown 1.0.2`。 |
 | `target/release/fluxdown doctor` | 通过；内建 HTTP/HTTPS/WebDAV/FTP/FTPS/Torrent/Magnet/m3u8/SFTP/SMB/IPFS 可执行；ed2k 为系统移交，当前 PATH 缺少可选 `ed2k` CLI。 |
+| Release CLI smoke | 通过：`target/release/fluxdown detect 'https://example.com/file.zip'` 输出 `Https`，`support` 返回可执行状态，`doctor` JSON 中 HTTP 为 executable。 |
 
 ### CLI 真实下载
 
