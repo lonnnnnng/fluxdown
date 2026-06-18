@@ -375,6 +375,77 @@ fn download_command_fetches_hls_playlist() {
 }
 
 #[test]
+fn queue_commands_add_and_run_hls_task() {
+    let (source, expected_payload, server) = spawn_hls_http_server();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let downloads_dir = temp_dir.path().join("downloads");
+
+    let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "add",
+            &source,
+            "--output",
+            downloads_dir.to_str().unwrap(),
+            "--name",
+            "queue-hls.m3u8",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        add_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&add_output.stderr)
+    );
+    let added: Value = serde_json::from_slice(&add_output.stdout).unwrap();
+    let task_id = added["id"].as_str().unwrap().to_string();
+    assert_eq!(added["protocol"], "m3u8");
+    assert_eq!(added["state"], "queued");
+
+    let run_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "run",
+            "--concurrency",
+            "1",
+        ])
+        .output()
+        .unwrap();
+
+    server.join().unwrap();
+    assert!(
+        run_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(downloads_dir.join("queue-hls.ts")).unwrap(),
+        expected_payload
+    );
+
+    let report: Value = serde_json::from_slice(&run_output.stdout).unwrap();
+    assert_eq!(report["total_queued"], 1);
+    assert_eq!(report["finished"], 1);
+    assert_eq!(report["failed"], 0);
+    assert_eq!(report["tasks"][0]["id"], task_id);
+    assert_eq!(report["tasks"][0]["state"], "finished");
+    assert_eq!(report["tasks"][0]["file_name"], "queue-hls.ts");
+    assert_eq!(
+        report["tasks"][0]["downloaded_bytes"],
+        expected_payload.len() as u64
+    );
+
+    let final_list = list_tasks(&store_path);
+    // 作者: long
+    // 队列页展示依赖持久化任务里的最终文件名，HLS 从 .m3u8 变成真实产物后必须同步写回。
+    assert_eq!(final_list[0]["file_name"], "queue-hls.ts");
+    assert_eq!(final_list[0]["state"], "finished");
+}
+
+#[test]
 fn download_command_restart_replaces_existing_http_file() {
     let payload = b"fluxdown-cli-direct-restarted-download";
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
