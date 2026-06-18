@@ -227,15 +227,11 @@ pub fn redact_url_credentials_in_text(text: &str) -> String {
     let mut output = String::with_capacity(text.len());
     let mut index = 0;
 
-    while let Some(relative_scheme) = text[index..].find("://") {
-        let scheme_index = index + relative_scheme;
-        let start = text[..scheme_index]
-            .rfind(|character: char| character.is_whitespace() || "\"'`(<[".contains(character))
-            .map(|position| position + 1)
-            .unwrap_or(0);
-        let end = text[scheme_index..]
+    while let Some(next_url) = next_redactable_url(text, index) {
+        let start = next_url.start;
+        let end = text[next_url.marker..]
             .find(|character: char| character.is_whitespace() || "\"'`)>]".contains(character))
-            .map(|position| scheme_index + position)
+            .map(|position| next_url.marker + position)
             .unwrap_or(text.len());
 
         output.push_str(&text[index..start]);
@@ -252,6 +248,46 @@ pub fn redact_url_credentials_in_text(text: &str) -> String {
 
     output.push_str(&text[index..]);
     output
+}
+
+struct RedactableUrl {
+    start: usize,
+    marker: usize,
+}
+
+fn next_redactable_url(text: &str, index: usize) -> Option<RedactableUrl> {
+    let remaining = &text[index..];
+    let with_authority = remaining.find("://").map(|relative| {
+        let marker = index + relative;
+        let start = text[..marker]
+            .rfind(|character: char| character.is_whitespace() || "\"'`(<[".contains(character))
+            .map(|position| position + 1)
+            .unwrap_or(0);
+        RedactableUrl { start, marker }
+    });
+    let magnet = remaining
+        .to_ascii_lowercase()
+        .find("magnet:?")
+        .map(|relative| {
+            let start = index + relative;
+            RedactableUrl {
+                start,
+                marker: start,
+            }
+        });
+
+    match (with_authority, magnet) {
+        (Some(authority), Some(magnet)) => {
+            if authority.start <= magnet.start {
+                Some(authority)
+            } else {
+                Some(magnet)
+            }
+        }
+        (Some(authority), None) => Some(authority),
+        (None, Some(magnet)) => Some(magnet),
+        (None, None) => None,
+    }
 }
 
 fn redact_url_userinfo(url: &mut Url) -> bool {
@@ -376,6 +412,20 @@ mod tests {
         assert_eq!(
             redacted,
             "ipfs://bafy/readme.txt?gateway=https%3A%2F%2F***%3A***%40gateway.example.com%2Froot"
+        );
+        assert!(!redacted.contains("user"));
+        assert!(!redacted.contains("p%2540ss"));
+    }
+
+    #[test]
+    fn redacts_credentials_from_magnet_tracker_urls_in_text() {
+        let text = "failed magnet:?xt=urn:btih:abc&tr=https%3A%2F%2Fuser%3Ap%2540ss%40tracker.example.com%2Fannounce.";
+
+        let redacted = redact_url_credentials_in_text(text);
+
+        assert_eq!(
+            redacted,
+            "failed magnet:?xt=urn%3Abtih%3Aabc&tr=https%3A%2F%2F***%3A***%40tracker.example.com%2Fannounce."
         );
         assert!(!redacted.contains("user"));
         assert!(!redacted.contains("p%2540ss"));

@@ -54,6 +54,8 @@ sftp://user:password@example.com/path/file.zip
 - 桌面属性页。
 - 桌面任务错误和 toast 错误。
 
+脱敏会递归处理常见嵌套 URL，例如 IPFS `gateway=` 和 Magnet `tr=` tracker 参数中的账号密码。
+
 这些信息仍可能会出现在：
 
 - 队列 JSON。

@@ -275,11 +275,14 @@ function safeErrorText(error: unknown) {
 }
 
 function redactCredentialsInText(text: string) {
-  return text.replace(/[a-z][a-z0-9+.-]*:\/\/[^\s"'`<>]+/gi, (candidate) => {
-    const match = candidate.match(/^(.+?)([.,;:]+)?$/);
-    if (!match) return redactCredentials(candidate);
-    return `${redactCredentials(match[1])}${match[2] ?? ""}`;
-  });
+  return text.replace(
+    /(?:[a-z][a-z0-9+.-]*:\/\/|magnet:\?)[^\s"'`<>]+/gi,
+    (candidate) => {
+      const match = candidate.match(/^(.+?)([.,;:]+)?$/);
+      if (!match) return redactCredentials(candidate);
+      return `${redactCredentials(match[1])}${match[2] ?? ""}`;
+    },
+  );
 }
 
 function redactCredentials(source: string) {
