@@ -28,6 +28,8 @@
     "verify:linux-gui": "node scripts/verify-artifacts.mjs linux-gui",
     "verify:windows-cli": "node scripts/verify-artifacts.mjs windows-cli",
     "verify:windows-gui": "node scripts/verify-artifacts.mjs windows-gui",
+    "verify:macos-cli-p2p": "bash scripts/verify-macos-cli-p2p.sh",
+    "verify:macos-desktop-p2p": "bash scripts/verify-macos-desktop-p2p.sh",
     "verify:release": "node scripts/verify-artifacts.mjs release",
     "verify:ci-config": "node scripts/verify-artifacts.mjs ci-config",
     "verify:mobile-url-schemes": "node scripts/verify-mobile-url-schemes.mjs",

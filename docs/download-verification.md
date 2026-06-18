@@ -1,6 +1,6 @@
 # 下载验证状态
 
-截至 2026-06-18，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证，macOS CLI 已补充本地 HTTP/HLS/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证，macOS GUI 已完成本地构建、启动、基础界面渲染和 Tauri command 级真实 HTTP/HLS/WebDAV/FTP/IPFS/Torrent/Magnet 下载验证。
+截至 2026-06-18，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证，macOS CLI 已补充可重复脚本化 HTTP/HLS/Torrent/Magnet、本地 HTTP/HLS/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证，macOS GUI 已完成本地构建、启动、基础界面渲染和 Tauri command 级真实 HTTP/HLS/WebDAV/FTP/IPFS/Torrent/Magnet 下载验证。
 
 本页用于区分两类容易混淆的结论：
 
@@ -13,7 +13,7 @@
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
 | --- | --- | --- |
-| 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS、自定义 IPFS gateway、限速、失败重试、暂停继续、运行中删除和并发排队均已验证。 | 部分完成 |
+| 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS、自定义 IPFS gateway、限速、失败重试、暂停继续、运行中删除和并发排队均已验证；其中小体积 Torrent/Magnet 已补充可重复脚本化验证。 | 部分完成 |
 | macOS GUI | 已完成 Tauri `.app` 构建、本地启动、窗口渲染、设置/任务操作 Tauri command 回归测试，以及 Tauri command 级 HTTP/HLS/WebDAV/FTP/IPFS/Torrent/Magnet 单任务真实下载和队列真实下载。Computer Use/AppleScript 鼠标自动化会触发 macOS “允许 Codex 控制其他 App”权限弹窗，`tauri-driver` 在本机 macOS 返回 `not supported on this platform`，尚未完成纯 GUI 点击创建任务并下载的闭环。 | 部分完成 |
 | Windows GUI | 已有 CI/Docker 构建产物和 artifact 检查。没有在 Windows 上安装或运行 GUI 完成下载验证。 | 未完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
@@ -30,8 +30,8 @@
 | FTP/FTPS | 2026-06-18 macOS CLI 已验证公网 FTP 和本地自签 FTPS 下载闭环；macOS GUI command 层已验证本地 FTP 队列和单任务启动下载闭环。 | Rebex 公网 FTPS 仍失败，错误为 `InvalidContentType`；本地可控 FTPS fixture 已通过。 |
 | SFTP | 2026-06-18 macOS CLI 已验证公网 SFTP 下载闭环。 | 仍缺少本地 SFTP fixture 的 macOS CLI 回归。 |
 | SMB | 有实现和 URL 解析测试。 | 缺少真实 SMB 共享下载闭环。 |
-| BitTorrent `.torrent` | Android 真机已验证本地小种子、媒体级单文件种子和多文件种子选择下载；macOS CLI 已验证单文件和多文件本地种子真实下载、真实文件名/目录名和 SHA-256；macOS GUI command 层已通过临时本地 tracker/seeder 验证小 torrent 队列下载、真实文件名回写和 SHA-256。 | Windows/Linux GUI 仍需要真实下载验证。 |
-| Magnet | Android 真机已验证本地小磁力、媒体级单文件 magnet 和多文件 magnet 选择下载；macOS CLI 已验证本地 magnet metadata 获取、真实文件名和 SHA-256；macOS GUI command 层已通过临时本地 tracker/seeder 验证小 magnet 单任务启动、metadata 文件名回写和 SHA-256。 | Windows/Linux GUI 仍需要真实下载验证。 |
+| BitTorrent `.torrent` | Android 真机已验证本地小种子、媒体级单文件种子和多文件种子选择下载；macOS CLI 已验证单文件和多文件本地种子真实下载、真实文件名/目录名和 SHA-256，并通过 `scripts/verify-macos-cli-p2p.sh` 验证小 torrent 队列下载；macOS GUI command 层已通过临时本地 tracker/seeder 验证小 torrent 队列下载、真实文件名回写和 SHA-256。 | Windows/Linux GUI 仍需要真实下载验证。 |
+| Magnet | Android 真机已验证本地小磁力、媒体级单文件 magnet 和多文件 magnet 选择下载；macOS CLI 已验证本地 magnet metadata 获取、真实文件名和 SHA-256，并通过 `scripts/verify-macos-cli-p2p.sh` 验证小 magnet 单任务启动；macOS GUI command 层已通过临时本地 tracker/seeder 验证小 magnet 单任务启动、metadata 文件名回写和 SHA-256。 | Windows/Linux GUI 仍需要真实下载验证。 |
 | ed2k | 核心层验证了 aMule `ed2k` CLI 移交路径。 | FluxDown 不掌控外部客户端的实际下载完成状态。 |
 | IPFS | 2026-06-18 macOS CLI 已验证公网 IPFS 网关下载和本地自定义 gateway 下载，CLI/桌面 command 均有自定义 gateway 队列回归覆盖。 | 仍不运行本地 IPFS 节点。 |
 
@@ -65,6 +65,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 检查项 | 结果 |
 | --- | --- |
 | `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 19、core 48、desktop 20。 |
+| `scripts/verify-macos-cli-p2p.sh` | 通过：脚本创建临时小文件、生成 torrent/magnet、启动本地 tracker 和 Transmission seeder，验证 CLI `.torrent` 队列下载和 magnet `start` 单任务下载。 |
 | `scripts/verify-macos-desktop-p2p.sh` | 通过：脚本创建临时小文件、生成 torrent/magnet、启动本地 tracker 和 Transmission seeder，运行 2 个 ignored 桌面 command P2P 测试。 |
 | `cargo build -p fluxdown-cli --release` | 通过，生成 `target/release/fluxdown`。 |
 | `npm --workspace apps/desktop run build` | 通过。 |
@@ -82,6 +83,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 单文件 Torrent | `../local_protocol_resources/torrent/20260614.torrent` | 通过，metadata 后输出真实文件名 `20260614.mp4`，SHA-256 为 `4df2d9155b5714274f91beda0029041d9ef880f2996172adfd5bc5e29db42650`。 |
 | 单文件 Magnet | `../local_protocol_resources/torrent/20260614.magnet.txt` 中的 magnet | 通过，metadata 后输出真实文件名 `20260614.mp4`，SHA-256 同源文件。 |
 | 多文件 Torrent | `../local_protocol_resources/multi_torrent/20260614_bundle.torrent` | 通过，输出真实目录 `20260614_bundle`，内部 `20260614.mp4` 和 `readme.txt` 的 SHA-256 均与源文件一致。 |
+| 小体积 Torrent/Magnet 脚本化回归 | `scripts/verify-macos-cli-p2p.sh` 临时生成的 `fluxdown-cli-p2p-sample.txt`、`.torrent` 和 magnet | 通过，`.torrent` 通过 `add -> run -> list` 队列路径完成，magnet 通过 `add -> start -> list` 单任务路径完成；两者均把任务名回写为真实 `fluxdown-cli-p2p-sample.txt`，输出 SHA-256 为 `a40673900248536479693b16710628925f18643bf01b20208da668b9ad101b24`。 |
 | 限速 | `seg_00047.ts`，`--speed-limit-mbps 0.5` | 通过，4.7 MB 文件耗时约 10 秒。 |
 | 失败重试 | 404 源，`--retry-attempts 2`；一次 500 后恢复的 HTTP 源默认不传 `--retry-attempts` | 通过，显式重试 2 次时服务端看到 3 次请求，任务最终 `failed` 并记录 404 错误；默认不传重试参数时会自动重试 1 次并完成下载，显式 `--retry-attempts 0` 表示不重试。 |
 | 暂停/继续 | `seg_00047.ts` 限速下载中暂停，再 `resume` 和 `run` | 通过，暂停时 partial 文件约 0.9 MB，恢复后完成，SHA-256 与源文件一致。 |
@@ -117,4 +119,4 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 
 ### 清理状态
 
-验证结束后已确认无 `http.server 8765`、`local_bt_tracker`、`transmission-daemon`、`fluxdown-desktop` 残留进程，`8765`、`6969`、`51413` 端口无监听；P2P 脚本使用临时随机端口并在退出时清理 tracker、Transmission 和临时目录。
+验证结束后已确认无 `http.server 8765`、`local_bt_tracker`、`transmission-daemon`、`fluxdown-desktop` 残留进程，`8765`、`6969`、`51413` 端口无监听；CLI 和桌面 P2P 脚本均使用临时随机端口并在退出时清理 tracker、Transmission 和临时目录。
