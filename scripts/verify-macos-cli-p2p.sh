@@ -183,10 +183,12 @@ SEED_DIR="$TMP_DIR/seed"
 CONFIG_DIR="$TMP_DIR/transmission"
 TORRENT_OUT="$TMP_DIR/downloads/torrent"
 MAGNET_OUT="$TMP_DIR/downloads/magnet"
+DIRECT_SELECTED_OUT="$TMP_DIR/downloads/direct-selected"
+DIRECT_SELECTED_MAGNET_OUT="$TMP_DIR/downloads/direct-selected-magnet"
 SELECTED_OUT="$TMP_DIR/downloads/selected"
 SELECTED_MAGNET_OUT="$TMP_DIR/downloads/selected-magnet"
 STORE="$TMP_DIR/queue.json"
-mkdir -p "$SEED_DIR" "$CONFIG_DIR" "$TORRENT_OUT" "$MAGNET_OUT" "$SELECTED_OUT" "$SELECTED_MAGNET_OUT"
+mkdir -p "$SEED_DIR" "$CONFIG_DIR" "$TORRENT_OUT" "$MAGNET_OUT" "$DIRECT_SELECTED_OUT" "$DIRECT_SELECTED_MAGNET_OUT" "$SELECTED_OUT" "$SELECTED_MAGNET_OUT"
 
 SAMPLE_NAME="fluxdown-cli-p2p-sample.txt"
 SAMPLE_FILE="$SEED_DIR/$SAMPLE_NAME"
@@ -297,6 +299,34 @@ assert_json_value "$MAGNET_START" "task.file_name" "$SAMPLE_NAME"
 assert_task_value "$MAGNET_LIST" "$MAGNET_ID" "state" "finished"
 assert_task_value "$MAGNET_LIST" "$MAGNET_ID" "file_name" "$SAMPLE_NAME"
 assert_sha256 "$MAGNET_OUT/$SAMPLE_NAME" "$EXPECTED_SHA256"
+
+DIRECT_SELECT_SUMMARY="$TMP_DIR/direct-selected-summary.json"
+fluxdown download "$MULTI_TORRENT_FILE" \
+  --output "$DIRECT_SELECTED_OUT" \
+  --name direct-selected.torrent \
+  --torrent-file-index 0 \
+  > "$DIRECT_SELECT_SUMMARY"
+assert_json_value "$DIRECT_SELECT_SUMMARY" "display_name" "$SELECTED_NAME"
+assert_json_value "$DIRECT_SELECT_SUMMARY" "output_path" "$DIRECT_SELECTED_OUT/$MULTI_NAME/$SELECTED_NAME"
+assert_sha256 "$DIRECT_SELECTED_OUT/$MULTI_NAME/$SELECTED_NAME" "$SELECTED_SHA256"
+if [[ -s "$DIRECT_SELECTED_OUT/$SKIPPED_NAME" || -s "$DIRECT_SELECTED_OUT/$MULTI_NAME/$SKIPPED_NAME" ]]; then
+  echo "unselected direct torrent file was written under $DIRECT_SELECTED_OUT" >&2
+  exit 1
+fi
+
+DIRECT_SELECT_MAGNET_SUMMARY="$TMP_DIR/direct-selected-magnet-summary.json"
+fluxdown download "$MULTI_MAGNET_URI" \
+  --output "$DIRECT_SELECTED_MAGNET_OUT" \
+  --name direct-selected-magnet \
+  --torrent-file-index 0 \
+  > "$DIRECT_SELECT_MAGNET_SUMMARY"
+assert_json_value "$DIRECT_SELECT_MAGNET_SUMMARY" "display_name" "$SELECTED_NAME"
+assert_json_value "$DIRECT_SELECT_MAGNET_SUMMARY" "output_path" "$DIRECT_SELECTED_MAGNET_OUT/$MULTI_NAME/$SELECTED_NAME"
+assert_sha256 "$DIRECT_SELECTED_MAGNET_OUT/$MULTI_NAME/$SELECTED_NAME" "$SELECTED_SHA256"
+if [[ -s "$DIRECT_SELECTED_MAGNET_OUT/$SKIPPED_NAME" || -s "$DIRECT_SELECTED_MAGNET_OUT/$MULTI_NAME/$SKIPPED_NAME" ]]; then
+  echo "unselected direct magnet file was written under $DIRECT_SELECTED_MAGNET_OUT" >&2
+  exit 1
+fi
 
 SELECT_ADD="$TMP_DIR/selected-add.json"
 SELECT_RUN="$TMP_DIR/selected-run.json"

@@ -69,7 +69,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | --- | --- |
 | `cargo fmt --check` | 通过：Rust 代码格式已校验。 |
 | `cargo clippy -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop --all-targets -- -D warnings` | 通过：严格 Clippy 通过；覆盖既有队列/协议修复、URL 脱敏、CLI 错误包装、桌面展示改动、平台原生队列路径，以及本轮 CLI/桌面客户端 SHA-256 校验能力。 |
-| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 28、core 65、desktop 27，desktop 另有 7 个需 live fixture 的 ignored 用例；覆盖直连下载 SHA-256 成功/失败、非法 hash 在 `--restart` 清理前失败、非法 hash 在 CLI `add` 和桌面 `enqueue_download` 时提前拒绝且不写入队列、队列任务 SHA-256 持久化和失败状态、torrent 文件编号排序去重与队列持久化、桌面 command 层 SHA-256 成功和 mismatch 失败、桌面 command 首次 500 后自动重试成功、桌面 command 重新下载已完成任务会替换旧文件，以及桌面 command 运行中暂停/恢复后续传完成。 |
+| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 28、core 66、desktop 27，desktop 另有 7 个需 live fixture 的 ignored 用例；覆盖直连下载 SHA-256 成功/失败、非法 hash 在 `--restart` 清理前失败、非法 hash 在 CLI `add` 和桌面 `enqueue_download` 时提前拒绝且不写入队列、队列任务 SHA-256 持久化和失败状态、torrent 文件编号排序去重与队列持久化、多文件种子单选文件时 summary 指向真实 metadata 目录落盘路径、桌面 command 层 SHA-256 成功和 mismatch 失败、桌面 command 首次 500 后自动重试成功、桌面 command 重新下载已完成任务会替换旧文件，以及桌面 command 运行中暂停/恢复后续传完成。 |
 | `cargo test -p fluxdown-core task::tests::redacts -- --nocapture` | 通过：验证任务展示副本会隐藏 URL 用户名和密码，也会处理嵌套 gateway URL。 |
 | `cargo test -p fluxdown-cli queue_commands_redact_url_credentials_from_json_output -- --nocapture` | 通过：验证 CLI `add/list` JSON 输出隐藏 `ftp://user:p%40ss@...` 凭据，同时队列文件仍保存原始链接用于真实下载。 |
 | `cargo test -p fluxdown-core task::tests::redacts_credentials_from_magnet_tracker_urls_in_text -- --nocapture` + `cargo test -p fluxdown-cli --test download_command queue_commands_redact_magnet_tracker_credentials_from_json_output -- --nocapture` | 通过：验证错误文本和 CLI `add/list` JSON 输出会隐藏 magnet tracker 嵌套 URL 中的用户名和密码，队列文件仍保留原始 magnet 链接用于真实下载。 |
@@ -94,7 +94,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run verify:macos-cli-release-smb` | 通过：强制使用 `target/release/fluxdown`，验证 release CLI 二进制的 SMB 直连下载、队列下载和 SHA-256 落盘校验；脚本已改为等待真实 SMB 下载 readiness，避免 Samba TCP 已打开但协议未准备好时偶发 `Disconnected from server`。 |
 | `npm run verify:macos-cli-release-p2p` | 通过：强制使用 `target/release/fluxdown`，验证 release CLI 二进制的 `.torrent add -> run -> list` 和 magnet `add -> start -> list`，任务名会回写为真实文件名且 SHA-256 匹配。 |
 | `npm run verify:macos-cli-release-queue-controls` | 通过：强制使用 `target/release/fluxdown`，启动本地慢速 HTTP fixture，验证 release CLI 的运行中暂停/继续、运行中删除、失败重试、`start --restart` 重新下载替换旧文件、并发 1 串行和并发 2 并行，以及所有完成文件的 SHA-256 落盘校验。 |
-| `scripts/verify-macos-cli-p2p.sh` | 通过：脚本创建临时小文件和双文件 torrent、生成 torrent/magnet、启动本地 tracker 和 Transmission seeder，验证 CLI `.torrent` 队列下载、magnet `start` 单任务下载，以及 `.torrent`/magnet 通过 `--torrent-file-index 0` 只下载选中文件且未选文件不写出非空内容。 |
+| `scripts/verify-macos-cli-p2p.sh` | 通过：脚本创建临时小文件和双文件 torrent、生成 torrent/magnet、启动本地 tracker 和 Transmission seeder，验证 CLI `.torrent` 队列下载、magnet `start` 单任务下载，以及 `.torrent`/magnet 在直连 `download` 和队列 `add -> run` 路径下通过 `--torrent-file-index 0` 只下载选中文件且未选文件不写出非空内容。 |
 | `npm run verify:macos-cli-sftp` | 通过：脚本启动临时 Docker SFTP 服务，等待 SSH banner 后验证 CLI SFTP 直连下载和队列下载。 |
 | `npm run verify:macos-cli-smb` | 通过：脚本启动临时 Docker Samba 共享，验证 CLI SMB 直连下载和队列下载。 |
 | `npm run verify:macos-desktop-ftps` | 通过：脚本启动临时显式 TLS FTPS fixture，运行桌面 command ignored 测试，验证 FTPS 队列下载、输出路径和 SHA-256。 |
@@ -105,7 +105,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `cargo build -p fluxdown-cli --release` | 通过，生成 `target/release/fluxdown`。 |
 | `npm --workspace apps/desktop run build` | 通过。 |
 | `npm run desktop:build` | 通过，生成 `target/release/bundle/macos/FluxDown.app`。 |
-| `npm run desktop:dmg` | 通过，打包前会对 `FluxDown.app` 执行本地 ad-hoc bundle 签名并通过 `codesign --verify --deep --strict`，生成 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg`，大小 `8723511` bytes。该签名只证明本地产物完整，不代表开发者证书签名或 notarization 已完成。 |
+| `npm run desktop:dmg` | 通过，打包前会对 `FluxDown.app` 执行本地 ad-hoc bundle 签名并通过 `codesign --verify --deep --strict`，生成 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg`，大小 `8725182` bytes。该签名只证明本地产物完整，不代表开发者证书签名或 notarization 已完成。 |
 | `node scripts/verify-artifacts.mjs desktop-macos` | 通过，校验 `target/release/fluxdown-desktop`、`target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg` 均存在且非空。 |
 | `npm run verify:macos-artifacts` | 通过：校验 release CLI 文件、桌面二进制、`.app` 目录、`Info.plist` 元数据、bundle 可执行文件、CLI `--version/detect/support/doctor`、`.app` ad-hoc 签名和 dmg checksum；校验脚本会在 `hdiutil verify` 前后清理当前 FluxDown DMG 的临时挂载并短重试，避免 `资源暂时不可用` 造成误报失败。 |
 | Release 许可证随包文本 | 通过：本地 `release:stage` 和 GitHub Release assets 准备脚本会输出项目 `LICENSE` 与 `docs/third-party-licenses.md` 副本，`verify:release` 会检查本地 Release staging 中的许可证文件存在且非空。 |
@@ -126,7 +126,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 单文件 Torrent | `../local_protocol_resources/torrent/20260614.torrent` | 通过，metadata 后输出真实文件名 `20260614.mp4`，SHA-256 为 `4df2d9155b5714274f91beda0029041d9ef880f2996172adfd5bc5e29db42650`。 |
 | 单文件 Magnet | `../local_protocol_resources/torrent/20260614.magnet.txt` 中的 magnet | 通过，metadata 后输出真实文件名 `20260614.mp4`，SHA-256 同源文件。 |
 | 多文件 Torrent | `../local_protocol_resources/multi_torrent/20260614_bundle.torrent` | 通过，输出真实目录 `20260614_bundle`，内部 `20260614.mp4` 和 `readme.txt` 的 SHA-256 均与源文件一致。 |
-| 小体积 Torrent/Magnet 脚本化回归 | `scripts/verify-macos-cli-p2p.sh` 临时生成的 `fluxdown-cli-p2p-sample.txt`、`.torrent`、magnet、双文件 torrent 和双文件 magnet | 通过，`.torrent` 通过 `add -> run -> list` 队列路径完成，magnet 通过 `add -> start -> list` 单任务路径完成；两者均把任务名回写为真实 `fluxdown-cli-p2p-sample.txt`。双文件 torrent 和双文件 magnet 均通过 `--torrent-file-index 0` 只下载 `a-selected.bin`，输出 SHA-256 匹配，`b-skipped.bin` 未写出非空内容。 |
+| 小体积 Torrent/Magnet 脚本化回归 | `scripts/verify-macos-cli-p2p.sh` 临时生成的 `fluxdown-cli-p2p-sample.txt`、`.torrent`、magnet、双文件 torrent 和双文件 magnet | 通过，`.torrent` 通过 `add -> run -> list` 队列路径完成，magnet 通过 `add -> start -> list` 单任务路径完成；两者均把任务名回写为真实 `fluxdown-cli-p2p-sample.txt`。双文件 torrent 和双文件 magnet 均在直连 `download` 和队列 `add -> run` 路径下通过 `--torrent-file-index 0` 只下载 `a-selected.bin`，输出 SHA-256 匹配，`display_name` 和 `output_path` 指向真实选中文件，`b-skipped.bin` 未写出非空内容。 |
 | 限速 | `seg_00047.ts`，`--speed-limit-mbps 0.5` | 通过，4.7 MB 文件耗时约 10 秒。 |
 | 重新下载 | `npm run verify:macos-cli-release-queue-controls` 的本地 restart fixture；CLI 集成 `queue_start_restart_replaces_existing_http_output`；桌面 command `restart_existing` fixture | 通过，release CLI 脚本确认同一个已完成任务执行 `start --restart` 会重新请求源文件、替换被改写的旧输出、最终 SHA-256 匹配，且服务端没有收到 `Range` 请求；CLI 集成和桌面 command 用例也覆盖同类重新下载行为。 |
 | 失败重试 | 404 源，`--retry-attempts 2`；一次 500 后恢复的 HTTP 源默认不传 `--retry-attempts`；`npm run verify:macos-cli-release-queue-controls` 的本地 flaky fixture；桌面 command flaky HTTP fixture | 通过，显式重试 2 次时服务端看到 3 次请求，任务最终 `failed` 并记录 404 错误；默认不传重试参数时会自动重试 1 次并完成下载，显式 `--retry-attempts 0` 表示不重试；release CLI 脚本确认首次 500、重试后完成且 SHA-256 匹配；桌面 command 用例确认首次 500 后第二次请求成功并真实落盘。 |

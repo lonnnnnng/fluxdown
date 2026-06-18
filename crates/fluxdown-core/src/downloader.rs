@@ -805,6 +805,11 @@ impl DownloadEngine {
             Some(final_stats.total_bytes),
         );
         let (output_path, display_name) = handle.with_metadata(|metadata| {
+            let payload_file_count = metadata
+                .file_infos
+                .iter()
+                .filter(|file| !file.attrs.padding)
+                .count();
             let file_paths = metadata
                 .file_infos
                 .iter()
@@ -816,7 +821,12 @@ impl DownloadEngine {
                 .filter(|(_, file)| !file.attrs.padding)
                 .map(|(_, file)| file.relative_filename.clone())
                 .collect::<Vec<_>>();
-            torrent_output_details(&request.output_dir, metadata.name.as_deref(), &file_paths)
+            torrent_output_details(
+                &request.output_dir,
+                metadata.name.as_deref(),
+                &file_paths,
+                payload_file_count,
+            )
         })?;
         session.stop().await;
 
@@ -1499,9 +1509,18 @@ fn torrent_output_details(
     output_dir: &Path,
     torrent_name: Option<&str>,
     file_paths: &[PathBuf],
+    payload_file_count: usize,
 ) -> (PathBuf, Option<String>) {
     if file_paths.len() == 1 {
-        let output_path = output_dir.join(&file_paths[0]);
+        let output_path = if payload_file_count > 1 {
+            // 作者: long
+            // librqbit 会把多文件种子落到 metadata name 目录下；即便用户只选一个文件，summary 也必须指向真实产物。
+            safe_torrent_name(torrent_name)
+                .map(|root| output_dir.join(root).join(&file_paths[0]))
+                .unwrap_or_else(|| output_dir.join(&file_paths[0]))
+        } else {
+            output_dir.join(&file_paths[0])
+        };
         let display_name =
             display_name_from_path(&output_path).or_else(|| safe_torrent_name(torrent_name));
         return (output_path, display_name);
@@ -2278,10 +2297,22 @@ mod tests {
         let files = vec![PathBuf::from("20260614.mp4")];
 
         let (output_path, display_name) =
-            torrent_output_details(temp_dir.path(), Some("download.torrent"), &files);
+            torrent_output_details(temp_dir.path(), Some("download.torrent"), &files, 1);
 
         assert_eq!(output_path, temp_dir.path().join("20260614.mp4"));
         assert_eq!(display_name.as_deref(), Some("20260614.mp4"));
+    }
+
+    #[test]
+    fn torrent_output_details_keeps_selected_multi_file_under_metadata_folder() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let files = vec![PathBuf::from("a-selected.bin")];
+
+        let (output_path, display_name) =
+            torrent_output_details(temp_dir.path(), Some("bundle"), &files, 2);
+
+        assert_eq!(output_path, temp_dir.path().join("bundle/a-selected.bin"));
+        assert_eq!(display_name.as_deref(), Some("a-selected.bin"));
     }
 
     #[test]
@@ -2295,7 +2326,7 @@ mod tests {
         ];
 
         let (output_path, display_name) =
-            torrent_output_details(temp_dir.path(), Some("metadata-name"), &files);
+            torrent_output_details(temp_dir.path(), Some("metadata-name"), &files, files.len());
 
         assert_eq!(output_path, root);
         assert_eq!(display_name.as_deref(), Some("20260614_bundle"));
@@ -2307,7 +2338,7 @@ mod tests {
         let files = vec![PathBuf::from("video.mp4"), PathBuf::from("readme.txt")];
 
         let (output_path, display_name) =
-            torrent_output_details(temp_dir.path(), Some("loose-files"), &files);
+            torrent_output_details(temp_dir.path(), Some("loose-files"), &files, files.len());
 
         assert_eq!(output_path, temp_dir.path());
         assert_eq!(display_name.as_deref(), Some("loose-files"));
@@ -2321,7 +2352,7 @@ mod tests {
         let files = vec![PathBuf::from("video.mp4"), PathBuf::from("readme.txt")];
 
         let (output_path, display_name) =
-            torrent_output_details(temp_dir.path(), Some("loose-files"), &files);
+            torrent_output_details(temp_dir.path(), Some("loose-files"), &files, files.len());
 
         assert_eq!(output_path, metadata_dir);
         assert_eq!(display_name.as_deref(), Some("loose-files"));
