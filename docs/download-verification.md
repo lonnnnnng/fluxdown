@@ -68,8 +68,11 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 检查项 | 结果 |
 | --- | --- |
 | `cargo fmt --check` | 通过：Rust 代码格式已校验。 |
-| `cargo clippy -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop --all-targets -- -D warnings` | 通过：已修复 HTTP Range/FTP 内部参数结构、队列进度暂停判断、路径参数类型、HLS 辅助函数位置、ed2k 测试 PATH 锁和桌面端嵌套判断等 Clippy 门禁问题。 |
-| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 19、core 48、desktop 20。 |
+| `cargo clippy -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop --all-targets -- -D warnings` | 通过：严格 Clippy 通过；覆盖既有队列/协议修复，以及本轮 URL 脱敏、CLI 错误包装和桌面展示改动。 |
+| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：补充 URL 凭据脱敏后重新验证，CLI 单元 1、CLI 集成 20、core 50、desktop 20，desktop 另有 5 个需 live fixture 的 ignored 用例。 |
+| `cargo test -p fluxdown-core task::tests::redacts -- --nocapture` | 通过：验证任务展示副本会隐藏 URL 用户名和密码，也会处理嵌套 gateway URL。 |
+| `cargo test -p fluxdown-cli queue_commands_redact_url_credentials_from_json_output -- --nocapture` | 通过：验证 CLI `add/list` JSON 输出隐藏 `ftp://user:p%40ss@...` 凭据，同时队列文件仍保存原始链接用于真实下载。 |
+| `npm --workspace apps/desktop run build` | 通过：桌面前端属性弹框、任务错误和 toast 错误脱敏改动完成 TypeScript 编译和 Vite 构建。 |
 | `npm run verify:macos` | 通过：当前 macOS 非 GUI 总验收入口，串起 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、`npm run verify:macos-cli-release`、`npm run verify:macos-desktop-command` 和 `npm run verify:ci-config`。 |
 | `cargo clippy -p fluxdown-cli --all-targets -- -D warnings` | 通过：修复 release CLI 不支持 `--version` 的基础可用性问题后，CLI 专项 Clippy 通过。 |
 | `cargo test -p fluxdown-cli` | 通过：CLI 单元 1、CLI 集成 19。 |

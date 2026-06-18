@@ -807,6 +807,60 @@ fn queue_commands_add_list_and_run_http_task() {
 }
 
 #[test]
+fn queue_commands_redact_url_credentials_from_json_output() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let downloads_dir = temp_dir.path().join("downloads");
+    let source = "ftp://user:p%40ss@example.com/private/file.bin";
+
+    let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "add",
+            source,
+            "--output",
+            downloads_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        add_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&add_output.stderr)
+    );
+    let add_stdout = String::from_utf8_lossy(&add_output.stdout);
+    let added: Value = serde_json::from_str(&add_stdout).unwrap();
+    assert_eq!(
+        added["source"],
+        "ftp://***:***@example.com/private/file.bin"
+    );
+    assert!(!add_stdout.contains("user"));
+    assert!(!add_stdout.contains("p%40ss"));
+
+    let list_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "list"])
+        .output()
+        .unwrap();
+    assert!(
+        list_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&list_output.stderr)
+    );
+    let list_stdout = String::from_utf8_lossy(&list_output.stdout);
+    let listed: Value = serde_json::from_str(&list_stdout).unwrap();
+    assert_eq!(
+        listed[0]["source"],
+        "ftp://***:***@example.com/private/file.bin"
+    );
+    assert!(!list_stdout.contains("user"));
+    assert!(!list_stdout.contains("p%40ss"));
+
+    let raw_store = std::fs::read_to_string(&store_path).unwrap();
+    assert!(raw_store.contains(source));
+}
+
+#[test]
 fn queue_run_defaults_to_single_concurrent_task() {
     let payload = vec![b's'; 128 * 1024];
     let active = Arc::new(AtomicUsize::new(0));

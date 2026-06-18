@@ -33,6 +33,31 @@ pub struct QueueRunReport {
     pub tasks: Vec<DownloadTask>,
 }
 
+impl TaskRunReport {
+    pub fn redacted_for_display(&self) -> Self {
+        Self {
+            task: self.task.redacted_for_display(),
+            summary: self.summary.clone(),
+        }
+    }
+}
+
+impl QueueRunReport {
+    pub fn redacted_for_display(&self) -> Self {
+        Self {
+            total_queued: self.total_queued,
+            started: self.started,
+            finished: self.finished,
+            failed: self.failed,
+            tasks: self
+                .tasks
+                .iter()
+                .map(DownloadTask::redacted_for_display)
+                .collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct QueueRunnerOptions {
     pub retry_attempts: usize,

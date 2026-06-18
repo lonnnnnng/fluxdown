@@ -1,6 +1,7 @@
 use crate::{Protocol, SupportStatus, detect_protocol, support_status};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use url::Url;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +150,90 @@ impl DownloadTask {
         self.finished_at_ms = None;
         self.updated_at_ms = now_ms();
     }
+
+    pub fn redacted_for_display(&self) -> Self {
+        let mut task = self.clone();
+        task.source = redact_url_credentials(&task.source);
+        task.error = task.error.as_deref().map(redact_url_credentials_in_text);
+        task
+    }
+}
+
+pub fn redact_url_credentials(source: &str) -> String {
+    let Ok(mut url) = Url::parse(source) else {
+        return source.to_string();
+    };
+    let mut changed = redact_url_userinfo(&mut url);
+
+    let query_pairs = url
+        .query_pairs()
+        .map(|(key, value)| {
+            let redacted_value = redact_url_credentials(&value);
+            if redacted_value != value {
+                changed = true;
+            }
+            (key.into_owned(), redacted_value)
+        })
+        .collect::<Vec<_>>();
+
+    if changed && !query_pairs.is_empty() {
+        url.query_pairs_mut().clear().extend_pairs(query_pairs);
+    }
+
+    if changed {
+        url.to_string()
+    } else {
+        source.to_string()
+    }
+}
+
+pub fn redact_url_credentials_in_text(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut index = 0;
+
+    while let Some(relative_scheme) = text[index..].find("://") {
+        let scheme_index = index + relative_scheme;
+        let start = text[..scheme_index]
+            .rfind(|character: char| character.is_whitespace() || "\"'`(<[".contains(character))
+            .map(|position| position + 1)
+            .unwrap_or(0);
+        let end = text[scheme_index..]
+            .find(|character: char| character.is_whitespace() || "\"'`)>]".contains(character))
+            .map(|position| scheme_index + position)
+            .unwrap_or(text.len());
+
+        output.push_str(&text[index..start]);
+
+        let candidate = &text[start..end];
+        let trimmed_end = candidate
+            .trim_end_matches(|character: char| ".,;:".contains(character))
+            .len();
+        let (url_candidate, suffix) = candidate.split_at(trimmed_end);
+        output.push_str(&redact_url_credentials(url_candidate));
+        output.push_str(suffix);
+        index = end;
+    }
+
+    output.push_str(&text[index..]);
+    output
+}
+
+fn redact_url_userinfo(url: &mut Url) -> bool {
+    let has_username = !url.username().is_empty();
+    let has_password = url.password().is_some();
+    if !has_username && !has_password {
+        return false;
+    }
+
+    // 作者: long
+    // 展示层只需要定位下载来源，用户名和密码都属于凭据，统一替换成占位符避免 CLI/GUI 输出泄漏。
+    let _ = url.set_username("***");
+    if has_password {
+        let _ = url.set_password(Some("***"));
+    } else {
+        let _ = url.set_password(None);
+    }
+    true
 }
 
 fn now_ms() -> u128 {
@@ -179,6 +264,45 @@ mod tests {
         assert_eq!(restored.current_speed_bytes_per_second, 0);
         assert_eq!(restored.started_at_ms, None);
         assert_eq!(restored.finished_at_ms, None);
+    }
+
+    #[test]
+    fn redacts_credentials_from_task_display_copy() {
+        let mut task = DownloadTask::from_request(DownloadRequest::new(
+            "sftp://user:p%40ss@example.com/private/file.bin",
+            "/tmp",
+        ));
+        task.fail(
+            "failed to download sftp://user:p%40ss@example.com/private/file.bin: permission denied",
+        );
+
+        let display_task = task.redacted_for_display();
+
+        assert_eq!(
+            display_task.source,
+            "sftp://***:***@example.com/private/file.bin"
+        );
+        assert_eq!(
+            display_task.error.as_deref(),
+            Some(
+                "failed to download sftp://***:***@example.com/private/file.bin: permission denied"
+            )
+        );
+        assert!(task.source.contains("user:p%40ss"));
+    }
+
+    #[test]
+    fn redacts_credentials_from_nested_gateway_urls() {
+        let source = "ipfs://bafy/readme.txt?gateway=https%3A%2F%2Fuser%3Ap%2540ss%40gateway.example.com%2Froot";
+
+        let redacted = redact_url_credentials(source);
+
+        assert_eq!(
+            redacted,
+            "ipfs://bafy/readme.txt?gateway=https%3A%2F%2F***%3A***%40gateway.example.com%2Froot"
+        );
+        assert!(!redacted.contains("user"));
+        assert!(!redacted.contains("p%2540ss"));
     }
 
     #[test]

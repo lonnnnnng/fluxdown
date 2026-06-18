@@ -15,4 +15,7 @@ pub use runner::{
     QueueRunReport, QueueRunner, QueueRunnerError, QueueRunnerOptions, TaskRunReport,
 };
 pub use store::{TaskStore, TaskStoreError, default_store_path};
-pub use task::{DownloadRequest, DownloadState, DownloadTask};
+pub use task::{
+    DownloadRequest, DownloadState, DownloadTask, redact_url_credentials,
+    redact_url_credentials_in_text,
+};

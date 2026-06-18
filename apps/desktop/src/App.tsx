@@ -262,6 +262,52 @@ function suggestedFileName(source: string) {
   }
 }
 
+function displayTaskSource(task: DownloadTask) {
+  return redactCredentials(task.source);
+}
+
+function displayTaskError(task: DownloadTask) {
+  return task.error ? redactCredentialsInText(task.error) : null;
+}
+
+function safeErrorText(error: unknown) {
+  return redactCredentialsInText(String(error));
+}
+
+function redactCredentialsInText(text: string) {
+  return text.replace(/[a-z][a-z0-9+.-]*:\/\/[^\s"'`<>]+/gi, (candidate) => {
+    const match = candidate.match(/^(.+?)([.,;:]+)?$/);
+    if (!match) return redactCredentials(candidate);
+    return `${redactCredentials(match[1])}${match[2] ?? ""}`;
+  });
+}
+
+function redactCredentials(source: string) {
+  try {
+    const url = new URL(source);
+    let changed = false;
+    if (url.username || url.password) {
+      // 作者: long
+      // 属性页和错误提示只用于识别来源，账号密码保留在任务原始数据里用于复制和下载，展示时统一隐藏。
+      url.username = "***";
+      if (url.password) url.password = "***";
+      changed = true;
+    }
+
+    for (const [key, value] of Array.from(url.searchParams.entries())) {
+      const redactedValue = redactCredentials(value);
+      if (redactedValue !== value) {
+        url.searchParams.set(key, redactedValue);
+        changed = true;
+      }
+    }
+
+    return changed ? url.toString() : source;
+  } catch {
+    return source;
+  }
+}
+
 function protocolLabel(protocol: Protocol) {
   return protocol === "unknown" ? "UNKNOWN" : protocol.toUpperCase();
 }
@@ -552,7 +598,7 @@ function App() {
       await invoke("open_task_output", { id: task.id });
       setMessage(`${taskTitle(task)} 已打开`);
     } catch (error) {
-      setMessage(String(error));
+      setMessage(safeErrorText(error));
     } finally {
       setAction("idle");
     }
@@ -564,7 +610,7 @@ function App() {
       await invoke("reveal_task_output", { id: task.id });
       setMessage(message);
     } catch (error) {
-      setMessage(String(error));
+      setMessage(safeErrorText(error));
     } finally {
       setAction("idle");
     }
@@ -603,7 +649,7 @@ function App() {
           : `${taskTitle(report.task)} ${stateLabel(report.task.state)}`,
       );
     } catch (error) {
-      setMessage(String(error));
+      setMessage(safeErrorText(error));
       refreshTasks();
     } finally {
       setAction("idle");
@@ -622,7 +668,7 @@ function App() {
       );
       setMessage(`${taskTitle(task)} 已暂停`);
     } catch (error) {
-      setMessage(String(error));
+      setMessage(safeErrorText(error));
     } finally {
       setAction("idle");
     }
@@ -635,7 +681,7 @@ function App() {
       setTasks((current) => current.filter((item) => item.id !== task.id));
       setMessage(`${taskTitle(task)} 已删除`);
     } catch (error) {
-      setMessage(String(error));
+      setMessage(safeErrorText(error));
     } finally {
       setAction("idle");
     }
@@ -664,7 +710,7 @@ function App() {
         setMessage(`队列完成：${report.finished} 个完成，${report.failed} 个失败`);
       }
     } catch (error) {
-      setMessage(String(error));
+      setMessage(safeErrorText(error));
       // Web preview or unsupported runtime: queued items stay visible.
     } finally {
       setQueueActive(false);
@@ -927,7 +973,7 @@ function TaskRow({
             {formatBytes(task.downloaded_bytes)} / {formatBytes(task.total_bytes)}
           </span>
         </div>
-        {task.error ? <p className="taskError">{task.error}</p> : null}
+        {displayTaskError(task) ? <p className="taskError">{displayTaskError(task)}</p> : null}
       </div>
       <button
         className="moreButton"
@@ -1083,7 +1129,7 @@ function PropertyDialog({
           <dt>文件名</dt>
           <dd>{taskTitle(task)}</dd>
           <dt>下载链接</dt>
-          <dd>{task.source}</dd>
+          <dd>{displayTaskSource(task)}</dd>
           <dt>保存路径</dt>
           <dd>{task.output_dir}</dd>
           <dt>协议</dt>

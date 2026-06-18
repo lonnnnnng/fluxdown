@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use fluxdown_core::{
     DownloadEngine, DownloadOptions, DownloadRequest, DownloadState, QueueRunner,
     QueueRunnerOptions, TaskStore, default_store_path, detect_protocol, doctor_report,
-    runtime_support_status,
+    redact_url_credentials_in_text, runtime_support_status,
 };
 use std::path::PathBuf;
 use std::time::Duration;
@@ -91,7 +91,17 @@ enum Command {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    if let Err(error) = run_cli().await {
+        eprintln!(
+            "Error: {}",
+            redact_url_credentials_in_text(&format!("{error:#}"))
+        );
+        std::process::exit(1);
+    }
+}
+
+async fn run_cli() -> Result<()> {
     let cli = Cli::parse();
     let store = TaskStore::new(cli.store.clone().unwrap_or_else(default_store_path));
 
@@ -132,13 +142,22 @@ async fn main() -> Result<()> {
             let mut request = DownloadRequest::new(source, output);
             request.file_name = name;
             let task = store.enqueue(request).await?;
-            println!("{}", serde_json::to_string_pretty(&task)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&task.redacted_for_display())?
+            );
         }
         Command::List => {
             store
                 .recover_stale_running(STALE_RUNNING_TASK_TIMEOUT)
                 .await?;
-            println!("{}", serde_json::to_string_pretty(&store.list().await?)?);
+            let tasks = store
+                .list()
+                .await?
+                .into_iter()
+                .map(|task| task.redacted_for_display())
+                .collect::<Vec<_>>();
+            println!("{}", serde_json::to_string_pretty(&tasks)?);
         }
         Command::Start {
             id,
@@ -153,7 +172,10 @@ async fn main() -> Result<()> {
                     runner_options(retry_attempts, threads, speed_limit_mbps, restart),
                 )
                 .await?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report.redacted_for_display())?
+            );
         }
         Command::Run {
             concurrency,
@@ -168,19 +190,31 @@ async fn main() -> Result<()> {
                     runner_options(retry_attempts, threads, speed_limit_mbps, restart),
                 )
                 .await?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report.redacted_for_display())?
+            );
         }
         Command::Pause { id } => {
             let task = pause_task(&store, &id).await?;
-            println!("{}", serde_json::to_string_pretty(&task)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&task.redacted_for_display())?
+            );
         }
         Command::Resume { id } => {
             let task = resume_task(&store, &id).await?;
-            println!("{}", serde_json::to_string_pretty(&task)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&task.redacted_for_display())?
+            );
         }
         Command::Remove { id } => {
             let task = store.remove(&id).await?;
-            println!("{}", serde_json::to_string_pretty(&task)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&task.redacted_for_display())?
+            );
         }
     }
 

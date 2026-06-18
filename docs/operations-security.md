@@ -47,11 +47,16 @@ https://user:password@example.com/file.zip
 sftp://user:password@example.com/path/file.zip
 ```
 
-这些信息可能会出现在：
+这些信息仍会保存在队列 JSON 中，因为下载执行、复制原始链接和断点恢复需要使用真实 URL。当前版本已经在以下展示出口做了脱敏：
+
+- CLI 输出。
+- CLI 顶层错误。
+- 桌面属性页。
+- 桌面任务错误和 toast 错误。
+
+这些信息仍可能会出现在：
 
 - 队列 JSON。
-- CLI 输出。
-- 错误信息。
 - Shell 历史。
 - 用户主动上传的日志或截图。
 
@@ -60,7 +65,7 @@ sftp://user:password@example.com/path/file.zip
 - 避免在共享机器或共享队列文件中使用明文凭据 URL。
 - 对临时 token 设置短有效期。
 - 不要把队列 JSON 直接贴到 issue、日志或聊天工具中。
-- 后续版本应考虑引入 OS keychain、凭据引用和日志脱敏。
+- 后续版本应考虑引入 OS keychain、凭据引用和更完整的日志脱敏。
 
 ## 文件系统权限
 
