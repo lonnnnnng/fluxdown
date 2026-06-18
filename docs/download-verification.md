@@ -68,10 +68,12 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 检查项 | 结果 |
 | --- | --- |
 | `cargo fmt --check` | 通过：Rust 代码格式已校验。 |
-| `cargo clippy -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop --all-targets -- -D warnings` | 通过：严格 Clippy 通过；覆盖既有队列/协议修复，以及本轮 URL 脱敏、CLI 错误包装和桌面展示改动。 |
-| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：补充 URL 凭据脱敏后重新验证，CLI 单元 1、CLI 集成 20、core 50、desktop 20，desktop 另有 5 个需 live fixture 的 ignored 用例。 |
+| `cargo clippy -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop --all-targets -- -D warnings` | 通过：严格 Clippy 通过；覆盖既有队列/协议修复、URL 脱敏、CLI 错误包装、桌面展示改动，以及本轮平台原生队列路径改动。 |
+| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：补充平台原生队列路径后重新验证，CLI 单元 1、CLI 集成 20、core 53、desktop 20，desktop 另有 5 个需 live fixture 的 ignored 用例。 |
 | `cargo test -p fluxdown-core task::tests::redacts -- --nocapture` | 通过：验证任务展示副本会隐藏 URL 用户名和密码，也会处理嵌套 gateway URL。 |
 | `cargo test -p fluxdown-cli queue_commands_redact_url_credentials_from_json_output -- --nocapture` | 通过：验证 CLI `add/list` JSON 输出隐藏 `ftp://user:p%40ss@...` 凭据，同时队列文件仍保存原始链接用于真实下载。 |
+| `cargo test -p fluxdown-core store::tests:: -- --nocapture` | 通过：验证 `XDG_DATA_HOME` 显式覆盖、macOS 默认使用 `~/Library/Application Support/FluxDown/queue.json`，以及新路径缺失时读取旧版 `~/.local/share/fluxdown/queue.json` 并在写入时迁移。 |
+| `cargo build -p fluxdown-cli` + 临时 `HOME` 手动 CLI `add` | 通过：在隔离 `HOME=/tmp/fluxdown-native-path.../home` 且空 `XDG_DATA_HOME` 下执行 `./target/debug/fluxdown add`，队列写入 `home/Library/Application Support/FluxDown/queue.json`，确认 macOS 默认路径不再落到相对目录或旧 Unix 路径。 |
 | `npm --workspace apps/desktop run build` | 通过：桌面前端属性弹框、任务错误和 toast 错误脱敏改动完成 TypeScript 编译和 Vite 构建。 |
 | `npm run verify:macos` | 通过：当前 macOS 非 GUI 总验收入口，串起 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、`npm run verify:macos-cli-release`、`npm run verify:macos-desktop-command` 和 `npm run verify:ci-config`。 |
 | `cargo clippy -p fluxdown-cli --all-targets -- -D warnings` | 通过：修复 release CLI 不支持 `--version` 的基础可用性问题后，CLI 专项 Clippy 通过。 |

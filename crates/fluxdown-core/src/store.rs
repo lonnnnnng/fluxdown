@@ -163,15 +163,15 @@ impl TaskStore {
 
     async fn read_file(&self) -> Result<TaskStoreFile, TaskStoreError> {
         if !self.path.exists() {
+            if let Some(legacy_path) = legacy_default_store_path_for(&self.path)
+                && legacy_path.exists()
+            {
+                return read_store_file(&legacy_path).await;
+            }
             return Ok(TaskStoreFile::default());
         }
 
-        let bytes = fs::read(&self.path).await?;
-        if bytes.is_empty() {
-            return Ok(TaskStoreFile::default());
-        }
-
-        Ok(serde_json::from_slice(&bytes)?)
+        read_store_file(&self.path).await
     }
 
     async fn write_file(&self, file: &TaskStoreFile) -> Result<(), TaskStoreError> {
@@ -210,16 +210,142 @@ fn now_ms() -> u128 {
 }
 
 pub fn default_store_path() -> PathBuf {
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+    default_store_path_from_env(
+        env_path("XDG_DATA_HOME"),
+        env_path("HOME"),
+        env_path("APPDATA"),
+    )
+}
+
+async fn read_store_file(path: &Path) -> Result<TaskStoreFile, TaskStoreError> {
+    let bytes = fs::read(path).await?;
+    if bytes.is_empty() {
+        return Ok(TaskStoreFile::default());
+    }
+
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+fn default_store_path_from_env(
+    xdg_data_home: Option<PathBuf>,
+    home: Option<PathBuf>,
+    appdata: Option<PathBuf>,
+) -> PathBuf {
+    if let Some(base) = non_empty_path(xdg_data_home) {
+        return base.join("fluxdown").join("queue.json");
+    }
+
+    platform_default_store_path(non_empty_path(home), non_empty_path(appdata))
+}
+
+#[cfg(target_os = "macos")]
+fn platform_default_store_path(home: Option<PathBuf>, _appdata: Option<PathBuf>) -> PathBuf {
+    home.map(|home| {
+        home.join("Library")
+            .join("Application Support")
+            .join("FluxDown")
+            .join("queue.json")
+    })
+    .unwrap_or_else(|| PathBuf::from(".").join("fluxdown").join("queue.json"))
+}
+
+#[cfg(target_os = "windows")]
+fn platform_default_store_path(home: Option<PathBuf>, appdata: Option<PathBuf>) -> PathBuf {
+    appdata
+        .or_else(|| home.map(|home| home.join("AppData").join("Roaming")))
+        .map(|base| base.join("FluxDown").join("queue.json"))
+        .unwrap_or_else(|| PathBuf::from(".").join("fluxdown").join("queue.json"))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn platform_default_store_path(home: Option<PathBuf>, _appdata: Option<PathBuf>) -> PathBuf {
+    let base = home
+        .map(|home| home.join(".local/share"))
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("fluxdown").join("queue.json")
+}
+
+fn legacy_default_store_path_for(path: &Path) -> Option<PathBuf> {
+    if env_path("XDG_DATA_HOME").is_some() {
+        return None;
+    }
+    let legacy_path = legacy_unix_default_store_path()?;
+    if path == legacy_path {
+        return None;
+    }
+    if path == default_store_path() {
+        Some(legacy_path)
+    } else {
+        None
+    }
+}
+
+fn legacy_unix_default_store_path() -> Option<PathBuf> {
+    env_path("HOME").map(|home| {
+        home.join(".local/share")
+            .join("fluxdown")
+            .join("queue.json")
+    })
+}
+
+fn env_path(key: &str) -> Option<PathBuf> {
+    std::env::var_os(key)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+fn non_empty_path(path: Option<PathBuf>) -> Option<PathBuf> {
+    path.filter(|path| !path.as_os_str().is_empty())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
+
+    static STORE_ENV_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+        LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+    struct EnvVarGuard {
+        key: &'static str,
+        old_value: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let old_value = std::env::var_os(key);
+            // 作者: long
+            // 默认队列路径依赖进程环境变量；测试用临时 HOME/XDG 隔离真实用户队列，避免迁移逻辑读写本机数据。
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, old_value }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let old_value = std::env::var_os(key);
+            // 作者: long
+            // XDG 显式覆盖会关闭旧路径迁移；测试迁移时必须临时移除它，才能验证 macOS 原生路径兼容旧队列。
+            unsafe {
+                std::env::remove_var(key);
+            }
+            Self { key, old_value }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            // 作者: long
+            // 环境变量是进程级状态，恢复原值能避免并行测试之间互相污染默认路径。
+            unsafe {
+                if let Some(old_value) = &self.old_value {
+                    std::env::set_var(self.key, old_value);
+                } else {
+                    std::env::remove_var(self.key);
+                }
+            }
+        }
+    }
 
     #[tokio::test]
     async fn persists_tasks() {
@@ -315,5 +441,92 @@ mod tests {
 
         assert!(recovered.is_empty());
         assert_eq!(persisted.state, DownloadState::Running);
+    }
+
+    #[test]
+    fn xdg_data_home_keeps_explicit_queue_override() {
+        let xdg = PathBuf::from("/tmp/fluxdown-xdg-test");
+        let home = PathBuf::from("/tmp/fluxdown-home-test");
+
+        assert_eq!(
+            default_store_path_from_env(Some(xdg.clone()), Some(home), None),
+            xdg.join("fluxdown").join("queue.json")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn empty_xdg_data_home_falls_back_to_macos_native_path() {
+        let home = PathBuf::from("/Users/example");
+
+        assert_eq!(
+            default_store_path_from_env(Some(PathBuf::new()), Some(home.clone()), None),
+            home.join("Library")
+                .join("Application Support")
+                .join("FluxDown")
+                .join("queue.json")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_default_store_path_uses_application_support() {
+        let home = PathBuf::from("/Users/example");
+
+        assert_eq!(
+            default_store_path_from_env(None, Some(home.clone()), None),
+            home.join("Library")
+                .join("Application Support")
+                .join("FluxDown")
+                .join("queue.json")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn macos_default_store_reads_legacy_unix_queue_when_native_queue_is_missing() {
+        let _guard = STORE_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home = temp_dir.path().join("home");
+        let _home_guard = EnvVarGuard::set("HOME", &home);
+        let _xdg_guard = EnvVarGuard::remove("XDG_DATA_HOME");
+        let _appdata_guard = EnvVarGuard::remove("APPDATA");
+
+        let legacy_path = home
+            .join(".local/share")
+            .join("fluxdown")
+            .join("queue.json");
+        let native_path = home
+            .join("Library")
+            .join("Application Support")
+            .join("FluxDown")
+            .join("queue.json");
+        let legacy_store = TaskStore::new(&legacy_path);
+        let legacy_task = legacy_store
+            .enqueue(DownloadRequest::new(
+                "https://example.com/legacy.bin",
+                "/tmp",
+            ))
+            .await
+            .unwrap();
+
+        let default_store = TaskStore::new(default_store_path());
+
+        let tasks = default_store.list().await.unwrap();
+        assert_eq!(default_store.path(), native_path.as_path());
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, legacy_task.id);
+        assert!(!native_path.exists());
+
+        default_store
+            .enqueue(DownloadRequest::new(
+                "https://example.com/native.bin",
+                "/tmp",
+            ))
+            .await
+            .unwrap();
+
+        assert!(native_path.exists());
+        assert_eq!(default_store.list().await.unwrap().len(), 2);
     }
 }

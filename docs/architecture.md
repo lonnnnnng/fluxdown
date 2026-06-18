@@ -77,12 +77,12 @@ flowchart TD
 
 `crates/fluxdown-core/src/store.rs` 使用本地 JSON 文件保存桌面队列：
 
-- 默认路径：`$XDG_DATA_HOME/fluxdown/queue.json`，未设置时使用 `~/.local/share/fluxdown/queue.json`，再退回当前目录。
+- macOS 默认路径：未设置 `XDG_DATA_HOME` 时使用 `~/Library/Application Support/FluxDown/queue.json`；如果新路径不存在且旧版 `~/.local/share/fluxdown/queue.json` 存在，会先读取旧队列并在下一次写入时迁移到新路径。
+- Windows 默认路径：优先使用 `%APPDATA%/FluxDown/queue.json`，再退回用户目录下的 `AppData/Roaming/FluxDown/queue.json`。
+- Linux / 其他 Unix 默认路径：`$XDG_DATA_HOME/fluxdown/queue.json`，未设置时使用 `~/.local/share/fluxdown/queue.json`，再退回当前目录。
 - 写入方式：先写临时文件，再原子替换目标文件。
 - 进程内写锁：避免同一进程内并发写入打坏 JSON。
 - CLI 可通过 `--store /path/to/queue.json` 覆盖默认路径。
-
-注意：默认路径使用 Unix 风格环境变量；Windows 运行时仍可使用 `--store` 明确指定队列文件。后续可以改为平台原生数据目录。
 
 ### 队列运行器
 

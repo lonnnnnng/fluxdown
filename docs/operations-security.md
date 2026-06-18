@@ -9,12 +9,12 @@ FluxDown 当前是本地优先产品，没有服务端账号和云同步。
 桌面队列文件默认路径：
 
 ```text
-$XDG_DATA_HOME/fluxdown/queue.json
-~/.local/share/fluxdown/queue.json
-./fluxdown/queue.json
+macOS: ~/Library/Application Support/FluxDown/queue.json
+Windows: %APPDATA%/FluxDown/queue.json
+Linux/Unix: $XDG_DATA_HOME/fluxdown/queue.json 或 ~/.local/share/fluxdown/queue.json
 ```
 
-优先级由运行时环境决定。CLI 可以通过 `--store` 指定队列文件：
+`XDG_DATA_HOME` 可显式覆盖桌面/CLI 默认队列位置；CLI 也可以通过 `--store` 指定队列文件。macOS 上如果新默认路径不存在但旧版 `~/.local/share/fluxdown/queue.json` 存在，会先读取旧队列，并在下一次写入时迁移到 `~/Library/Application Support/FluxDown/queue.json`。
 
 ```sh
 fluxdown --store /path/to/queue.json list

@@ -35,6 +35,7 @@ FluxDown 是一个跨平台下载器工作区：
 - 下载执行逻辑接入并发排队、线程数、失败重试和可选限速配置。
 - Torrent/Magnet 在获取 metadata 后使用真实文件名；多文件资源会让用户选择要下载的文件。
 - CLI JSON 输出、命令错误、桌面属性页和任务错误展示会脱敏 URL 用户名和密码，原始链接仍保留用于下载和复制。
+- 桌面队列默认使用平台原生数据目录，macOS 会从旧版 `~/.local/share/fluxdown/queue.json` 兼容迁移到 `~/Library/Application Support/FluxDown/queue.json`。
 - Android 真机已补充本地协议资源和媒体级 HLS/torrent/magnet 前台 App 验证报告。
 - macOS CLI 已补充本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证，也覆盖限速、重试、暂停继续和并发排队；macOS GUI 已补充构建、启动、基础渲染、纯 GUI HTTP/HLS/Torrent/Magnet 下载闭环和 Tauri command 级 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 下载验证，剩余纯 GUI 协议点击验证当前阶段暂缓。
 - 当前阶段跳过剩余前台 GUI 点击验证，不再占用本机桌面；后续验证优先推进非 GUI 脚本化检查、文档和发布合规收口。
