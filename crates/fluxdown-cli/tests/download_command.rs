@@ -48,6 +48,19 @@ fn list_task(store_path: &std::path::Path, task_id: &str) -> Value {
         .unwrap_or_else(|| panic!("task {task_id} not found in list output"))
 }
 
+fn list_tasks(store_path: &std::path::Path) -> Value {
+    let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "list"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
 fn wait_for_running_progress(store_path: &std::path::Path, task_id: &str) -> Value {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -399,6 +412,107 @@ fn queue_commands_add_list_and_run_http_task() {
     let after_invalid_transition: Value =
         serde_json::from_slice(&after_invalid_transition_output.stdout).unwrap();
     assert_eq!(after_invalid_transition[0]["state"], "finished");
+}
+
+#[test]
+fn queue_run_can_remove_running_task_from_separate_cli_process() {
+    let payload = vec![b'z'; 512 * 1024];
+    let total_bytes = payload.len() as u64;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0; 2048];
+        let _ = stream.read(&mut buffer).unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            payload.len()
+        );
+        if stream.write_all(response.as_bytes()).is_err() {
+            return;
+        }
+        for chunk in payload.chunks(16 * 1024) {
+            if stream.write_all(chunk).is_err() {
+                break;
+            }
+        }
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let downloads_dir = temp_dir.path().join("downloads");
+    let source = format!("http://{address}/delete-running.bin");
+    let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "add",
+            &source,
+            "--output",
+            downloads_dir.to_str().unwrap(),
+            "--name",
+            "delete-running.bin",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        add_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&add_output.stderr)
+    );
+    let added: Value = serde_json::from_slice(&add_output.stdout).unwrap();
+    let task_id = added["id"].as_str().unwrap().to_string();
+
+    let run_child = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "run",
+            "--concurrency",
+            "1",
+            "--speed-limit-mbps",
+            "0.05",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let running = wait_for_running_progress(&store_path, &task_id);
+    assert!(running["downloaded_bytes"].as_u64().unwrap() < total_bytes);
+
+    let remove_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "remove", &task_id])
+        .output()
+        .unwrap();
+    assert!(
+        remove_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&remove_output.stderr)
+    );
+    let removed: Value = serde_json::from_slice(&remove_output.stdout).unwrap();
+    assert_eq!(removed["id"], task_id);
+    assert_eq!(removed["state"], "running");
+
+    let run_output = wait_for_cli_output(run_child, Duration::from_secs(5));
+    server.join().unwrap();
+    assert!(
+        run_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&run_output.stdout).unwrap();
+    assert_eq!(report["started"], 1);
+    assert_eq!(report["finished"], 0);
+    assert_eq!(report["failed"], 0);
+    assert_eq!(report["tasks"][0]["id"], task_id);
+    assert_eq!(report["tasks"][0]["state"], "paused");
+
+    let final_tasks = list_tasks(&store_path);
+    assert!(
+        final_tasks.as_array().unwrap().is_empty(),
+        "removed running task should not be restored to the queue: {final_tasks}"
+    );
 }
 
 #[test]

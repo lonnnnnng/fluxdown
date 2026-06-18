@@ -13,7 +13,7 @@
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
 | --- | --- | --- |
-| 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS、自定义 IPFS gateway、限速、失败重试、暂停继续和并发排队均已验证。 | 部分完成 |
+| 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS、自定义 IPFS gateway、限速、失败重试、暂停继续、运行中删除和并发排队均已验证。 | 部分完成 |
 | macOS GUI | 已完成 Tauri `.app` 构建、本地启动、窗口渲染、设置/任务操作 Tauri command 回归测试，以及 Tauri command 级 HTTP 队列真实下载。Computer Use/AppleScript 鼠标自动化会触发 macOS “允许 Codex 控制其他 App”权限弹窗，`tauri-driver` 在本机 macOS 返回 `not supported on this platform`，尚未完成纯 GUI 点击创建任务并下载的闭环。 | 部分完成 |
 | Windows GUI | 已有 CI/Docker 构建产物和 artifact 检查。没有在 Windows 上安装或运行 GUI 完成下载验证。 | 未完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
@@ -24,7 +24,7 @@
 
 | 协议/能力 | 当前验证情况 | 备注 |
 | --- | --- | --- |
-| HTTP/HTTPS | CLI 和核心层有本地下载验证；2026-06-18 macOS CLI 已验证直接下载、队列下载、限速、失败重试、暂停继续、并发排队，以及本地自签 HTTPS opt-in。 | 证据最充分。 |
+| HTTP/HTTPS | CLI 和核心层有本地下载验证；2026-06-18 macOS CLI 已验证直接下载、队列下载、限速、失败重试、暂停继续、运行中删除、并发排队，以及本地自签 HTTPS opt-in。 | 证据最充分。 |
 | WebDAV/WebDAVS | 核心层验证了 URL 到 HTTP/HTTPS 传输的映射；2026-06-18 macOS CLI 已验证公网 WebDAVS transport 和本地自签 WebDAVS transport。 | 仍未覆盖完整 WebDAV 方法，例如 PROPFIND/目录遍历。 |
 | m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片和 master playlist 首个变体；Android 真机和 macOS CLI 均已验证媒体级 HLS 可生成最终 `.mp4`。 | 仍需要更多公网和边界 playlist 验证。 |
 | FTP/FTPS | 2026-06-18 macOS CLI 已验证公网 FTP 和本地自签 FTPS 下载闭环。 | Rebex 公网 FTPS 仍失败，错误为 `InvalidContentType`；本地可控 FTPS fixture 已通过。 |
@@ -64,7 +64,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 
 | 检查项 | 结果 |
 | --- | --- |
-| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 10、core 47、desktop 12。 |
+| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 11、core 47、desktop 12。 |
 | `cargo build -p fluxdown-cli --release` | 通过，生成 `target/release/fluxdown`。 |
 | `npm --workspace apps/desktop run build` | 通过。 |
 | `npm run desktop:build` | 通过，生成 `target/release/bundle/macos/FluxDown.app`。 |
@@ -84,6 +84,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 失败重试 | 404 源，`--retry-attempts 2` | 通过，服务端看到 3 次请求，任务最终 `failed` 并记录 404 错误。 |
 | 暂停/继续 | `seg_00047.ts` 限速下载中暂停，再 `resume` 和 `run` | 通过，暂停时 partial 文件约 0.9 MB，恢复后完成，SHA-256 与源文件一致。 |
 | CLI 跨进程暂停/恢复 | 一个 CLI 进程执行 `run --speed-limit-mbps 0.05`，另一个 CLI 进程执行 `pause <id>`，随后 `resume <id>` 并再次 `run` | 通过，运行中任务先变为 `paused` 并保留 partial 文件和已下载进度；恢复后通过 HTTP Range 续传完成，最终文件内容匹配源数据。 |
+| CLI 跨进程删除运行中任务 | 一个 CLI 进程执行 `run --speed-limit-mbps 0.05`，另一个 CLI 进程执行 `remove <id>` | 通过，`run` 成功退出，任务不会被下载协程重新写回队列，最终 `list` 为空。 |
 | 并发排队 | 两个约 4.5 MB 文件，`--speed-limit-mbps 1` | 通过，并发 1 耗时约 9 秒且串行开始；并发 2 耗时约 5 秒且同时开始。 |
 | 公网 WebDAVS transport | `webdavs://cloudflare.com/cdn-cgi/trace` | 通过，输出 `196` bytes，内容包含 `ip=`，SHA-256 为 `74008f0b855c810153841264bdc2136ce5fda697c658876c8932994b78a6727c`。 |
 | 公网 FTP | `ftp://demo:password@test.rebex.net/readme.txt` | 通过，输出 `379` bytes，SHA-256 为 `b004de45d8a133e9713a369f9c912237e8ad35dd9140c0279d27bada067797f4`。 |
@@ -102,7 +103,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 本地 `.app` 构建 | 通过，`target/release/bundle/macos/FluxDown.app` 生成。 |
 | 启动和窗口 | 通过，`FluxDown` 前台窗口尺寸约 `1180x760`，bundle id `dev.fluxdown.desktop`，版本 `1.0.2`。 |
 | UI 渲染 | 通过，截图确认中文下载列表、状态 tabs、设置入口和右下角新建按钮正常显示。 |
-| Tauri command 回归 | 通过，桌面测试覆盖任务输出路径、HLS 输出路径、暂停/恢复边界、手动启动并发约束、并发 1-30 / 线程 1-32 / 重试 0-10 / 限速的设置边界、保存路径解析，以及 `enqueue_download -> list_downloads -> run_queue -> list_downloads` 的 HTTP、WebDAV transport 和自定义 IPFS gateway 真实下载闭环。HTTP command 用例还覆盖 `task_output_path` 和 `remove_download`：删除任务会移出队列，但不会误删已下载文件。 |
+| Tauri command 回归 | 通过，桌面测试覆盖任务输出路径、HLS 输出路径、暂停/恢复边界、手动启动并发约束、并发 1-30 / 线程 1-32 / 重试 0-10 / 限速的设置边界、保存路径解析，以及 `enqueue_download -> list_downloads -> run_queue -> list_downloads` 的 HTTP、WebDAV transport 和自定义 IPFS gateway 真实下载闭环。HTTP command 用例还覆盖 `task_output_path` 和 `remove_download`：删除任务会移出队列，但不会误删已下载文件；核心 runner 也覆盖运行中删除后不复活任务。 |
 | Tauri command HTTP 下载 | 通过，测试启动临时 HTTP fixture，隔离 `XDG_DATA_HOME` 队列路径，创建任务、运行队列并校验 `desktop-command.txt` 内容为 `fluxdown-desktop-command-e2e`。 |
 | Tauri command WebDAV 下载 | 通过，测试将 `webdav://` 映射到临时 HTTP fixture，校验实际请求路径和输出 `desktop-webdav.txt` 内容。 |
 | Tauri command IPFS gateway 下载 | 通过，测试将 `ipfs://...?...gateway=` 映射到临时 gateway fixture，校验实际请求 `/ipfs/<cid>/readme.txt` 和输出 `desktop-ipfs.txt` 内容。 |

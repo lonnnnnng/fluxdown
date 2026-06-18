@@ -343,10 +343,14 @@ async fn run_one(
     cancel_task.abort();
 
     let _guard = write_lock.lock().await;
-    Ok(TaskRunReport {
-        task: store.update(task).await?,
-        summary,
-    })
+    // 作者: long
+    // 用户删除运行中任务时，删除动作本身就是取消并移出队列；下载协程收尾不能把任务重新写回，也不能让队列运行因为 NotFound 失败。
+    let task = match store.update(task.clone()).await {
+        Ok(task) => task,
+        Err(TaskStoreError::NotFound(_)) => task,
+        Err(error) => return Err(error.into()),
+    };
+    Ok(TaskRunReport { task, summary })
 }
 
 async fn partial_file_size(task: &DownloadTask) -> Option<u64> {
