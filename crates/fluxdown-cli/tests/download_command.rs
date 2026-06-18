@@ -535,6 +535,87 @@ fn queue_commands_add_list_and_run_http_task() {
 }
 
 #[test]
+fn queue_run_defaults_to_single_concurrent_task() {
+    let payload = vec![b's'; 128 * 1024];
+    let active = Arc::new(AtomicUsize::new(0));
+    let max_active = Arc::new(AtomicUsize::new(0));
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server_active = Arc::clone(&active);
+    let server_max_active = Arc::clone(&max_active);
+    let server = thread::spawn(move || {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let active = Arc::clone(&server_active);
+            let max_active = Arc::clone(&server_max_active);
+            let payload = payload.clone();
+            thread::spawn(move || {
+                let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                max_active.fetch_max(current, Ordering::SeqCst);
+                let mut buffer = [0; 2048];
+                let _ = stream.read(&mut buffer).unwrap();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    payload.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+                for (index, chunk) in payload.chunks(16 * 1024).enumerate() {
+                    if index + 1 == payload.len().div_ceil(16 * 1024) {
+                        active.fetch_sub(1, Ordering::SeqCst);
+                    }
+                    if stream.write_all(chunk).is_err() {
+                        break;
+                    }
+                    let _ = stream.flush();
+                    thread::sleep(Duration::from_millis(20));
+                }
+            });
+        }
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let downloads_dir = temp_dir.path().join("downloads");
+    for index in 0..2 {
+        let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+            .args([
+                "--store",
+                store_path.to_str().unwrap(),
+                "add",
+                &format!("http://{address}/default-{index}.bin"),
+                "--output",
+                downloads_dir.to_str().unwrap(),
+                "--name",
+                &format!("default-{index}.bin"),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            add_output.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&add_output.stderr)
+        );
+    }
+
+    let run_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "run"])
+        .output()
+        .unwrap();
+
+    server.join().unwrap();
+    assert!(
+        run_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&run_output.stdout).unwrap();
+    assert_eq!(report["total_queued"], 2);
+    assert_eq!(report["started"], 2);
+    assert_eq!(report["finished"], 2);
+    assert_eq!(max_active.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn queue_run_can_remove_running_task_from_separate_cli_process() {
     let payload = vec![b'z'; 512 * 1024];
     let total_bytes = payload.len() as u64;

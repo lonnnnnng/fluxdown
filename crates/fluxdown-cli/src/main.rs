@@ -10,6 +10,7 @@ use std::time::Duration;
 
 const MIN_CONCURRENCY: usize = 1;
 const MAX_CONCURRENCY: usize = 30;
+const DEFAULT_CONCURRENCY: usize = 1;
 const MAX_RETRY_ATTEMPTS: usize = 10;
 const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
@@ -65,7 +66,7 @@ enum Command {
         speed_limit_mbps: Option<f64>,
     },
     Run {
-        #[arg(short, long, default_value_t = 2)]
+        #[arg(short, long, default_value_t = DEFAULT_CONCURRENCY)]
         concurrency: usize,
         #[arg(long, default_value_t = 0)]
         retry_attempts: usize,
@@ -257,6 +258,7 @@ mod tests {
     fn cli_queue_limits_match_product_settings() {
         let options = runner_options(99, 99, Some(-1.0), false);
 
+        assert_eq!(DEFAULT_CONCURRENCY, 1);
         assert_eq!(clamp_concurrency(0), 1);
         assert_eq!(clamp_concurrency(31), 30);
         assert_eq!(options.retry_attempts, 10);
