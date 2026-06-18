@@ -1,6 +1,6 @@
 # 下载验证状态
 
-截至 2026-06-18，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证，macOS CLI 已补充可重复脚本化 HTTP/HLS/SFTP/SMB/Torrent/Magnet、本地 HTTP/HLS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证，macOS GUI 已完成本地构建、启动、基础界面渲染和 Tauri command 级真实 HTTP/HLS/WebDAV/FTP/SFTP/SMB/IPFS/Torrent/Magnet 下载验证。
+截至 2026-06-18，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证，macOS CLI 已补充可重复脚本化 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证，macOS GUI 已完成本地构建、启动、基础界面渲染和 Tauri command 级真实 HTTP/HLS/WebDAV/FTP/SFTP/SMB/IPFS/Torrent/Magnet 下载验证。
 
 本页用于区分两类容易混淆的结论：
 
@@ -13,7 +13,7 @@
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
 | --- | --- | --- |
-| 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS、自定义 IPFS gateway、限速、失败重试、暂停继续、运行中删除和并发排队均已验证；其中小体积 SFTP/SMB/Torrent/Magnet 已补充可重复脚本化验证。 | 部分完成 |
+| 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS、自定义 IPFS gateway、限速、失败重试、暂停继续、运行中删除和并发排队均已验证；其中小体积 FTP/FTPS/SFTP/SMB/Torrent/Magnet 已补充可重复脚本化验证。 | 部分完成 |
 | macOS GUI | 已完成 Tauri `.app` 构建、本地启动、窗口渲染、设置/任务操作 Tauri command 回归测试，以及 Tauri command 级 HTTP/HLS/WebDAV/FTP/SFTP/SMB/IPFS/Torrent/Magnet 单任务真实下载和队列真实下载。Computer Use/AppleScript 鼠标自动化会触发 macOS “允许 Codex 控制其他 App”权限弹窗，`tauri-driver` 在本机 macOS 返回 `not supported on this platform`，尚未完成纯 GUI 点击创建任务并下载的闭环。 | 部分完成 |
 | Windows GUI | 已有 CI/Docker 构建产物和 artifact 检查。没有在 Windows 上安装或运行 GUI 完成下载验证。 | 未完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
@@ -27,7 +27,7 @@
 | HTTP/HTTPS | CLI 和核心层有本地下载验证；2026-06-18 macOS CLI 已验证直接下载、队列下载、限速、失败重试、暂停继续、运行中删除、并发排队，以及本地自签 HTTPS opt-in。 | 证据最充分。 |
 | WebDAV/WebDAVS | 核心层验证了 URL 到 HTTP/HTTPS 传输的映射；2026-06-18 macOS CLI 已验证公网 WebDAVS transport 和本地自签 WebDAVS transport，CLI/桌面 command 均有队列回归覆盖。 | 仍未覆盖完整 WebDAV 方法，例如 PROPFIND/目录遍历。 |
 | m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片和 master playlist 首个变体；Android 真机和 macOS CLI 均已验证媒体级 HLS 可生成最终 `.mp4`，CLI 直连/队列和桌面 command 均有本地 HLS fixture 回归。 | 仍需要更多公网和边界 playlist 验证。 |
-| FTP/FTPS | 2026-06-18 macOS CLI 已验证公网 FTP 和本地自签 FTPS 下载闭环；macOS GUI command 层已验证本地 FTP 队列和单任务启动下载闭环。 | Rebex 公网 FTPS 仍失败，错误为 `InvalidContentType`；本地可控 FTPS fixture 已通过。 |
+| FTP/FTPS | 2026-06-18 macOS CLI 已验证公网 FTP、本地 FTP 直连/队列和本地自签 FTPS 直连/队列下载闭环；macOS GUI command 层已验证本地 FTP 队列和单任务启动下载闭环。 | Rebex 公网 FTPS 仍失败，错误为 `InvalidContentType`；本地可控 FTPS fixture 已通过。 |
 | SFTP | 2026-06-18 macOS CLI 已验证公网 SFTP、本地 Docker SFTP 直连下载和队列下载；macOS GUI command 层已通过本地 Docker SFTP fixture 验证队列下载。 | 公网 Rebex 仍作为兼容性 smoke；可重复脚本已不依赖公网源。 |
 | SMB | 2026-06-18 macOS CLI 已通过 Docker Samba fixture 验证直连下载和队列下载；macOS GUI command 层已通过同类 Samba fixture 验证队列下载。Android 真机也已验证过局域网 SMB 小文件下载。 | 仍未覆盖纯 GUI 点击下载闭环和 Windows/Linux 桌面真实运行。 |
 | BitTorrent `.torrent` | Android 真机已验证本地小种子、媒体级单文件种子和多文件种子选择下载；macOS CLI 已验证单文件和多文件本地种子真实下载、真实文件名/目录名和 SHA-256，并通过 `scripts/verify-macos-cli-p2p.sh` 验证小 torrent 队列下载；macOS GUI command 层已通过临时本地 tracker/seeder 验证小 torrent 队列下载、真实文件名回写和 SHA-256。 | Windows/Linux GUI 仍需要真实下载验证。 |
@@ -65,6 +65,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 检查项 | 结果 |
 | --- | --- |
 | `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 19、core 48、desktop 20。 |
+| `npm run verify:macos-cli-ftp-ftps` | 通过：脚本启动临时 FTP 和显式 TLS FTPS fixture，验证 CLI FTP/FTPS 直连下载和队列下载。 |
 | `npm run verify:macos-cli-http-hls` | 通过：脚本启动临时 Range HTTP server，验证 CLI HTTP 直连/队列和 HLS 直连/队列/单任务启动。 |
 | `scripts/verify-macos-cli-p2p.sh` | 通过：脚本创建临时小文件、生成 torrent/magnet、启动本地 tracker 和 Transmission seeder，验证 CLI `.torrent` 队列下载和 magnet `start` 单任务下载。 |
 | `npm run verify:macos-cli-sftp` | 通过：脚本启动临时 Docker SFTP 服务，验证 CLI SFTP 直连下载和队列下载。 |
@@ -103,7 +104,8 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 公网 IPFS | `ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244`；本地自定义 gateway queue fixture | 公网 gateway 通过，输出 `Hello IPFS`，`11` bytes，SHA-256 为 `651c56a2438ce5db7a62fe4009ff146ce58cbe8f97cc83ffa2e7c42d461f3ae7`。CLI 队列回归通过，确认 `ipfs://...?...gateway=` 映射到 `/ipfs/<cid>/readme.txt`，任务完成后保留用户指定文件名并写入完整 payload。 |
 | 本地 HTTPS 自签 | `https://127.0.0.1:9444/https.txt?allowBadCertificate=true` | 通过，输出 `https-sample\n`，`13` bytes，SHA-256 为 `611db50d838121c0f8ea6dced34ec8905b92b92cb929d1f1a7d639e17cbbc096`。 |
 | 本地 WebDAVS 自签 transport | `webdavs://127.0.0.1:9444/https.txt?allowBadCertificate=true` | 通过，输出内容和 SHA-256 同本地 HTTPS。 |
-| 本地 FTPS 自签 | `ftps://flux:fluxpass@127.0.0.1:2121/readme.txt?allowBadCertificate=true` | 通过，输出 `ftps-sample\n`，`12` bytes，SHA-256 为 `f304ffd059e25791aa2be46be8d7191d3dfad846aa5addded1e232d4f5e44cc0`。 |
+| 本地 FTP | `npm run verify:macos-cli-ftp-ftps` 临时启动的 FTP fixture | 通过，CLI `download` 直连路径和 `add -> run -> list` 队列路径均完成，输出 `24` bytes，SHA-256 为 `8a3e04ea4d1a0fe96d6f591601719d0c95ed965ded0dfad65e8304b2aba0c946`。 |
+| 本地 FTPS 自签 | `npm run verify:macos-cli-ftp-ftps` 临时启动的显式 TLS FTPS fixture，URL 带 `allowBadCertificate=true` | 通过，CLI `download` 直连路径和 `add -> run -> list` 队列路径均完成，输出 `25` bytes，SHA-256 为 `2e67c9cda58b774fc2fcd7ad641f9b4aec2b89214689e4d604d5274985610a2b`。 |
 | 本地 SFTP | `npm run verify:macos-cli-sftp` 临时启动的 Docker SFTP 服务 | 通过，CLI `download` 直连路径和 `add -> run -> list` 队列路径均完成，输出 `25` bytes，SHA-256 为 `cacf85d1bd51f37a2495d0ab4efa648c88a33bb8b23b95d2570db2a7887ba4a2`。 |
 | 本地 IPFS gateway | `ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt?gateway=http%3A%2F%2F127.0.0.1%3A8769` | 通过，输出 `Hello IPFS`，`10` bytes，SHA-256 为 `206f158bef5fbaeddee314d74b90d9259c5e2abee372bbac8f3c6e65fbb0d87b`。 |
 | 本地 SMB | `npm run verify:macos-cli-smb` 临时启动的 Docker Samba 共享 | 通过，CLI `download` 直连路径和 `add -> run -> list` 队列路径均完成，输出 `24` bytes，SHA-256 为 `51cf86999e8a6da6ad6f341936ce75097ea6dd7adbddeab105b7241b88914ca4`。 |
@@ -130,4 +132,4 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 
 ### 清理状态
 
-验证结束后已确认无 `http.server 8765`、`local_bt_tracker`、`transmission-daemon`、`fluxdown-desktop` 残留进程，`8765`、`6969`、`51413` 端口无监听；CLI HTTP/HLS 脚本使用临时随机端口并在退出时清理 HTTP server 和临时目录，CLI 和桌面 P2P 脚本也会清理 tracker、Transmission 和临时目录，CLI/桌面 SFTP 与 SMB 脚本会清理临时容器和共享目录。
+验证结束后已确认无 `http.server 8765`、`local_bt_tracker`、`transmission-daemon`、`fluxdown-desktop` 残留进程，`8765`、`6969`、`51413` 端口无监听；CLI HTTP/HLS 和 FTP/FTPS 脚本使用临时随机端口并在退出时清理服务进程和临时目录，CLI 和桌面 P2P 脚本也会清理 tracker、Transmission 和临时目录，CLI/桌面 SFTP 与 SMB 脚本会清理临时容器和共享目录。
