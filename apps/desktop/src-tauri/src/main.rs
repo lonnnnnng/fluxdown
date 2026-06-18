@@ -768,6 +768,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn desktop_start_download_runs_single_hls_task() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let (source, expected_payload) = spawn_hls_http_server();
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("desktop-start-hls.m3u8".to_string()),
+        })
+        .await
+        .unwrap();
+
+        let report = start_download(
+            task.id.clone(),
+            Some(1),
+            Some(1),
+            Some(1),
+            None,
+            Some(false),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.task.state, DownloadState::Finished);
+        let file_name = report.task.file_name.as_deref().unwrap();
+        assert!(matches!(
+            file_name,
+            "desktop-start-hls.ts" | "desktop-start-hls.mp4"
+        ));
+        assert_eq!(report.task.downloaded_bytes, expected_payload.len() as u64);
+        assert_eq!(report.summary.unwrap().segments_written, Some(2));
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        let output_path = PathBuf::from(task_output_path(task.id.clone()).await.unwrap());
+        assert_eq!(
+            output_path.file_name().and_then(|name| name.to_str()),
+            Some(file_name)
+        );
+        // 作者: long
+        // HLS 单任务启动要和队列启动一样回写最终产物名，确保列表点击下载和批量运行得到一致结果。
+        assert_eq!(std::fs::read(output_path).unwrap(), expected_payload);
+    }
+
+    #[tokio::test]
     async fn desktop_commands_can_remove_running_task_during_queue_run() {
         let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
         let temp_dir = tempfile::tempdir().unwrap();
