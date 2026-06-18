@@ -573,6 +573,83 @@ mod tests {
         format!("http://{address}{path}")
     }
 
+    fn spawn_resumable_streaming_http_server(
+        payload: Vec<u8>,
+        path: &'static str,
+        requests: usize,
+    ) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            for _ in 0..requests {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = Vec::with_capacity(2048);
+                let mut chunk = [0; 512];
+                loop {
+                    let read = stream.read(&mut chunk).unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    buffer.extend_from_slice(&chunk[..read]);
+                    if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let request = String::from_utf8_lossy(&buffer);
+                assert!(request.starts_with(&format!("GET {path} ")));
+
+                let (start, end) = request
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        if name.eq_ignore_ascii_case("range") {
+                            value.trim().strip_prefix("bytes=")
+                        } else {
+                            None
+                        }
+                    })
+                    .and_then(|range| {
+                        let (start, end) = range.split_once('-')?;
+                        Some((
+                            start.parse::<usize>().ok()?,
+                            end.parse::<usize>().ok().unwrap_or(payload.len() - 1),
+                        ))
+                    })
+                    .map(|(start, end)| (start, end.min(payload.len() - 1)))
+                    .unwrap_or((0, payload.len() - 1));
+                let status = if start == 0 && end + 1 == payload.len() {
+                    "200 OK"
+                } else {
+                    "206 Partial Content"
+                };
+                let body = &payload[start..=end];
+                let content_range = if status.starts_with("206") {
+                    format!("Content-Range: bytes {start}-{end}/{}\r\n", payload.len())
+                } else {
+                    String::new()
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\n{content_range}Accept-Ranges: bytes\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                if stream.write_all(response.as_bytes()).is_err() {
+                    continue;
+                }
+                // 作者: long
+                // 暂停/继续验证依赖首轮传输保持可取消，第二轮再通过 Range 续传补齐同一个目标文件。
+                for (index, chunk) in body.chunks(8 * 1024).enumerate() {
+                    if stream.write_all(chunk).is_err() {
+                        break;
+                    }
+                    if index + 1 < body.len().div_ceil(8 * 1024) {
+                        thread::sleep(Duration::from_millis(20));
+                    }
+                }
+            }
+        });
+        format!("http://{address}{path}")
+    }
+
     fn spawn_ftp_server(
         payload: &'static [u8],
         expected_path: &'static str,
@@ -1242,6 +1319,79 @@ mod tests {
         assert_eq!(report.tasks[0].id, task_id);
         assert_eq!(report.tasks[0].state, DownloadState::Paused);
         assert!(list_downloads().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn desktop_commands_can_pause_and_resume_running_task_during_queue_run() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let payload = vec![b'p'; 768 * 1024];
+        let total_bytes = payload.len() as u64;
+        let source =
+            spawn_resumable_streaming_http_server(payload.clone(), "/pause-running.bin", 2);
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("pause-running.bin".to_string()),
+            expected_sha256: None,
+        })
+        .await
+        .unwrap();
+        let task_id = task.id.clone();
+
+        let run =
+            tokio::spawn(async { run_queue(1, Some(0), Some(1), Some(0.05), Some(false)).await });
+
+        let running = wait_for_desktop_running_progress(&task_id).await;
+        assert!(running.downloaded_bytes < total_bytes);
+        let paused = pause_download(task_id.clone()).await.unwrap();
+        assert_eq!(paused.state, DownloadState::Paused);
+
+        let report = tokio::time::timeout(Duration::from_secs(5), run)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 0);
+        assert_eq!(report.failed, 0);
+        assert_eq!(report.tasks[0].state, DownloadState::Paused);
+
+        let paused_task = list_downloads()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|task| task.id == task_id)
+            .unwrap();
+        assert_eq!(paused_task.state, DownloadState::Paused);
+        assert!(paused_task.downloaded_bytes > 0);
+        assert!(paused_task.downloaded_bytes < total_bytes);
+
+        let resumed = resume_download(task_id.clone()).await.unwrap();
+        assert_eq!(resumed.state, DownloadState::Queued);
+        let report = run_queue(1, Some(0), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 1);
+        assert_eq!(report.failed, 0);
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        assert_eq!(tasks[0].downloaded_bytes, total_bytes);
+        assert_eq!(
+            task_output_path(task_id).await.unwrap(),
+            output_dir.join("pause-running.bin").to_string_lossy()
+        );
+        // 作者: long
+        // 桌面端暂停后恢复必须复用同一个本地文件继续写完，最终内容要和源数据逐字节一致。
+        assert_eq!(
+            std::fs::read(output_dir.join("pause-running.bin")).unwrap(),
+            payload
+        );
     }
 
     #[tokio::test]
