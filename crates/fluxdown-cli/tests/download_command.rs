@@ -1,3 +1,4 @@
+use fluxdown_core::{DownloadRequest, DownloadState, TaskStore};
 use serde_json::Value;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -213,6 +214,48 @@ fn queue_commands_migrate_legacy_macos_store_on_next_write() {
     assert_eq!(sources.len(), 2);
     assert!(sources.contains(&"http://127.0.0.1:9/legacy.bin"));
     assert!(sources.contains(&"http://127.0.0.1:9/native.bin"));
+}
+
+#[tokio::test]
+async fn queue_resume_recovers_stale_running_task_before_transition() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let store = TaskStore::new(&store_path);
+    let task = store
+        .enqueue(DownloadRequest::new(
+            "http://127.0.0.1:9/stale-resume.bin",
+            temp_dir.path(),
+        ))
+        .await
+        .unwrap();
+    let mut running_task = task;
+    running_task.set_state(DownloadState::Running);
+    running_task.set_progress_with_speed(256, Some(1024), 128);
+    running_task.updated_at_ms = 0;
+    store.update(running_task.clone()).await.unwrap();
+
+    let resume_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "resume",
+            &running_task.id,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        resume_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&resume_output.stderr)
+    );
+    let resumed: Value = serde_json::from_slice(&resume_output.stdout).unwrap();
+
+    // 作者: long
+    // 终端恢复命令要能直接处理上次异常退出留下的 running，避免用户必须先 list 一次才可继续。
+    assert_eq!(resumed["state"], "queued");
+    assert_eq!(resumed["downloaded_bytes"], 256);
+    assert_eq!(resumed["error"], "任务中断，已暂停，可继续下载");
+    assert_eq!(list_task(&store_path, &running_task.id)["state"], "queued");
 }
 
 fn wait_for_running_progress(store_path: &std::path::Path, task_id: &str) -> Value {

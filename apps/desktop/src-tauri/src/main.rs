@@ -79,6 +79,12 @@ async fn list_downloads() -> Result<Vec<DownloadTask>, String> {
 #[tauri::command]
 async fn pause_download(id: String) -> Result<DownloadTask, String> {
     let store = TaskStore::new(default_store_path());
+    // 作者: long
+    // 桌面端可能在 App 重启后直接点暂停；先回收异常 running，才能给用户准确的中断状态。
+    store
+        .recover_stale_running(STALE_RUNNING_TASK_TIMEOUT)
+        .await
+        .map_err(|error| error.to_string())?;
     let task = store.get(&id).await.map_err(|error| error.to_string())?;
     if let Some(state) = pause_transition(task.state)? {
         store
@@ -93,6 +99,12 @@ async fn pause_download(id: String) -> Result<DownloadTask, String> {
 #[tauri::command]
 async fn resume_download(id: String) -> Result<DownloadTask, String> {
     let store = TaskStore::new(default_store_path());
+    // 作者: long
+    // 用户看到旧任务后可能直接点继续；先释放陈旧 running 槽位，避免误报“任务仍在下载中”。
+    store
+        .recover_stale_running(STALE_RUNNING_TASK_TIMEOUT)
+        .await
+        .map_err(|error| error.to_string())?;
     let task = store.get(&id).await.map_err(|error| error.to_string())?;
     if let Some(state) = resume_transition(task.state)? {
         store
@@ -2188,6 +2200,41 @@ mod tests {
         assert_eq!(
             store.get(&running_task.id).await.unwrap().state,
             DownloadState::Paused
+        );
+    }
+
+    #[tokio::test]
+    async fn desktop_resume_download_recovers_stale_running_task_before_transition() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let store = TaskStore::new(default_store_path());
+        let task = store
+            .enqueue(DownloadRequest::new(
+                "http://127.0.0.1:9/stale-resume.bin",
+                temp_dir.path(),
+            ))
+            .await
+            .unwrap();
+        let mut running_task = task;
+        running_task.set_state(DownloadState::Running);
+        running_task.set_progress_with_speed(512, Some(2048), 512);
+        running_task.updated_at_ms = 0;
+        store.update(running_task.clone()).await.unwrap();
+
+        let resumed = resume_download(running_task.id.clone()).await.unwrap();
+
+        // 作者: long
+        // 桌面继续按钮要能直接接管异常中断任务，避免用户先刷新列表才能把任务重新排队。
+        assert_eq!(resumed.state, DownloadState::Queued);
+        assert_eq!(resumed.downloaded_bytes, 512);
+        assert_eq!(
+            resumed.error.as_deref(),
+            Some("任务中断，已暂停，可继续下载")
+        );
+        assert_eq!(
+            store.get(&running_task.id).await.unwrap().state,
+            DownloadState::Queued
         );
     }
 
