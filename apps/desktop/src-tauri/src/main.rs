@@ -532,6 +532,45 @@ mod tests {
         format!("http://{address}{path}")
     }
 
+    fn spawn_hls_http_server() -> (String, Vec<u8>) {
+        let first_segment = b"desktop command hls first segment".to_vec();
+        let second_segment = b"desktop command hls second segment".to_vec();
+        let expected = [first_segment.clone(), second_segment.clone()].concat();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0; 1024];
+                let read = stream.read(&mut buffer).unwrap();
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let (status, content_type, body): (&str, &str, Vec<u8>) = match path {
+                    "/playlist.m3u8" => (
+                        "200 OK",
+                        "application/vnd.apple.mpegurl",
+                        b"#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1,\nseg-1.ts\n#EXTINF:1,\nseg-2.ts\n#EXT-X-ENDLIST\n"
+                            .to_vec(),
+                    ),
+                    "/seg-1.ts" => ("200 OK", "video/mp2t", first_segment.clone()),
+                    "/seg-2.ts" => ("200 OK", "video/mp2t", second_segment.clone()),
+                    _ => ("404 Not Found", "text/plain", b"not found".to_vec()),
+                };
+                let header = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream.write_all(header.as_bytes()).unwrap();
+                stream.write_all(&body).unwrap();
+            }
+        });
+        (format!("http://{address}/playlist.m3u8"), expected)
+    }
+
     async fn wait_for_desktop_running_progress(id: &str) -> DownloadTask {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -602,6 +641,44 @@ mod tests {
         ));
 
         assert_eq!(resolve_task_output_path(&task), temp_dir.path());
+    }
+
+    #[tokio::test]
+    async fn desktop_commands_download_hls_task_through_queue() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let (source, expected_payload) = spawn_hls_http_server();
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("desktop-hls.m3u8".to_string()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.protocol, Protocol::M3u8);
+
+        let report = run_queue(1, Some(1), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 1);
+        assert_eq!(report.failed, 0);
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        let file_name = tasks[0].file_name.as_deref().unwrap();
+        assert!(matches!(file_name, "desktop-hls.ts" | "desktop-hls.mp4"));
+        let output_path = PathBuf::from(task_output_path(tasks[0].id.clone()).await.unwrap());
+        assert_eq!(
+            output_path.file_name().and_then(|name| name.to_str()),
+            Some(file_name)
+        );
+        // 作者: long
+        // 桌面队列必须能把 HLS 任务收敛成一个真实本地文件，列表和打开文件动作都依赖这个最终产物路径。
+        assert_eq!(std::fs::read(output_path).unwrap(), expected_payload);
     }
 
     #[tokio::test]
