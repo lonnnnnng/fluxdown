@@ -1198,8 +1198,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "uses a public SFTP fixture; run scripts/verify-macos-desktop-sftp.sh"]
-    async fn desktop_manual_downloads_public_sftp_task_through_queue() {
+    #[ignore = "requires a live local SFTP fixture; run scripts/verify-macos-desktop-sftp.sh"]
+    async fn desktop_manual_downloads_sftp_task_through_queue() {
         let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
         let temp_dir = tempfile::tempdir().unwrap();
         let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
@@ -1238,7 +1238,7 @@ mod tests {
         assert_eq!(tasks[0].file_name.as_deref(), Some(expected_name.as_str()));
         let output_path = PathBuf::from(task_output_path(tasks[0].id.clone()).await.unwrap());
         // 作者: long
-        // SFTP 没有本地轻量 fixture 时用公共只读源做手动回归，仍要验证桌面队列真实落盘和属性面板路径。
+        // SFTP 是远程登录文件传输场景，桌面队列必须通过真实服务落盘，才能证明保存路径和属性面板路径可用。
         assert_eq!(sha256_file(&output_path), expected_sha256);
     }
 
