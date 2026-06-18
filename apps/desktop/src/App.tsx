@@ -443,6 +443,7 @@ function App() {
   const [doctorReport, setDoctorReport] = useState<DoctorReport | null>(null);
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [source, setSource] = useState("");
+  const [sourceSupport, setSourceSupport] = useState<SupportStatus | null>(null);
   const [fileName, setFileName] = useState("");
   const [expectedSha256, setExpectedSha256] = useState("");
   const [outputDir, setOutputDir] = useState(settings.outputDir);
@@ -520,6 +521,32 @@ function App() {
     autoRunKeyRef.current = queuedIds;
     void runQueue();
   }, [queueActive, settings.autoStart, tasks]);
+
+  useEffect(() => {
+    const normalizedSource = source.trim();
+    if (!newDialogOpen || !normalizedSource) {
+      setSourceSupport(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSourceSupport(fallbackSupport(normalizedSource));
+    const timer = window.setTimeout(() => {
+      invoke<SupportStatus>("support", { source: normalizedSource })
+        .then((status) => {
+          if (!cancelled) setSourceSupport(status);
+        })
+        .catch(() => {
+          // 作者: long
+          // Web 预览没有 Tauri 后端，保留本地识别结果，避免新建弹框在预览态空白。
+        });
+    }, 180);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [newDialogOpen, source]);
 
   async function refreshTasks() {
     const result = await invoke<DownloadTask[]>("list_downloads").catch(
@@ -854,6 +881,7 @@ function App() {
           }}
           outputDir={outputDir}
           source={source}
+          support={sourceSupport}
         />
       ) : null}
 
@@ -1025,6 +1053,7 @@ function NewTaskDialog({
   onSourceChange,
   outputDir,
   source,
+  support,
 }: {
   expectedSha256: string;
   fileName: string;
@@ -1037,6 +1066,7 @@ function NewTaskDialog({
   onSourceChange: (value: string) => void;
   outputDir: string;
   source: string;
+  support: SupportStatus | null;
 }) {
   return (
     <div className="modalBackdrop" onMouseDown={onClose}>
@@ -1065,6 +1095,7 @@ function NewTaskDialog({
             value={source}
           />
         </label>
+        {support ? <SupportPreview status={support} /> : null}
         <label className="fieldBlock">
           <span>另存为文件名</span>
           <input
@@ -1095,6 +1126,21 @@ function NewTaskDialog({
           </button>
         </footer>
       </section>
+    </div>
+  );
+}
+
+function SupportPreview({ status }: { status: SupportStatus }) {
+  const detail = status.missing_command
+    ? `缺少 ${status.missing_command}`
+    : status.note || backendLabel(status.backend);
+
+  return (
+    <div className={`supportPreview ${status.executable ? "ready" : "blocked"}`}>
+      <span>{protocolLabel(status.protocol)}</span>
+      <span>{backendLabel(status.backend)}</span>
+      <strong>{status.executable ? "可下载" : "不可执行"}</strong>
+      <em>{detail}</em>
     </div>
   );
 }

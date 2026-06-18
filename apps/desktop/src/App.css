@@ -467,6 +467,46 @@ button {
   box-shadow: 0 0 0 3px rgba(24, 143, 139, 0.13);
 }
 
+.supportPreview {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -2px 0 9px;
+  padding: 6px 8px;
+  border: 1px solid #d8e1dc;
+  border-radius: 7px;
+  background: #fff;
+  color: #4c5c58;
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+
+.supportPreview span,
+.supportPreview strong {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #edf3f1;
+  font-weight: 800;
+}
+
+.supportPreview strong {
+  color: #116c67;
+}
+
+.supportPreview.blocked strong {
+  color: #a73525;
+}
+
+.supportPreview em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: normal;
+}
+
 .dialogFooter {
   display: flex;
   justify-content: flex-end;

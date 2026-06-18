@@ -79,7 +79,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `cargo test -p fluxdown-core task::tests::normalizes_expected_sha256_when_creating_task -- --nocapture` + `cargo test -p fluxdown-cli --test download_command -- --nocapture` | 通过：验证 `expected_sha256` 兼容旧队列 JSON、输入规范化为小写 64 位 hash、CLI `download --sha256` 成功时 summary 返回实际 hash、hash 不匹配时直连命令失败，非法 hash 不会在 `--restart` 时先删除旧文件，队列任务校验失败时进入 `failed` 并记录 mismatch 错误。 |
 | `cargo test -p fluxdown-desktop -- --nocapture` | 通过：desktop 非 ignored 用例 22 个通过，5 个 live fixture 用例保持 ignored；新增验证桌面新建任务可保存可选 SHA-256，队列下载成功时保留期望 hash，hash 不匹配时任务进入 `failed` 并记录 mismatch 错误。 |
 | `cargo build -p fluxdown-cli` + 临时 `HOME` 手动 CLI `add` | 通过：在隔离 `HOME=/tmp/fluxdown-native-path.../home` 且空 `XDG_DATA_HOME` 下执行 `./target/debug/fluxdown add`，队列写入 `home/Library/Application Support/FluxDown/queue.json`，确认 macOS 默认路径不再落到相对目录或旧 Unix 路径。 |
-| `npm --workspace apps/desktop run build` | 通过：桌面前端新建任务 SHA-256 输入、属性弹框、任务错误和 toast 错误脱敏改动完成 TypeScript 编译和 Vite 构建。 |
+| `npm --workspace apps/desktop run build` | 通过：桌面前端新建任务协议/后端状态预览、SHA-256 输入、属性弹框、任务错误和 toast 错误脱敏改动完成 TypeScript 编译和 Vite 构建。 |
 | `npm run verify:licenses` | 通过：检查 Rust workspace、桌面运行时依赖和 Flutter 移动端运行时依赖均已列入第三方许可证清单，并确认 `libtorrent_flutter` GPL 风险提示仍保留。 |
 | `npm run verify:macos` | 通过：当前 macOS 非 GUI 总验收入口，串起 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、`npm run verify:macos-cli-release`、`npm run verify:macos-desktop-command`、`npm run verify:licenses` 和 `npm run verify:ci-config`。 |
 | `cargo clippy -p fluxdown-cli --all-targets -- -D warnings` | 通过：修复 release CLI 不支持 `--version` 的基础可用性问题后，CLI 专项 Clippy 通过。 |
@@ -150,7 +150,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | --- | --- |
 | 本地 `.app` 构建 | 通过，`target/release/bundle/macos/FluxDown.app` 生成。 |
 | 启动和窗口 | 通过，`FluxDown` 前台窗口尺寸约 `1180x760`，bundle id `dev.fluxdown.desktop`，版本 `1.0.2`。 |
-| UI 渲染 | 通过，截图确认中文下载列表、全部/排队中/下载中/已暂停/已完成/失败状态 tabs、设置入口和右下角新建按钮正常显示。 |
+| UI 渲染 | 通过，截图确认中文下载列表、全部/排队中/下载中/已暂停/已完成/失败状态 tabs、设置入口和右下角新建按钮正常显示；新建任务弹框已通过构建验证具备协议/后端状态预览和 SHA-256 输入。 |
 | 纯 GUI HTTP 下载闭环 | 通过，启动隔离 `XDG_DATA_HOME=/tmp/fluxdown-gui-e2e-current/xdg` 的 `.app`，使用本地 `http://127.0.0.1:63791/gui-e2e-current.txt`，通过真实界面点击右下角新建按钮、填写下载链接和保存路径 `/tmp/fluxdown-gui-e2e-current/downloads`、点击创建任务；队列显示 `gui-e2e-current.txt` 已完成，落盘文件 `32` bytes，SHA-256 `57c6b733535bb64389ec4264db3e54fea8519328f5c75dee84e4b812d2a7c26b` 与源文件一致，队列 JSON 状态为 `finished`。 |
 | 纯 GUI HLS MP4 下载闭环 | 通过，使用 ffmpeg 生成真实媒体 HLS，启动隔离 `XDG_DATA_HOME=/tmp/fluxdown-gui-hls-mp4-e2e/xdg` 的 `.app`，通过界面输入 `http://127.0.0.1:63793/hls/index.m3u8` 和保存路径 `/tmp/fluxdown-gui-hls-mp4-e2e/downloads`；任务完成后输出 `index.mp4`，大小 `24996` bytes，SHA-256 `b84982ecc8ae75a13cb82c9d33445a1534a4162071b5c96d147c14e2d0f61652`，`ffprobe` 显示 `format_name=mov,mp4,m4a,3gp,3g2,mj2`、`duration=3.000000`。 |
 | 纯 GUI Torrent 下载闭环 | 通过，常驻本地 tracker、Transmission seeder 和 HTTP torrent 文件服务，界面输入 `http://127.0.0.1:63804/fluxdown-gui-torrent-sample-two.torrent` 和保存路径 `/tmp/fluxdown-gui-p2p-e2e2/downloads`；任务完成后文件名从 `.torrent` 回写为真实 `fluxdown-gui-torrent-sample-two.txt`，落盘 `32` bytes，SHA-256 `bcc656966bcc3e468f1a0bdaad3635aa80f1dc0673eec34e633da68c2dc1a650` 与源文件一致。 |
