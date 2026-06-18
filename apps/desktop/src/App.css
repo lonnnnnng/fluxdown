@@ -95,7 +95,7 @@ button {
   max-width: 980px;
   margin: 14px auto 0;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 3px;
   padding: 3px;
   border: 1px solid #cad4cf;
@@ -700,7 +700,7 @@ button {
 
   .statusTabs {
     overflow-x: auto;
-    grid-template-columns: repeat(5, minmax(86px, 1fr));
+    grid-template-columns: repeat(6, minmax(86px, 1fr));
   }
 
   .taskRow {

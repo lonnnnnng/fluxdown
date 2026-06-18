@@ -50,7 +50,7 @@ type DoctorReport = {
 };
 
 type DownloadState = "queued" | "running" | "finished" | "failed" | "paused";
-type QueueFilter = "all" | "queued" | "running" | "finished" | "failed";
+type QueueFilter = "all" | "queued" | "running" | "paused" | "finished" | "failed";
 type Page = "queue" | "settings";
 type TaskAction = "idle" | "start" | "pause" | "remove" | "copy" | "open";
 
@@ -295,6 +295,7 @@ function filterLabel(filter: QueueFilter) {
     all: "全部",
     queued: "排队中",
     running: "下载中",
+    paused: "已暂停",
     finished: "已完成",
     failed: "失败",
   };
@@ -303,7 +304,6 @@ function filterLabel(filter: QueueFilter) {
 
 function filterMatches(task: DownloadTask, filter: QueueFilter) {
   if (filter === "all") return true;
-  if (filter === "queued") return task.state === "queued" || task.state === "paused";
   return task.state === filter;
 }
 
@@ -312,6 +312,7 @@ function taskCounts(tasks: DownloadTask[]) {
     all: tasks.length,
     queued: tasks.filter((task) => filterMatches(task, "queued")).length,
     running: tasks.filter((task) => task.state === "running").length,
+    paused: tasks.filter((task) => task.state === "paused").length,
     finished: tasks.filter((task) => task.state === "finished").length,
     failed: tasks.filter((task) => task.state === "failed").length,
   } satisfies Record<QueueFilter, number>;
@@ -727,7 +728,7 @@ function App() {
 
         {page === "queue" ? (
           <nav className="statusTabs" aria-label="下载任务状态">
-            {(["all", "queued", "running", "finished", "failed"] as const).map(
+            {(["all", "queued", "running", "paused", "finished", "failed"] as const).map(
               (item) => (
                 <button
                   key={item}
