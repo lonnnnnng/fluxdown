@@ -22,6 +22,8 @@ struct AddPayload {
     source: String,
     output_dir: String,
     file_name: Option<String>,
+    #[serde(default)]
+    expected_sha256: Option<String>,
 }
 
 #[tauri::command]
@@ -56,6 +58,12 @@ fn plan_download(source: String, output_dir: String) -> DownloadTask {
 async fn enqueue_download(payload: AddPayload) -> Result<DownloadTask, String> {
     let mut request = DownloadRequest::new(payload.source, resolve_output_dir(&payload.output_dir));
     request.file_name = payload.file_name;
+    request.expected_sha256 = payload
+        .expected_sha256
+        .and_then(|value| match value.trim() {
+            "" => None,
+            trimmed => Some(trimmed.to_string()),
+        });
     TaskStore::new(default_store_path())
         .enqueue(request)
         .await
@@ -788,6 +796,7 @@ mod tests {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-hls.m3u8".to_string()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -821,16 +830,19 @@ mod tests {
         let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
         let output_dir = temp_dir.path().join("downloads");
         let payload = b"fluxdown-desktop-command-e2e";
+        let expected_sha256 = "0b2fd11b5c64fcd641e4bbe9d769400f2be35768f511848ef02906e6433a752e";
         let source = spawn_single_file_http_server(payload);
 
         let task = enqueue_download(AddPayload {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-command.txt".to_string()),
+            expected_sha256: Some(format!("sha256:{expected_sha256}")),
         })
         .await
         .unwrap();
         assert_eq!(task.state, DownloadState::Queued);
+        assert_eq!(task.expected_sha256.as_deref(), Some(expected_sha256));
         assert_eq!(list_downloads().await.unwrap().len(), 1);
 
         let report = run_queue(1, Some(1), Some(1), None, Some(false))
@@ -843,6 +855,7 @@ mod tests {
         let tasks = list_downloads().await.unwrap();
         assert_eq!(tasks[0].state, DownloadState::Finished);
         assert_eq!(tasks[0].file_name.as_deref(), Some("desktop-command.txt"));
+        assert_eq!(tasks[0].expected_sha256.as_deref(), Some(expected_sha256));
         let output_path = output_dir.join("desktop-command.txt");
         assert_eq!(
             task_output_path(tasks[0].id.clone()).await.unwrap(),
@@ -854,6 +867,38 @@ mod tests {
         assert_eq!(removed.id, tasks[0].id);
         assert!(list_downloads().await.unwrap().is_empty());
         assert_eq!(std::fs::read(output_path).unwrap(), payload);
+    }
+
+    #[tokio::test]
+    async fn desktop_queue_marks_sha256_mismatch_as_failed() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let payload = b"fluxdown-desktop-command-e2e";
+        let wrong_sha256 = "8810ad581e59f2bc3928b261707a71308f7e139eb04820366dc4d5c18d980225";
+        let source = spawn_single_file_http_server(payload);
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("desktop-command.txt".to_string()),
+            expected_sha256: Some(wrong_sha256.to_string()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.expected_sha256.as_deref(), Some(wrong_sha256));
+
+        let report = run_queue(1, Some(0), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 0);
+        assert_eq!(report.failed, 1);
+        assert_eq!(report.tasks[0].state, DownloadState::Failed);
+        let error = report.tasks[0].error.as_deref().unwrap_or_default();
+        assert!(error.contains("SHA-256 mismatch"), "{error}");
+        assert!(error.contains(wrong_sha256), "{error}");
     }
 
     #[tokio::test]
@@ -869,6 +914,7 @@ mod tests {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-ftp.txt".to_string()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -904,6 +950,7 @@ mod tests {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-start.txt".to_string()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -948,6 +995,7 @@ mod tests {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-start-ftp.txt".to_string()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -993,6 +1041,7 @@ mod tests {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-start-hls.m3u8".to_string()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -1042,6 +1091,7 @@ mod tests {
             source: format!("webdav://{address}/remote.php/dav/files/start-webdav.bin"),
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-start-webdav.txt".to_string()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -1093,6 +1143,7 @@ mod tests {
             source: format!("ipfs://{cid}/readme.txt?gateway={gateway}"),
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-start-ipfs.txt".to_string()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -1139,6 +1190,7 @@ mod tests {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("delete-running.bin".to_string()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -1181,6 +1233,7 @@ mod tests {
             source: format!("webdav://{address}/remote.php/dav/files/payload.bin"),
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-webdav.txt".to_string()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -1220,6 +1273,7 @@ mod tests {
             source: format!("ipfs://{cid}/readme.txt?gateway={gateway}"),
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-ipfs.txt".to_string()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -1264,6 +1318,7 @@ mod tests {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some(expected_name.clone()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -1309,6 +1364,7 @@ mod tests {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some(expected_name.clone()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -1354,6 +1410,7 @@ mod tests {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some(expected_name.clone()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -1399,6 +1456,7 @@ mod tests {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("queued-sample.torrent".to_string()),
+            expected_sha256: None,
         })
         .await
         .unwrap();
@@ -1448,6 +1506,7 @@ mod tests {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("magnet-download".to_string()),
+            expected_sha256: None,
         })
         .await
         .unwrap();

@@ -62,6 +62,7 @@ type DownloadTask = {
   state: DownloadState;
   output_dir: string;
   file_name?: string | null;
+  expected_sha256?: string | null;
   total_bytes?: number | null;
   downloaded_bytes: number;
   current_speed_bytes_per_second?: number;
@@ -81,6 +82,7 @@ type DownloadSummary = {
   resumed_from: number;
   total_bytes?: number | null;
   segments_written?: number | null;
+  sha256?: string | null;
 };
 
 type QueueRunReport = {
@@ -274,6 +276,13 @@ function safeErrorText(error: unknown) {
   return redactCredentialsInText(String(error));
 }
 
+function normalizeExpectedSha256(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.replace(/^sha256:/i, "").trim().toLowerCase();
+  return /^[0-9a-f]{64}$/.test(normalized) ? normalized : undefined;
+}
+
 function redactCredentialsInText(text: string) {
   return text.replace(
     /(?:[a-z][a-z0-9+.-]*:\/\/|magnet:\?)[^\s"'`<>]+/gi,
@@ -435,6 +444,7 @@ function App() {
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [source, setSource] = useState("");
   const [fileName, setFileName] = useState("");
+  const [expectedSha256, setExpectedSha256] = useState("");
   const [outputDir, setOutputDir] = useState(settings.outputDir);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [queueActive, setQueueActive] = useState(false);
@@ -529,11 +539,17 @@ function App() {
       return;
     }
     const normalizedOutput = outputDir.trim() || settings.outputDir;
+    const normalizedSha256 = normalizeExpectedSha256(expectedSha256);
+    if (normalizedSha256 === undefined) {
+      setMessage("SHA-256 需要是 64 位十六进制");
+      return;
+    }
     const task = await invoke<DownloadTask>("enqueue_download", {
       payload: {
         source: normalizedSource,
         output_dir: normalizedOutput,
         file_name: fileName.trim() || null,
+        expected_sha256: normalizedSha256,
       },
     }).catch(() => {
       const protocol = fallbackDetect(normalizedSource);
@@ -545,6 +561,7 @@ function App() {
         state: "queued",
         output_dir: normalizedOutput,
         file_name: fileName.trim() || suggestedFileName(normalizedSource),
+        expected_sha256: normalizedSha256,
         total_bytes: null,
         downloaded_bytes: 0,
         created_at_ms: Date.now(),
@@ -556,6 +573,7 @@ function App() {
     setNewDialogOpen(false);
     setSource("");
     setFileName("");
+    setExpectedSha256("");
     setOutputDir(settings.outputDir);
     setMessage(`${taskTitle(task)} 已加入队列`);
   }
@@ -822,9 +840,11 @@ function App() {
 
       {newDialogOpen ? (
         <NewTaskDialog
+          expectedSha256={expectedSha256}
           fileName={fileName}
           onClose={() => setNewDialogOpen(false)}
           onCreate={createTask}
+          onExpectedSha256Change={setExpectedSha256}
           onFileNameChange={setFileName}
           onOutputDirChange={setOutputDir}
           onPaste={pasteFromClipboard}
@@ -994,9 +1014,11 @@ function TaskRow({
 }
 
 function NewTaskDialog({
+  expectedSha256,
   fileName,
   onClose,
   onCreate,
+  onExpectedSha256Change,
   onFileNameChange,
   onOutputDirChange,
   onPaste,
@@ -1004,9 +1026,11 @@ function NewTaskDialog({
   outputDir,
   source,
 }: {
+  expectedSha256: string;
   fileName: string;
   onClose: () => void;
   onCreate: () => void;
+  onExpectedSha256Change: (value: string) => void;
   onFileNameChange: (value: string) => void;
   onOutputDirChange: (value: string) => void;
   onPaste: () => void;
@@ -1054,6 +1078,14 @@ function NewTaskDialog({
           <input
             onChange={(event) => onOutputDirChange(event.target.value)}
             value={outputDir}
+          />
+        </label>
+        <label className="fieldBlock">
+          <span>SHA-256 校验</span>
+          <input
+            onChange={(event) => onExpectedSha256Change(event.target.value)}
+            placeholder="可选，64 位十六进制"
+            value={expectedSha256}
           />
         </label>
         <footer className="dialogFooter">
@@ -1143,6 +1175,12 @@ function PropertyDialog({
           <dd>
             {formatBytes(task.downloaded_bytes)} / {formatBytes(task.total_bytes)}
           </dd>
+          {task.expected_sha256 ? (
+            <>
+              <dt>SHA-256</dt>
+              <dd>{task.expected_sha256}</dd>
+            </>
+          ) : null}
         </dl>
       </section>
     </div>
