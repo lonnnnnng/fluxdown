@@ -14,6 +14,7 @@ use std::{
 const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MIN_CONCURRENCY: usize = 1;
 const MAX_CONCURRENCY: usize = 30;
+const DEFAULT_RETRY_ATTEMPTS: usize = 1;
 
 #[derive(Debug, Deserialize)]
 struct AddPayload {
@@ -221,7 +222,7 @@ fn runner_options(
     restart_existing: Option<bool>,
 ) -> QueueRunnerOptions {
     QueueRunnerOptions {
-        retry_attempts: retry_attempts.unwrap_or(0).min(10),
+        retry_attempts: retry_attempts.unwrap_or(DEFAULT_RETRY_ATTEMPTS).min(10),
         download: DownloadOptions::new(
             thread_count.unwrap_or(1).clamp(1, 32),
             speed_limit_mbps_to_bps(speed_limit_mbps),
@@ -800,6 +801,12 @@ mod tests {
         assert_eq!(unlimited.download.thread_count, 1);
         assert_eq!(unlimited.download.speed_limit_bps, None);
         assert!(!unlimited.restart_existing);
+
+        let defaults = runner_options(None, None, None, None);
+        assert_eq!(defaults.retry_attempts, 1);
+        assert_eq!(defaults.download.thread_count, 1);
+        assert_eq!(defaults.download.speed_limit_bps, None);
+        assert!(!defaults.restart_existing);
     }
 
     #[test]

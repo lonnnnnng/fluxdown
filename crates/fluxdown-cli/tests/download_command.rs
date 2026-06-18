@@ -968,6 +968,79 @@ fn queue_run_retries_failed_http_task() {
 }
 
 #[test]
+fn queue_run_retries_once_by_default() {
+    let payload = b"fluxdown-cli-default-retry";
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let server_attempts = Arc::clone(&attempts);
+    let server = thread::spawn(move || {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let attempt = server_attempts.fetch_add(1, Ordering::SeqCst) + 1;
+            let mut buffer = [0; 1024];
+            let _ = stream.read(&mut buffer).unwrap();
+            if attempt == 1 {
+                let response = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                stream.write_all(response.as_bytes()).unwrap();
+            } else {
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    payload.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+                stream.write_all(payload).unwrap();
+            }
+        }
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let downloads_dir = temp_dir.path().join("downloads");
+    let source = format!("http://{address}/default-retry.bin");
+
+    let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "add",
+            &source,
+            "--output",
+            downloads_dir.to_str().unwrap(),
+            "--name",
+            "default-retry.bin",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        add_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&add_output.stderr)
+    );
+
+    let run_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "run"])
+        .output()
+        .unwrap();
+
+    server.join().unwrap();
+    assert!(
+        run_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        std::fs::read(downloads_dir.join("default-retry.bin")).unwrap(),
+        payload
+    );
+    let report: Value = serde_json::from_slice(&run_output.stdout).unwrap();
+    assert_eq!(report["finished"], 1);
+    assert_eq!(report["failed"], 0);
+    assert_eq!(report["tasks"][0]["state"], "finished");
+}
+
+#[test]
 fn queue_start_restart_replaces_existing_http_output() {
     let payload = b"fluxdown-cli-restarted-download";
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

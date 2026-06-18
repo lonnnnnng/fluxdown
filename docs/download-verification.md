@@ -64,7 +64,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 
 | 检查项 | 结果 |
 | --- | --- |
-| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 13、core 48、desktop 13。 |
+| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 14、core 48、desktop 13。 |
 | `cargo build -p fluxdown-cli --release` | 通过，生成 `target/release/fluxdown`。 |
 | `npm --workspace apps/desktop run build` | 通过。 |
 | `npm run desktop:build` | 通过，生成 `target/release/bundle/macos/FluxDown.app`。 |
@@ -82,7 +82,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 单文件 Magnet | `../local_protocol_resources/torrent/20260614.magnet.txt` 中的 magnet | 通过，metadata 后输出真实文件名 `20260614.mp4`，SHA-256 同源文件。 |
 | 多文件 Torrent | `../local_protocol_resources/multi_torrent/20260614_bundle.torrent` | 通过，输出真实目录 `20260614_bundle`，内部 `20260614.mp4` 和 `readme.txt` 的 SHA-256 均与源文件一致。 |
 | 限速 | `seg_00047.ts`，`--speed-limit-mbps 0.5` | 通过，4.7 MB 文件耗时约 10 秒。 |
-| 失败重试 | 404 源，`--retry-attempts 2` | 通过，服务端看到 3 次请求，任务最终 `failed` 并记录 404 错误。 |
+| 失败重试 | 404 源，`--retry-attempts 2`；一次 500 后恢复的 HTTP 源默认不传 `--retry-attempts` | 通过，显式重试 2 次时服务端看到 3 次请求，任务最终 `failed` 并记录 404 错误；默认不传重试参数时会自动重试 1 次并完成下载，显式 `--retry-attempts 0` 表示不重试。 |
 | 暂停/继续 | `seg_00047.ts` 限速下载中暂停，再 `resume` 和 `run` | 通过，暂停时 partial 文件约 0.9 MB，恢复后完成，SHA-256 与源文件一致。 |
 | CLI 跨进程暂停/恢复 | 一个 CLI 进程执行 `run --speed-limit-mbps 0.05`，另一个 CLI 进程执行 `pause <id>`，随后 `resume <id>` 并再次 `run` | 通过，运行中任务先变为 `paused` 并保留 partial 文件和已下载进度；恢复后通过 HTTP Range 续传完成，最终文件内容匹配源数据。 |
 | CLI 跨进程删除运行中任务 | 一个 CLI 进程执行 `run --speed-limit-mbps 0.05`，另一个 CLI 进程执行 `remove <id>` | 通过，`run` 成功退出，任务不会被下载协程重新写回队列，最终 `list` 为空。 |

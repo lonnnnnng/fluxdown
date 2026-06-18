@@ -11,6 +11,7 @@ use std::time::Duration;
 const MIN_CONCURRENCY: usize = 1;
 const MAX_CONCURRENCY: usize = 30;
 const DEFAULT_CONCURRENCY: usize = 1;
+const DEFAULT_RETRY_ATTEMPTS: usize = 1;
 const MAX_RETRY_ATTEMPTS: usize = 10;
 const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
@@ -56,7 +57,7 @@ enum Command {
     List,
     Start {
         id: String,
-        #[arg(long, default_value_t = 0)]
+        #[arg(long, default_value_t = DEFAULT_RETRY_ATTEMPTS)]
         retry_attempts: usize,
         #[arg(long)]
         restart: bool,
@@ -68,7 +69,7 @@ enum Command {
     Run {
         #[arg(short, long, default_value_t = DEFAULT_CONCURRENCY)]
         concurrency: usize,
-        #[arg(long, default_value_t = 0)]
+        #[arg(long, default_value_t = DEFAULT_RETRY_ATTEMPTS)]
         retry_attempts: usize,
         #[arg(long)]
         restart: bool,
@@ -259,6 +260,7 @@ mod tests {
         let options = runner_options(99, 99, Some(-1.0), false);
 
         assert_eq!(DEFAULT_CONCURRENCY, 1);
+        assert_eq!(DEFAULT_RETRY_ATTEMPTS, 1);
         assert_eq!(clamp_concurrency(0), 1);
         assert_eq!(clamp_concurrency(31), 30);
         assert_eq!(options.retry_attempts, 10);
