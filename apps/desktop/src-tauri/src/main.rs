@@ -687,10 +687,8 @@ mod tests {
             .expect("test server source should include an address")
     }
 
-    fn manual_p2p_fixture(name: &str) -> String {
-        std::env::var(name).unwrap_or_else(|_| {
-            panic!("{name} is required; run scripts/verify-macos-desktop-p2p.sh instead")
-        })
+    fn manual_fixture(name: &str, script: &str) -> String {
+        std::env::var(name).unwrap_or_else(|_| panic!("{name} is required; run {script} instead"))
     }
 
     #[test]
@@ -1200,15 +1198,69 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "uses a public SFTP fixture; run scripts/verify-macos-desktop-sftp.sh"]
+    async fn desktop_manual_downloads_public_sftp_task_through_queue() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let source = manual_fixture(
+            "FLUXDOWN_DESKTOP_SFTP_SOURCE",
+            "scripts/verify-macos-desktop-sftp.sh",
+        );
+        let expected_name = manual_fixture(
+            "FLUXDOWN_DESKTOP_SFTP_FILE_NAME",
+            "scripts/verify-macos-desktop-sftp.sh",
+        );
+        let expected_sha256 = manual_fixture(
+            "FLUXDOWN_DESKTOP_SFTP_SHA256",
+            "scripts/verify-macos-desktop-sftp.sh",
+        );
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some(expected_name.clone()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.protocol, Protocol::Sftp);
+
+        let report = run_queue(1, Some(1), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 1);
+        assert_eq!(report.failed, 0);
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        assert_eq!(tasks[0].file_name.as_deref(), Some(expected_name.as_str()));
+        let output_path = PathBuf::from(task_output_path(tasks[0].id.clone()).await.unwrap());
+        // 作者: long
+        // SFTP 没有本地轻量 fixture 时用公共只读源做手动回归，仍要验证桌面队列真实落盘和属性面板路径。
+        assert_eq!(sha256_file(&output_path), expected_sha256);
+    }
+
+    #[tokio::test]
     #[ignore = "requires a live local tracker and seeder; use scripts/verify-macos-desktop-p2p.sh"]
     async fn desktop_manual_downloads_single_file_torrent_through_queue() {
         let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
         let temp_dir = tempfile::tempdir().unwrap();
         let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
         let output_dir = temp_dir.path().join("downloads");
-        let source = manual_p2p_fixture("FLUXDOWN_DESKTOP_P2P_TORRENT");
-        let expected_name = manual_p2p_fixture("FLUXDOWN_DESKTOP_P2P_FILE_NAME");
-        let expected_sha256 = manual_p2p_fixture("FLUXDOWN_DESKTOP_P2P_SHA256");
+        let source = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_TORRENT",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let expected_name = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_FILE_NAME",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let expected_sha256 = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_SHA256",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
 
         let task = enqueue_download(AddPayload {
             source,
@@ -1246,9 +1298,18 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
         let output_dir = temp_dir.path().join("downloads");
-        let source = manual_p2p_fixture("FLUXDOWN_DESKTOP_P2P_MAGNET");
-        let expected_name = manual_p2p_fixture("FLUXDOWN_DESKTOP_P2P_FILE_NAME");
-        let expected_sha256 = manual_p2p_fixture("FLUXDOWN_DESKTOP_P2P_SHA256");
+        let source = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_MAGNET",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let expected_name = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_FILE_NAME",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let expected_sha256 = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_SHA256",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
 
         let task = enqueue_download(AddPayload {
             source,
