@@ -7,6 +7,7 @@ export LC_ALL=en_US.UTF-8
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fluxdown-cli-smb.XXXXXX")"
 CONTAINER_NAME="fluxdown-samba-cli-$$"
+FLUXDOWN_BIN_PATH=""
 
 cleanup() {
   set +e
@@ -15,12 +16,28 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for tool in cargo docker python3 shasum; do
+for tool in docker python3 shasum; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "missing required tool: $tool" >&2
     exit 1
   fi
 done
+
+if [[ -n "${FLUXDOWN_BIN:-}" ]]; then
+  FLUXDOWN_BIN_PATH="$FLUXDOWN_BIN"
+  if [[ "$FLUXDOWN_BIN_PATH" != /* ]]; then
+    FLUXDOWN_BIN_PATH="$ROOT_DIR/$FLUXDOWN_BIN_PATH"
+  fi
+  if [[ ! -x "$FLUXDOWN_BIN_PATH" ]]; then
+    echo "FLUXDOWN_BIN is not executable: $FLUXDOWN_BIN_PATH" >&2
+    exit 1
+  fi
+else
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "missing required tool: cargo" >&2
+    exit 1
+  fi
+fi
 
 free_port() {
   python3 - <<'PY'
@@ -59,7 +76,11 @@ PY
 }
 
 fluxdown() {
-  cargo run --quiet -p fluxdown-cli -- "$@"
+  if [[ -n "$FLUXDOWN_BIN_PATH" ]]; then
+    "$FLUXDOWN_BIN_PATH" "$@"
+  else
+    cargo run --quiet -p fluxdown-cli -- "$@"
+  fi
 }
 
 json_get() {
@@ -127,6 +148,36 @@ assert_sha256() {
   fi
 }
 
+wait_for_smb_download() {
+  local source="$1"
+  local expected_sha256="$2"
+  local ready_dir="$TMP_DIR/downloads/readiness"
+  local ready_json="$TMP_DIR/smb-ready.json"
+  local ready_error="$TMP_DIR/smb-ready.err"
+  local ready_file="$ready_dir/ready-smb.txt"
+  local deadline=$((SECONDS + 30))
+  mkdir -p "$ready_dir"
+
+  while true; do
+    rm -f "$ready_json" "$ready_error" "$ready_file"
+    if (
+      cd "$ROOT_DIR"
+      fluxdown download "$source" --output "$ready_dir" --name ready-smb.txt > "$ready_json" 2> "$ready_error"
+    ); then
+      assert_sha256 "$ready_file" "$expected_sha256"
+      return 0
+    fi
+
+    if (( SECONDS >= deadline )); then
+      echo "timed out waiting for SMB fixture download readiness" >&2
+      cat "$ready_error" >&2 || true
+      docker logs "$CONTAINER_NAME" >&2 || true
+      return 1
+    fi
+    sleep 0.5
+  done
+}
+
 SMB_PORT="$(free_port)"
 SHARE_DIR="$TMP_DIR/share"
 DIRECT_DIR="$TMP_DIR/downloads/direct"
@@ -146,10 +197,16 @@ docker run -d --name "$CONTAINER_NAME" \
   -u 'flux;fluxpass' \
   -s 'flux;/share;yes;no;no;flux' >/dev/null
 wait_for_tcp 127.0.0.1 "$SMB_PORT"
+wait_for_smb_download "$SOURCE" "$EXPECTED_SHA256"
 
 echo "macOS CLI SMB fixture"
 echo "  source: $SOURCE"
 echo "  sha256: $EXPECTED_SHA256"
+if [[ -n "$FLUXDOWN_BIN_PATH" ]]; then
+  echo "  binary: $FLUXDOWN_BIN_PATH"
+else
+  echo "  binary: cargo run -p fluxdown-cli"
+fi
 
 cd "$ROOT_DIR"
 

@@ -74,6 +74,10 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run verify:macos-cli-ftp-ftps` | 通过：脚本启动临时 FTP 和显式 TLS FTPS fixture，验证 CLI FTP/FTPS 直连下载和队列下载。 |
 | `npm run verify:macos-cli-http-hls` | 通过：脚本启动临时 Range HTTP server，验证 CLI HTTP 直连/队列和 HLS 直连/队列/单任务启动。 |
 | `npm run verify:macos-cli-release-http-hls` | 通过：复用 HTTP/HLS fixture，但强制使用 `target/release/fluxdown`，验证 release CLI 二进制的 HTTP 直连/队列、HLS 直连/队列/单任务启动和 SHA-256 落盘校验。 |
+| `npm run verify:macos-cli-release-ftp-ftps` | 通过：强制使用 `target/release/fluxdown`，验证 release CLI 二进制的 FTP/FTPS 直连下载、队列下载和 SHA-256 落盘校验。 |
+| `npm run verify:macos-cli-release-sftp` | 通过：强制使用 `target/release/fluxdown`，验证 release CLI 二进制的 SFTP 直连下载、队列下载和 SHA-256 落盘校验。 |
+| `npm run verify:macos-cli-release-smb` | 通过：强制使用 `target/release/fluxdown`，验证 release CLI 二进制的 SMB 直连下载、队列下载和 SHA-256 落盘校验；脚本已改为等待真实 SMB 下载 readiness，避免 Samba TCP 已打开但协议未准备好时偶发 `Disconnected from server`。 |
+| `npm run verify:macos-cli-release-p2p` | 通过：强制使用 `target/release/fluxdown`，验证 release CLI 二进制的 `.torrent add -> run -> list` 和 magnet `add -> start -> list`，任务名会回写为真实文件名且 SHA-256 匹配。 |
 | `scripts/verify-macos-cli-p2p.sh` | 通过：脚本创建临时小文件、生成 torrent/magnet、启动本地 tracker 和 Transmission seeder，验证 CLI `.torrent` 队列下载和 magnet `start` 单任务下载。 |
 | `npm run verify:macos-cli-sftp` | 通过：脚本启动临时 Docker SFTP 服务，等待 SSH banner 后验证 CLI SFTP 直连下载和队列下载。 |
 | `npm run verify:macos-cli-smb` | 通过：脚本启动临时 Docker Samba 共享，验证 CLI SMB 直连下载和队列下载。 |
@@ -89,7 +93,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run verify:macos-artifacts` | 通过：校验 release CLI 文件、桌面二进制、`.app` 目录、`Info.plist` 元数据、bundle 可执行文件、CLI `--version/detect/support/doctor`、`.app` ad-hoc 签名和 dmg checksum。 |
 | `target/release/fluxdown --version` | 通过，输出 `fluxdown 1.0.2`。 |
 | `target/release/fluxdown doctor` | 通过；内建 HTTP/HTTPS/WebDAV/FTP/FTPS/Torrent/Magnet/m3u8/SFTP/SMB/IPFS 可执行；ed2k 为系统移交，当前 PATH 缺少可选 `ed2k` CLI。 |
-| Release CLI smoke | 通过：`target/release/fluxdown detect 'https://example.com/file.zip'` 输出 `Https`，`support` 返回可执行状态，`doctor` JSON 中 HTTP 为 executable；release 二进制还通过了 `npm run verify:macos-cli-release-http-hls` 的真实下载闭环。 |
+| Release CLI smoke | 通过：`target/release/fluxdown detect 'https://example.com/file.zip'` 输出 `Https`，`support` 返回可执行状态，`doctor` JSON 中 HTTP 为 executable；release 二进制还通过了 HTTP/HLS、FTP/FTPS、SFTP、SMB、Torrent/Magnet 脚本化真实下载闭环。 |
 
 ### CLI 真实下载
 

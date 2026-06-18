@@ -8,6 +8,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fluxdown-cli-ftp-ftps.XXXXXX")"
 FTP_PID=""
 FTPS_PID=""
+FLUXDOWN_BIN_PATH=""
 
 cleanup() {
   set +e
@@ -23,12 +24,28 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for tool in cargo openssl python3 shasum wc; do
+for tool in openssl python3 shasum wc; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "missing required tool: $tool" >&2
     exit 1
   fi
 done
+
+if [[ -n "${FLUXDOWN_BIN:-}" ]]; then
+  FLUXDOWN_BIN_PATH="$FLUXDOWN_BIN"
+  if [[ "$FLUXDOWN_BIN_PATH" != /* ]]; then
+    FLUXDOWN_BIN_PATH="$ROOT_DIR/$FLUXDOWN_BIN_PATH"
+  fi
+  if [[ ! -x "$FLUXDOWN_BIN_PATH" ]]; then
+    echo "FLUXDOWN_BIN is not executable: $FLUXDOWN_BIN_PATH" >&2
+    exit 1
+  fi
+else
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "missing required tool: cargo" >&2
+    exit 1
+  fi
+fi
 
 free_port() {
   python3 - <<'PY'
@@ -69,7 +86,11 @@ PY
 }
 
 fluxdown() {
-  cargo run --quiet -p fluxdown-cli -- "$@"
+  if [[ -n "$FLUXDOWN_BIN_PATH" ]]; then
+    "$FLUXDOWN_BIN_PATH" "$@"
+  else
+    cargo run --quiet -p fluxdown-cli -- "$@"
+  fi
 }
 
 json_get() {
@@ -382,6 +403,11 @@ echo "  ftp:        $FTP_SOURCE"
 echo "  ftp sha:    $FTP_SHA256"
 echo "  ftps:       $FTPS_SOURCE"
 echo "  ftps sha:   $FTPS_SHA256"
+if [[ -n "$FLUXDOWN_BIN_PATH" ]]; then
+  echo "  binary:     $FLUXDOWN_BIN_PATH"
+else
+  echo "  binary:     cargo run -p fluxdown-cli"
+fi
 
 cd "$ROOT_DIR"
 

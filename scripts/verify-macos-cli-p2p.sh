@@ -7,18 +7,35 @@ export LC_ALL=en_US.UTF-8
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCAL_RESOURCES_DIR="$ROOT_DIR/../local_protocol_resources"
 TRACKER_SCRIPT="$LOCAL_RESOURCES_DIR/local_bt_tracker.py"
+FLUXDOWN_BIN_PATH=""
 
 if [[ ! -f "$TRACKER_SCRIPT" ]]; then
   echo "missing local tracker script: $TRACKER_SCRIPT" >&2
   exit 1
 fi
 
-for tool in python3 transmission-create transmission-daemon transmission-remote transmission-show shasum cargo; do
+for tool in python3 transmission-create transmission-daemon transmission-remote transmission-show shasum; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "missing required tool: $tool" >&2
     exit 1
   fi
 done
+
+if [[ -n "${FLUXDOWN_BIN:-}" ]]; then
+  FLUXDOWN_BIN_PATH="$FLUXDOWN_BIN"
+  if [[ "$FLUXDOWN_BIN_PATH" != /* ]]; then
+    FLUXDOWN_BIN_PATH="$ROOT_DIR/$FLUXDOWN_BIN_PATH"
+  fi
+  if [[ ! -x "$FLUXDOWN_BIN_PATH" ]]; then
+    echo "FLUXDOWN_BIN is not executable: $FLUXDOWN_BIN_PATH" >&2
+    exit 1
+  fi
+else
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "missing required tool: cargo" >&2
+    exit 1
+  fi
+fi
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fluxdown-cli-p2p.XXXXXX")"
 TRACKER_PID=""
@@ -87,7 +104,11 @@ cleanup() {
 trap cleanup EXIT
 
 fluxdown() {
-  cargo run --quiet -p fluxdown-cli -- "$@"
+  if [[ -n "$FLUXDOWN_BIN_PATH" ]]; then
+    "$FLUXDOWN_BIN_PATH" "$@"
+  else
+    cargo run --quiet -p fluxdown-cli -- "$@"
+  fi
 }
 
 json_get() {
@@ -214,6 +235,11 @@ echo "macOS CLI P2P fixture"
 echo "  torrent: $TORRENT_FILE"
 echo "  magnet:  $MAGNET_URI"
 echo "  sha256:  $EXPECTED_SHA256"
+if [[ -n "$FLUXDOWN_BIN_PATH" ]]; then
+  echo "  binary:  $FLUXDOWN_BIN_PATH"
+else
+  echo "  binary:  cargo run -p fluxdown-cli"
+fi
 
 cd "$ROOT_DIR"
 
