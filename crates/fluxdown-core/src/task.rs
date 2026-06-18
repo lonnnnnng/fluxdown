@@ -1,5 +1,6 @@
 use crate::{Protocol, SupportStatus, detect_protocol, support_status};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use url::Url;
 use uuid::Uuid;
@@ -11,6 +12,8 @@ pub struct DownloadRequest {
     pub file_name: Option<String>,
     #[serde(default)]
     pub expected_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub torrent_file_indices: Vec<usize>,
 }
 
 impl DownloadRequest {
@@ -20,6 +23,7 @@ impl DownloadRequest {
             output_dir: output_dir.into(),
             file_name: None,
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         }
     }
 
@@ -49,6 +53,8 @@ pub struct DownloadTask {
     pub file_name: Option<String>,
     #[serde(default)]
     pub expected_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub torrent_file_indices: Vec<usize>,
     pub total_bytes: Option<u64>,
     pub downloaded_bytes: u64,
     #[serde(default)]
@@ -82,6 +88,7 @@ impl DownloadTask {
                 .expected_sha256
                 .as_deref()
                 .map(normalize_sha256_text),
+            torrent_file_indices: normalize_torrent_file_indices(request.torrent_file_indices),
             total_bytes: None,
             downloaded_bytes: 0,
             current_speed_bytes_per_second: 0,
@@ -102,6 +109,7 @@ impl DownloadTask {
                 .as_deref()
                 .map(|name| sanitize_download_file_name(name, "download.bin")),
             expected_sha256: self.expected_sha256.as_deref().map(normalize_sha256_text),
+            torrent_file_indices: normalize_torrent_file_indices(self.torrent_file_indices.clone()),
         }
     }
 
@@ -174,6 +182,16 @@ impl DownloadTask {
         task.error = task.error.as_deref().map(redact_url_credentials_in_text);
         task
     }
+}
+
+pub fn normalize_torrent_file_indices(indices: Vec<usize>) -> Vec<usize> {
+    // 作者: long
+    // 多文件种子的选择会直接传给下载引擎，排序去重后持久化，避免重复索引让 CLI/GUI 的展示和实际下载范围不一致。
+    indices
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 pub fn normalize_sha256_text(value: &str) -> String {
@@ -372,6 +390,7 @@ mod tests {
         assert_eq!(restored.started_at_ms, None);
         assert_eq!(restored.finished_at_ms, None);
         assert_eq!(restored.expected_sha256, None);
+        assert!(restored.torrent_file_indices.is_empty());
     }
 
     #[test]
@@ -403,6 +422,17 @@ mod tests {
             "671e23b189bb7a2041eff1b29f077b4e59460d30db56248fdcccafa012babfc8"
         );
         assert!(validate_sha256_text("not-a-sha256").is_err());
+    }
+
+    #[test]
+    fn normalizes_torrent_file_indices_when_creating_task() {
+        let mut request = DownloadRequest::new("/tmp/multi.torrent", "/tmp");
+        request.torrent_file_indices = vec![3, 1, 3, 0];
+
+        let task = DownloadTask::from_request(request);
+
+        assert_eq!(task.torrent_file_indices, vec![0, 1, 3]);
+        assert_eq!(task.request().torrent_file_indices, vec![0, 1, 3]);
     }
 
     #[test]

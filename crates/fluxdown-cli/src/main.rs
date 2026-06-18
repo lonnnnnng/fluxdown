@@ -47,6 +47,8 @@ enum Command {
         speed_limit_mbps: Option<f64>,
         #[arg(long = "sha256")]
         expected_sha256: Option<String>,
+        #[arg(long = "torrent-file-index")]
+        torrent_file_indices: Vec<usize>,
         #[arg(long)]
         restart: bool,
     },
@@ -58,6 +60,8 @@ enum Command {
         name: Option<String>,
         #[arg(long = "sha256")]
         expected_sha256: Option<String>,
+        #[arg(long = "torrent-file-index")]
+        torrent_file_indices: Vec<usize>,
     },
     List,
     Start {
@@ -127,11 +131,13 @@ async fn run_cli() -> Result<()> {
             threads,
             speed_limit_mbps,
             expected_sha256,
+            torrent_file_indices,
             restart,
         } => {
             let mut request = DownloadRequest::new(source, output);
             request.file_name = name;
             request.expected_sha256 = validated_expected_sha256(expected_sha256)?;
+            request.torrent_file_indices = torrent_file_indices;
             let summary = DownloadEngine::new()
                 .download_with_options(
                     request,
@@ -145,10 +151,12 @@ async fn run_cli() -> Result<()> {
             output,
             name,
             expected_sha256,
+            torrent_file_indices,
         } => {
             let mut request = DownloadRequest::new(source, output);
             request.file_name = name;
             request.expected_sha256 = validated_expected_sha256(expected_sha256)?;
+            request.torrent_file_indices = torrent_file_indices;
             let task = store.enqueue(request).await?;
             println!(
                 "{}",

@@ -72,6 +72,8 @@
 - 使用 `librqbit`。
 - `.torrent` 可以是本地文件或 URL。
 - Magnet 通过 torrent session 添加。
+- 桌面 CLI 和 Tauri command 支持传入 torrent 文件编号，只下载选中的文件；编号留空时下载整个种子。
+- 任务完成后会用 metadata 中的真实文件名或目录名更新任务展示，单选多文件种子时也会递归定位真实落盘文件。
 - 当前任务模型记录整体任务状态，不提供每个文件、peer、tracker 的完整细节。
 
 ### ed2k

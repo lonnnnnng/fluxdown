@@ -33,7 +33,7 @@ FluxDown 是一个跨平台下载器工作区：
 - 新建任务支持下载链接输入、剪切板读取、二维码扫描、另存文件名和保存位置选择。
 - 设置页提供下载保存位置、并发下载数、下载线程数、自动重试数和最大下载网速。
 - 下载执行逻辑接入并发排队、线程数、失败重试和可选限速配置。
-- Torrent/Magnet 在获取 metadata 后使用真实文件名；多文件资源会让用户选择要下载的文件。
+- Torrent/Magnet 在获取 metadata 后使用真实文件名；Android 已支持多文件选择，桌面 CLI/Tauri command 已支持按文件编号选择下载内容。
 - CLI JSON 输出、命令错误、桌面属性页和任务错误展示会脱敏 URL 用户名和密码，原始链接仍保留用于下载和复制。
 - CLI 和桌面端会把另存文件名规范化为单文件名，避免异常文件名写出保存目录。
 - 桌面队列默认使用平台原生数据目录，macOS 会从旧版 `~/.local/share/fluxdown/queue.json` 兼容迁移到 `~/Library/Application Support/FluxDown/queue.json`。

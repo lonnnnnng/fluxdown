@@ -24,6 +24,8 @@ struct AddPayload {
     file_name: Option<String>,
     #[serde(default)]
     expected_sha256: Option<String>,
+    #[serde(default)]
+    torrent_file_indices: Vec<usize>,
 }
 
 #[tauri::command]
@@ -59,6 +61,7 @@ async fn enqueue_download(payload: AddPayload) -> Result<DownloadTask, String> {
     let mut request = DownloadRequest::new(payload.source, resolve_output_dir(&payload.output_dir));
     request.file_name = payload.file_name;
     request.expected_sha256 = validated_expected_sha256(payload.expected_sha256)?;
+    request.torrent_file_indices = payload.torrent_file_indices;
     TaskStore::new(default_store_path())
         .enqueue(request)
         .await
@@ -312,7 +315,13 @@ fn resolve_task_output_path(task: &DownloadTask) -> PathBuf {
             .file_name
             .as_ref()
             .map(|file_name| {
-                output_dir.join(sanitize_download_file_name(file_name, "download.bin"))
+                let file_name = sanitize_download_file_name(file_name, "download.bin");
+                let direct = output_dir.join(&file_name);
+                if direct.exists() {
+                    direct
+                } else {
+                    find_existing_file_by_name(&output_dir, &file_name).unwrap_or(direct)
+                }
             })
             .filter(|path| path.exists())
             .unwrap_or(output_dir);
@@ -337,6 +346,30 @@ fn resolve_task_output_path(task: &DownloadTask) -> PathBuf {
     }
 
     output_dir.join(file_name)
+}
+
+fn find_existing_file_by_name(root: &Path, file_name: &str) -> Option<PathBuf> {
+    // 作者: long
+    // 多文件 Torrent 会保留种子里的目录树，任务列表只展示最终文件名；打开文件时需要在保存目录下定位真实落盘文件。
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = std::fs::read_dir(&dir).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name == file_name)
+            {
+                return Some(path);
+            }
+            if path.is_dir() {
+                stack.push(path);
+            }
+        }
+    }
+    None
 }
 
 fn inferred_file_name_from_source(source: &str) -> String {
@@ -939,6 +972,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-hls.m3u8".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -980,6 +1014,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-command.txt".to_string()),
             expected_sha256: Some(format!("sha256:{expected_sha256}")),
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1026,6 +1061,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-command.txt".to_string()),
             expected_sha256: Some(wrong_sha256.to_string()),
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1057,6 +1093,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-retry.txt".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1093,12 +1130,36 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-command.txt".to_string()),
             expected_sha256: Some("not-a-sha256".to_string()),
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap_err();
 
         assert!(error.contains("invalid SHA-256 checksum"), "{error}");
         assert!(list_downloads().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn desktop_enqueue_persists_torrent_file_indices() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+
+        let task = enqueue_download(AddPayload {
+            source: "/tmp/multi-file.torrent".to_string(),
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("multi-file.torrent".to_string()),
+            expected_sha256: None,
+            torrent_file_indices: vec![4, 1, 4],
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(task.protocol, Protocol::Torrent);
+        assert_eq!(task.torrent_file_indices, vec![1, 4]);
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].torrent_file_indices, vec![1, 4]);
     }
 
     #[tokio::test]
@@ -1115,6 +1176,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-ftp.txt".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1151,6 +1213,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-start.txt".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1202,6 +1265,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-restart.txt".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1239,6 +1303,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-start-ftp.txt".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1285,6 +1350,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-start-hls.m3u8".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1335,6 +1401,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-start-webdav.txt".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1387,6 +1454,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-start-ipfs.txt".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1434,6 +1502,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("delete-running.bin".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1478,6 +1547,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("pause-running.bin".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1550,6 +1620,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-webdav.txt".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1590,6 +1661,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("desktop-ipfs.txt".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1635,6 +1707,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some(expected_name.clone()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1681,6 +1754,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some(expected_name.clone()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1727,6 +1801,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some(expected_name.clone()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1773,6 +1848,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("queued-sample.torrent".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1823,6 +1899,7 @@ mod tests {
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("magnet-download".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         })
         .await
         .unwrap();
@@ -1852,6 +1929,75 @@ mod tests {
         // 作者: long
         // Magnet 初始没有文件名，metadata 到达后要回写真实产物名，避免桌面列表长期显示 magnet-download。
         assert_eq!(sha256_file(&output_path), expected_sha256);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live local tracker and seeder; use scripts/verify-macos-desktop-p2p.sh"]
+    async fn desktop_manual_downloads_selected_torrent_file_through_queue() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let source = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_MULTI_TORRENT",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let root = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_MULTI_ROOT",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let selected_name = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_SELECTED_NAME",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let skipped_name = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_SKIPPED_NAME",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let selected_sha256 = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_SELECTED_SHA256",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("selected-bundle.torrent".to_string()),
+            expected_sha256: None,
+            torrent_file_indices: vec![0],
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.protocol, Protocol::Torrent);
+        assert_eq!(task.torrent_file_indices, vec![0]);
+
+        let report = run_queue(1, Some(1), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 1);
+        assert_eq!(report.failed, 0);
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        assert_eq!(tasks[0].file_name.as_deref(), Some(selected_name.as_str()));
+        let output_path = PathBuf::from(task_output_path(tasks[0].id.clone()).await.unwrap());
+        assert_eq!(
+            output_path.file_name().and_then(|name| name.to_str()),
+            Some(selected_name.as_str())
+        );
+        // 作者: long
+        // 多文件种子选择只下载用户挑中的文件，任务卡片也必须展示最终真实文件名，而不是临时 .torrent 名。
+        assert_eq!(sha256_file(&output_path), selected_sha256);
+        let skipped_path = output_dir.join(root).join(skipped_name);
+        assert!(
+            !skipped_path.exists()
+                || std::fs::metadata(&skipped_path)
+                    .map(|metadata| metadata.len() == 0)
+                    .unwrap_or(false),
+            "unselected torrent file was written: {}",
+            skipped_path.display()
+        );
     }
 
     fn sha256_file(path: &Path) -> String {

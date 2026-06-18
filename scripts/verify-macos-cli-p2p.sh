@@ -183,21 +183,42 @@ SEED_DIR="$TMP_DIR/seed"
 CONFIG_DIR="$TMP_DIR/transmission"
 TORRENT_OUT="$TMP_DIR/downloads/torrent"
 MAGNET_OUT="$TMP_DIR/downloads/magnet"
+SELECTED_OUT="$TMP_DIR/downloads/selected"
 STORE="$TMP_DIR/queue.json"
-mkdir -p "$SEED_DIR" "$CONFIG_DIR" "$TORRENT_OUT" "$MAGNET_OUT"
+mkdir -p "$SEED_DIR" "$CONFIG_DIR" "$TORRENT_OUT" "$MAGNET_OUT" "$SELECTED_OUT"
 
 SAMPLE_NAME="fluxdown-cli-p2p-sample.txt"
 SAMPLE_FILE="$SEED_DIR/$SAMPLE_NAME"
 TORRENT_FILE="$TMP_DIR/fluxdown-cli-p2p-sample.torrent"
+MULTI_NAME="fluxdown-cli-p2p-bundle"
+MULTI_DIR="$SEED_DIR/$MULTI_NAME"
+SELECTED_NAME="a-selected.bin"
+SKIPPED_NAME="b-skipped.bin"
+MULTI_TORRENT_FILE="$TMP_DIR/fluxdown-cli-p2p-bundle.torrent"
 TRACKER_URL="http://127.0.0.1:$TRACKER_PORT/announce"
 
 printf 'fluxdown cli p2p sample\n' > "$SAMPLE_FILE"
 EXPECTED_SHA256="$(shasum -a 256 "$SAMPLE_FILE" | awk '{print $1}')"
+mkdir -p "$MULTI_DIR"
+python3 - "$MULTI_DIR/$SELECTED_NAME" "$MULTI_DIR/$SKIPPED_NAME" <<'PY'
+import pathlib
+import sys
+
+selected, skipped = (pathlib.Path(path) for path in sys.argv[1:])
+selected.write_bytes(bytes(index % 251 for index in range(64 * 1024)))
+skipped.write_bytes(bytes((index * 7) % 251 for index in range(64 * 1024)))
+PY
+SELECTED_SHA256="$(shasum -a 256 "$MULTI_DIR/$SELECTED_NAME" | awk '{print $1}')"
 
 transmission-create \
   -o "$TORRENT_FILE" \
   -t "$TRACKER_URL" \
   "$SAMPLE_FILE" >/dev/null
+transmission-create \
+  -o "$MULTI_TORRENT_FILE" \
+  -s 32 \
+  -t "$TRACKER_URL" \
+  "$MULTI_DIR" >/dev/null
 
 INFO_HASH="$(transmission-show "$TORRENT_FILE" | awk '/Hash v1:/ {print $3; exit}')"
 TRACKER_ENCODED="$(python3 - "$TRACKER_URL" <<'PY'
@@ -229,12 +250,15 @@ TRANSMISSION_PID="$!"
 wait_for_transmission
 
 transmission-remote "127.0.0.1:$RPC_PORT" -a "$TORRENT_FILE" >/dev/null
+transmission-remote "127.0.0.1:$RPC_PORT" -a "$MULTI_TORRENT_FILE" >/dev/null
 transmission-remote "127.0.0.1:$RPC_PORT" -t all --reannounce >/dev/null
 
 echo "macOS CLI P2P fixture"
 echo "  torrent: $TORRENT_FILE"
+echo "  multi:   $MULTI_TORRENT_FILE"
 echo "  magnet:  $MAGNET_URI"
 echo "  sha256:  $EXPECTED_SHA256"
+echo "  selected sha256: $SELECTED_SHA256"
 if [[ -n "$FLUXDOWN_BIN_PATH" ]]; then
   echo "  binary:  $FLUXDOWN_BIN_PATH"
 else
@@ -269,5 +293,27 @@ assert_json_value "$MAGNET_START" "task.file_name" "$SAMPLE_NAME"
 assert_task_value "$MAGNET_LIST" "$MAGNET_ID" "state" "finished"
 assert_task_value "$MAGNET_LIST" "$MAGNET_ID" "file_name" "$SAMPLE_NAME"
 assert_sha256 "$MAGNET_OUT/$SAMPLE_NAME" "$EXPECTED_SHA256"
+
+SELECT_ADD="$TMP_DIR/selected-add.json"
+SELECT_RUN="$TMP_DIR/selected-run.json"
+SELECT_LIST="$TMP_DIR/selected-list.json"
+fluxdown --store "$STORE" add "$MULTI_TORRENT_FILE" \
+  --output "$SELECTED_OUT" \
+  --name selected-bundle.torrent \
+  --torrent-file-index 0 \
+  > "$SELECT_ADD"
+SELECT_ID="$(json_get "$SELECT_ADD" "id")"
+assert_json_value "$SELECT_ADD" "torrent_file_indices.0" "0"
+fluxdown --store "$STORE" run --concurrency 1 --retry-attempts 1 > "$SELECT_RUN"
+fluxdown --store "$STORE" list > "$SELECT_LIST"
+assert_json_value "$SELECT_RUN" "started" "1"
+assert_json_value "$SELECT_RUN" "finished" "1"
+assert_task_value "$SELECT_LIST" "$SELECT_ID" "state" "finished"
+assert_task_value "$SELECT_LIST" "$SELECT_ID" "file_name" "$SELECTED_NAME"
+assert_sha256 "$SELECTED_OUT/$MULTI_NAME/$SELECTED_NAME" "$SELECTED_SHA256"
+if [[ -s "$SELECTED_OUT/$MULTI_NAME/$SKIPPED_NAME" ]]; then
+  echo "unselected torrent file was written: $SELECTED_OUT/$MULTI_NAME/$SKIPPED_NAME" >&2
+  exit 1
+fi
 
 echo "macOS CLI P2P verification passed"

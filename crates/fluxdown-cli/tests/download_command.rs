@@ -981,6 +981,45 @@ fn queue_commands_add_list_and_run_http_task() {
 }
 
 #[test]
+fn queue_add_persists_torrent_file_indices() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let downloads_dir = temp_dir.path().join("downloads");
+
+    let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "add",
+            "/tmp/multi-file.torrent",
+            "--output",
+            downloads_dir.to_str().unwrap(),
+            "--name",
+            "multi-file.torrent",
+            "--torrent-file-index",
+            "2",
+            "--torrent-file-index",
+            "0",
+            "--torrent-file-index",
+            "2",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        add_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&add_output.stderr)
+    );
+    let added: Value = serde_json::from_slice(&add_output.stdout).unwrap();
+    let task_id = added["id"].as_str().unwrap().to_string();
+    assert_eq!(added["protocol"], "torrent");
+    assert_eq!(added["torrent_file_indices"], serde_json::json!([0, 2]));
+
+    let listed = list_task(&store_path, &task_id);
+    assert_eq!(listed["torrent_file_indices"], serde_json::json!([0, 2]));
+}
+
+#[test]
 fn queue_add_rejects_invalid_sha256_without_writing_queue() {
     let temp_dir = tempfile::tempdir().unwrap();
     let store_path = temp_dir.path().join("queue.json");

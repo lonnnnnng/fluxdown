@@ -32,7 +32,7 @@ FluxDown is a multi-protocol downloader for desktop and mobile, with a CLI, desk
 - The Android queue view is grouped by status and task rows show start/end time, elapsed time, downloaded/total size, real-time speed, and average speed.
 - New task creation supports clipboard input, QR scanning, save-as filename, and output folder selection.
 - Settings now cover download location, concurrent downloads, download thread count, retry count, and max download speed.
-- Torrent and magnet tasks update to the real file name after metadata arrives; multi-file resources prompt for file selection.
+- Torrent and magnet tasks update to the real file name after metadata arrives; Android supports multi-file selection, while the desktop CLI/Tauri command path supports selecting files by torrent file index.
 - Android real-device verification now covers local protocol fixtures plus media-sized HLS, torrent, and magnet foreground app flows.
 
 ## Screenshots

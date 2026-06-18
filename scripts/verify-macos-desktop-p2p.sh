@@ -96,15 +96,35 @@ mkdir -p "$SEED_DIR" "$CONFIG_DIR"
 SAMPLE_NAME="fluxdown-p2p-sample.txt"
 SAMPLE_FILE="$SEED_DIR/$SAMPLE_NAME"
 TORRENT_FILE="$TMP_DIR/fluxdown-p2p-sample.torrent"
+MULTI_NAME="fluxdown-desktop-p2p-bundle"
+MULTI_DIR="$SEED_DIR/$MULTI_NAME"
+SELECTED_NAME="a-selected.bin"
+SKIPPED_NAME="b-skipped.bin"
+MULTI_TORRENT_FILE="$TMP_DIR/fluxdown-desktop-p2p-bundle.torrent"
 TRACKER_URL="http://127.0.0.1:$TRACKER_PORT/announce"
 
 printf 'fluxdown desktop p2p sample\n' > "$SAMPLE_FILE"
 EXPECTED_SHA256="$(shasum -a 256 "$SAMPLE_FILE" | awk '{print $1}')"
+mkdir -p "$MULTI_DIR"
+python3 - "$MULTI_DIR/$SELECTED_NAME" "$MULTI_DIR/$SKIPPED_NAME" <<'PY'
+import pathlib
+import sys
+
+selected, skipped = (pathlib.Path(path) for path in sys.argv[1:])
+selected.write_bytes(bytes(index % 251 for index in range(64 * 1024)))
+skipped.write_bytes(bytes((index * 7) % 251 for index in range(64 * 1024)))
+PY
+SELECTED_SHA256="$(shasum -a 256 "$MULTI_DIR/$SELECTED_NAME" | awk '{print $1}')"
 
 transmission-create \
   -o "$TORRENT_FILE" \
   -t "$TRACKER_URL" \
   "$SAMPLE_FILE" >/dev/null
+transmission-create \
+  -o "$MULTI_TORRENT_FILE" \
+  -s 32 \
+  -t "$TRACKER_URL" \
+  "$MULTI_DIR" >/dev/null
 
 INFO_HASH="$(transmission-show "$TORRENT_FILE" | awk '/Hash v1:/ {print $3; exit}')"
 TRACKER_ENCODED="$(python3 - "$TRACKER_URL" <<'PY'
@@ -136,12 +156,15 @@ TRANSMISSION_PID="$!"
 wait_for_transmission
 
 transmission-remote "127.0.0.1:$RPC_PORT" -a "$TORRENT_FILE" >/dev/null
+transmission-remote "127.0.0.1:$RPC_PORT" -a "$MULTI_TORRENT_FILE" >/dev/null
 transmission-remote "127.0.0.1:$RPC_PORT" -t all --reannounce >/dev/null
 
 echo "macOS desktop P2P fixture"
 echo "  torrent: $TORRENT_FILE"
+echo "  multi:   $MULTI_TORRENT_FILE"
 echo "  magnet:  $MAGNET_URI"
 echo "  sha256:  $EXPECTED_SHA256"
+echo "  selected sha256: $SELECTED_SHA256"
 
 cd "$ROOT_DIR"
 FLUXDOWN_DESKTOP_P2P_TORRENT="$TORRENT_FILE" \
@@ -156,3 +179,10 @@ FLUXDOWN_DESKTOP_P2P_MAGNET="$MAGNET_URI" \
 FLUXDOWN_DESKTOP_P2P_FILE_NAME="$SAMPLE_NAME" \
 FLUXDOWN_DESKTOP_P2P_SHA256="$EXPECTED_SHA256" \
   cargo test -p fluxdown-desktop desktop_manual_starts_single_file_magnet_task -- --ignored --nocapture
+
+FLUXDOWN_DESKTOP_P2P_MULTI_TORRENT="$MULTI_TORRENT_FILE" \
+FLUXDOWN_DESKTOP_P2P_MULTI_ROOT="$MULTI_NAME" \
+FLUXDOWN_DESKTOP_P2P_SELECTED_NAME="$SELECTED_NAME" \
+FLUXDOWN_DESKTOP_P2P_SKIPPED_NAME="$SKIPPED_NAME" \
+FLUXDOWN_DESKTOP_P2P_SELECTED_SHA256="$SELECTED_SHA256" \
+  cargo test -p fluxdown-desktop desktop_manual_downloads_selected_torrent_file_through_queue -- --ignored --nocapture

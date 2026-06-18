@@ -743,6 +743,7 @@ impl DownloadEngine {
                 add_torrent,
                 Some(AddTorrentOptions {
                     overwrite: true,
+                    only_files: torrent_only_files(&request),
                     ratelimits: torrent_rate_limits(options.speed_limit_bps),
                     ..Default::default()
                 }),
@@ -807,8 +808,13 @@ impl DownloadEngine {
             let file_paths = metadata
                 .file_infos
                 .iter()
-                .filter(|file| !file.attrs.padding)
-                .map(|file| file.relative_filename.clone())
+                .enumerate()
+                .filter(|(index, _)| {
+                    request.torrent_file_indices.is_empty()
+                        || request.torrent_file_indices.contains(index)
+                })
+                .filter(|(_, file)| !file.attrs.padding)
+                .map(|(_, file)| file.relative_filename.clone())
                 .collect::<Vec<_>>();
             torrent_output_details(&request.output_dir, metadata.name.as_deref(), &file_paths)
         })?;
@@ -1330,6 +1336,12 @@ fn torrent_rate_limits(speed_limit_bps: Option<u64>) -> LimitsConfig {
         upload_bps: None,
         download_bps: speed_limit_nonzero_u32(speed_limit_bps),
     }
+}
+
+fn torrent_only_files(request: &DownloadRequest) -> Option<Vec<usize>> {
+    // 作者: long
+    // 空选择表示下载整个种子；只有用户明确选择文件时才传给 librqbit，保持旧任务和单文件种子的默认行为不变。
+    (!request.torrent_file_indices.is_empty()).then(|| request.torrent_file_indices.clone())
 }
 
 fn torrent_session_options(speed_limit_bps: Option<u64>) -> SessionOptions {
@@ -2344,6 +2356,7 @@ mod tests {
             output_dir: PathBuf::from("/tmp/fluxdown"),
             file_name: Some("../movie:name.m3u8".to_string()),
             expected_sha256: None,
+            torrent_file_indices: Vec::new(),
         };
         let candidates = output_file_candidates_for_request(&hls_request);
         assert!(candidates.contains(&PathBuf::from("/tmp/fluxdown/_movie_name.mp4")));

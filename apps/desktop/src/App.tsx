@@ -63,6 +63,7 @@ type DownloadTask = {
   output_dir: string;
   file_name?: string | null;
   expected_sha256?: string | null;
+  torrent_file_indices?: number[];
   total_bytes?: number | null;
   downloaded_bytes: number;
   current_speed_bytes_per_second?: number;
@@ -283,6 +284,19 @@ function normalizeExpectedSha256(value: string) {
   return /^[0-9a-f]{64}$/.test(normalized) ? normalized : undefined;
 }
 
+function parseTorrentFileIndices(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  const parts = trimmed.split(/[,\s]+/).filter(Boolean);
+  const indices = new Set<number>();
+  for (const part of parts) {
+    const parsed = Number(part);
+    if (!Number.isInteger(parsed) || parsed < 0) return undefined;
+    indices.add(parsed);
+  }
+  return Array.from(indices).sort((left, right) => left - right);
+}
+
 function redactCredentialsInText(text: string) {
   return text.replace(
     /(?:[a-z][a-z0-9+.-]*:\/\/|magnet:\?)[^\s"'`<>]+/gi,
@@ -446,6 +460,7 @@ function App() {
   const [sourceSupport, setSourceSupport] = useState<SupportStatus | null>(null);
   const [fileName, setFileName] = useState("");
   const [expectedSha256, setExpectedSha256] = useState("");
+  const [torrentFileIndices, setTorrentFileIndices] = useState("");
   const [outputDir, setOutputDir] = useState(settings.outputDir);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [queueActive, setQueueActive] = useState(false);
@@ -571,12 +586,18 @@ function App() {
       setMessage("SHA-256 需要是 64 位十六进制");
       return;
     }
+    const selectedTorrentFiles = parseTorrentFileIndices(torrentFileIndices);
+    if (selectedTorrentFiles === undefined) {
+      setMessage("Torrent 文件编号只能填写非负整数");
+      return;
+    }
     const task = await invoke<DownloadTask>("enqueue_download", {
       payload: {
         source: normalizedSource,
         output_dir: normalizedOutput,
         file_name: fileName.trim() || null,
         expected_sha256: normalizedSha256,
+        torrent_file_indices: selectedTorrentFiles,
       },
     }).catch(() => {
       const protocol = fallbackDetect(normalizedSource);
@@ -589,6 +610,7 @@ function App() {
         output_dir: normalizedOutput,
         file_name: fileName.trim() || suggestedFileName(normalizedSource),
         expected_sha256: normalizedSha256,
+        torrent_file_indices: selectedTorrentFiles,
         total_bytes: null,
         downloaded_bytes: 0,
         created_at_ms: Date.now(),
@@ -601,6 +623,7 @@ function App() {
     setSource("");
     setFileName("");
     setExpectedSha256("");
+    setTorrentFileIndices("");
     setOutputDir(settings.outputDir);
     setMessage(`${taskTitle(task)} 已加入队列`);
   }
@@ -879,9 +902,11 @@ function App() {
             setSource(value);
             if (!fileName.trim()) setFileName(suggestedFileName(value));
           }}
+          onTorrentFileIndicesChange={setTorrentFileIndices}
           outputDir={outputDir}
           source={source}
           support={sourceSupport}
+          torrentFileIndices={torrentFileIndices}
         />
       ) : null}
 
@@ -1051,9 +1076,11 @@ function NewTaskDialog({
   onOutputDirChange,
   onPaste,
   onSourceChange,
+  onTorrentFileIndicesChange,
   outputDir,
   source,
   support,
+  torrentFileIndices,
 }: {
   expectedSha256: string;
   fileName: string;
@@ -1064,10 +1091,15 @@ function NewTaskDialog({
   onOutputDirChange: (value: string) => void;
   onPaste: () => void;
   onSourceChange: (value: string) => void;
+  onTorrentFileIndicesChange: (value: string) => void;
   outputDir: string;
   source: string;
   support: SupportStatus | null;
+  torrentFileIndices: string;
 }) {
+  const protocol = support?.protocol ?? fallbackDetect(source);
+  const isTorrentLike = protocol === "torrent" || protocol === "magnet";
+
   return (
     <div className="modalBackdrop" onMouseDown={onClose}>
       <section className="taskDialog" onMouseDown={(event) => event.stopPropagation()}>
@@ -1119,6 +1151,16 @@ function NewTaskDialog({
             value={expectedSha256}
           />
         </label>
+        {isTorrentLike ? (
+          <label className="fieldBlock">
+            <span>Torrent 文件编号</span>
+            <input
+              onChange={(event) => onTorrentFileIndicesChange(event.target.value)}
+              placeholder="可选，如 0,2；留空下载全部文件"
+              value={torrentFileIndices}
+            />
+          </label>
+        ) : null}
         <footer className="dialogFooter">
           <button onClick={onClose}>取消</button>
           <button className="primary" onClick={onCreate}>
@@ -1225,6 +1267,12 @@ function PropertyDialog({
             <>
               <dt>SHA-256</dt>
               <dd>{task.expected_sha256}</dd>
+            </>
+          ) : null}
+          {task.torrent_file_indices?.length ? (
+            <>
+              <dt>Torrent 文件编号</dt>
+              <dd>{task.torrent_file_indices.join(", ")}</dd>
             </>
           ) : null}
         </dl>

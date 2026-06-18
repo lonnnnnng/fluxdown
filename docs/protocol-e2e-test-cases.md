@@ -43,8 +43,8 @@
 | `hls-local-media` | m3u8/HLS | `http://<host>:8766/hls/index.m3u8` | 媒体回归，可超过 10 MB | Android 输出最终 `.mp4`；任务完成且 duration 非零，无 remux crash | 用于验证真实视频 remux，不作为小体积 smoke case。 |
 | `torrent-local-media-single` | BitTorrent | `http://<host>:8766/torrent/20260614.torrent` | 媒体回归，可超过 10 MB | metadata 将卡片名从 `.torrent` 改为真实文件名；所选文件完成且大小匹配 | 从实验室主机做种合法本地媒体。 |
 | `magnet-local-media-single` | Magnet | `magnet:?xt=urn:btih:<media-infohash>&dn=<name>&tr=<tracker>` | 媒体回归，可超过 10 MB | metadata 将临时 magnet 名称改为真实文件名；下载完成且大小匹配 | 与 `torrent-local-media-single` 使用同一媒体 payload。 |
-| `torrent-local-media-multi-selection` | BitTorrent | `http://<host>:8766/multi_torrent/20260614_bundle.torrent` | 媒体回归，可超过 10 MB | App 显示 libtorrent 文件列表，所选 indexes 持久化，进度只计算所选 payload | 包含一个大媒体文件和至少一个小 sidecar 文件。 |
-| `magnet-local-media-multi-selection` | Magnet | `magnet:?xt=urn:btih:<bundle-infohash>&dn=<bundle>&tr=<tracker>` | 媒体回归，可超过 10 MB | magnet metadata 到达后显示文件列表，所选 indexes 持久化，进度只计算所选 payload | 与 `torrent-local-media-multi-selection` 使用同一多文件 payload。 |
+| `torrent-local-media-multi-selection` | BitTorrent | `http://<host>:8766/multi_torrent/20260614_bundle.torrent` | 媒体回归，可超过 10 MB | Android 显示 libtorrent 文件列表；桌面 CLI/Tauri command 传入文件编号；所选 indexes 持久化，进度只计算所选 payload | 包含一个大媒体文件和至少一个小 sidecar 文件。 |
+| `magnet-local-media-multi-selection` | Magnet | `magnet:?xt=urn:btih:<bundle-infohash>&dn=<bundle>&tr=<tracker>` | 媒体回归，可超过 10 MB | Android 在 magnet metadata 到达后显示文件列表；桌面后续需要补齐 metadata 列表交互；所选 indexes 持久化，进度只计算所选 payload | 与 `torrent-local-media-multi-selection` 使用同一多文件 payload。 |
 | `ipfs-local-gateway-small` | IPFS | `ipfs://<cid>/readme.txt?gateway=http%3A%2F%2F<host>%3A8765` | <= 1 MB | 输出文本/hash 匹配 fixture | 使用兼容 `/ipfs/<cid>/...` 的本地 HTTP gateway，避免设备网络影响。 |
 | `ed2k-handoff` | ed2k | `ed2k://|file|sample.bin|<size>|<hash>|/` | <= 10 MB | FluxDown 移交给已安装 ed2k 客户端，或在无 handler 时清晰报错 | FluxDown 不能验证外部客户端最终下载完成。 |
 
