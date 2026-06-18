@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use fluxdown_core::{
     DownloadEngine, DownloadOptions, DownloadRequest, DownloadState, QueueRunner,
     QueueRunnerOptions, TaskStore, default_store_path, detect_protocol, doctor_report,
-    redact_url_credentials_in_text, runtime_support_status,
+    redact_url_credentials_in_text, runtime_support_status, validate_sha256_text,
 };
 use std::path::PathBuf;
 use std::time::Duration;
@@ -131,7 +131,7 @@ async fn run_cli() -> Result<()> {
         } => {
             let mut request = DownloadRequest::new(source, output);
             request.file_name = name;
-            request.expected_sha256 = expected_sha256;
+            request.expected_sha256 = validated_expected_sha256(expected_sha256)?;
             let summary = DownloadEngine::new()
                 .download_with_options(
                     request,
@@ -148,7 +148,7 @@ async fn run_cli() -> Result<()> {
         } => {
             let mut request = DownloadRequest::new(source, output);
             request.file_name = name;
-            request.expected_sha256 = expected_sha256;
+            request.expected_sha256 = validated_expected_sha256(expected_sha256)?;
             let task = store.enqueue(request).await?;
             println!(
                 "{}",
@@ -246,6 +246,12 @@ fn runner_options(
 
 fn download_options(threads: usize, speed_limit_mbps: Option<f64>) -> DownloadOptions {
     DownloadOptions::new(threads, speed_limit_mbps_to_bps(speed_limit_mbps))
+}
+
+fn validated_expected_sha256(value: Option<String>) -> Result<Option<String>> {
+    value
+        .map(|value| validate_sha256_text(&value).map_err(anyhow::Error::msg))
+        .transpose()
 }
 
 fn speed_limit_mbps_to_bps(speed_limit_mbps: Option<f64>) -> Option<u64> {

@@ -2,7 +2,7 @@ use fluxdown_core::{
     DoctorReport, DownloadOptions, DownloadRequest, DownloadState, DownloadTask, Protocol,
     QueueRunReport, QueueRunner, QueueRunnerOptions, RuntimeSupportStatus, TaskRunReport,
     TaskStore, default_store_path, detect_protocol, doctor_report, runtime_support_status,
-    sanitize_download_file_name,
+    sanitize_download_file_name, validate_sha256_text,
 };
 use serde::Deserialize;
 use std::{
@@ -58,12 +58,7 @@ fn plan_download(source: String, output_dir: String) -> DownloadTask {
 async fn enqueue_download(payload: AddPayload) -> Result<DownloadTask, String> {
     let mut request = DownloadRequest::new(payload.source, resolve_output_dir(&payload.output_dir));
     request.file_name = payload.file_name;
-    request.expected_sha256 = payload
-        .expected_sha256
-        .and_then(|value| match value.trim() {
-            "" => None,
-            trimmed => Some(trimmed.to_string()),
-        });
+    request.expected_sha256 = validated_expected_sha256(payload.expected_sha256)?;
     TaskStore::new(default_store_path())
         .enqueue(request)
         .await
@@ -238,6 +233,16 @@ fn runner_options(
         ),
         restart_existing: restart_existing.unwrap_or(false),
     }
+}
+
+fn validated_expected_sha256(value: Option<String>) -> Result<Option<String>, String> {
+    value
+        .and_then(|value| match value.trim() {
+            "" => None,
+            trimmed => Some(trimmed.to_string()),
+        })
+        .map(|value| validate_sha256_text(&value))
+        .transpose()
 }
 
 fn speed_limit_mbps_to_bps(speed_limit_mbps: Option<f64>) -> Option<u64> {
@@ -899,6 +904,26 @@ mod tests {
         let error = report.tasks[0].error.as_deref().unwrap_or_default();
         assert!(error.contains("SHA-256 mismatch"), "{error}");
         assert!(error.contains(wrong_sha256), "{error}");
+    }
+
+    #[tokio::test]
+    async fn desktop_enqueue_rejects_invalid_sha256_without_writing_queue() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+
+        let error = enqueue_download(AddPayload {
+            source: "http://127.0.0.1:9/desktop-command.txt".to_string(),
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("desktop-command.txt".to_string()),
+            expected_sha256: Some("not-a-sha256".to_string()),
+        })
+        .await
+        .unwrap_err();
+
+        assert!(error.contains("invalid SHA-256 checksum"), "{error}");
+        assert!(list_downloads().await.unwrap().is_empty());
     }
 
     #[tokio::test]

@@ -185,6 +185,21 @@ pub fn normalize_sha256_text(value: &str) -> String {
         .to_ascii_lowercase()
 }
 
+pub fn validate_sha256_text(value: &str) -> Result<String, String> {
+    let normalized = normalize_sha256_text(value);
+    if normalized.len() == 64
+        && normalized
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    {
+        Ok(normalized)
+    } else {
+        Err(format!(
+            "invalid SHA-256 checksum `{value}`; expected 64 hex characters"
+        ))
+    }
+}
+
 pub fn sanitize_download_file_name(name: &str, fallback: &str) -> String {
     let candidate = name
         .trim()
@@ -376,6 +391,18 @@ mod tests {
             task.request().expected_sha256.as_deref(),
             Some("671e23b189bb7a2041eff1b29f077b4e59460d30db56248fdcccafa012babfc8")
         );
+    }
+
+    #[test]
+    fn validates_sha256_text_before_queueing_tasks() {
+        assert_eq!(
+            validate_sha256_text(
+                " sha256:671E23B189BB7A2041EFF1B29F077B4E59460D30DB56248FDCCCAFA012BABFC8 "
+            )
+            .unwrap(),
+            "671e23b189bb7a2041eff1b29f077b4e59460d30db56248fdcccafa012babfc8"
+        );
+        assert!(validate_sha256_text("not-a-sha256").is_err());
     }
 
     #[test]

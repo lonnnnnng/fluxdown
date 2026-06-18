@@ -1,6 +1,6 @@
 use crate::{
-    Backend, DownloadRequest, Protocol, backend_availability, normalize_sha256_text,
-    sanitize_download_file_name,
+    Backend, DownloadRequest, Protocol, backend_availability, sanitize_download_file_name,
+    validate_sha256_text,
 };
 use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
 use futures_util::{StreamExt, stream};
@@ -1400,18 +1400,9 @@ async fn validate_summary_sha256(
 }
 
 fn normalized_expected_sha256(value: &str) -> Result<String, DownloadError> {
-    let normalized = normalize_sha256_text(value);
-    if normalized.len() == 64
-        && normalized
-            .chars()
-            .all(|character| character.is_ascii_hexdigit())
-    {
-        Ok(normalized)
-    } else {
-        Err(DownloadError::InvalidSha256 {
-            value: value.to_string(),
-        })
-    }
+    validate_sha256_text(value).map_err(|_| DownloadError::InvalidSha256 {
+        value: value.to_string(),
+    })
 }
 
 async fn sha256_file(path: &Path) -> Result<String, DownloadError> {

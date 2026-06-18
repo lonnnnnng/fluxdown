@@ -86,8 +86,20 @@ function verifyAppSignature() {
 }
 
 function verifyDmg() {
-  run('hdiutil', ['verify', dmgPath])
-  console.log('ok dmg   checksum valid')
+  let lastError = ''
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    detachMountedDmg()
+    const result = runResult('hdiutil', ['verify', dmgPath])
+    if (result.status === 0) {
+      console.log('ok dmg   checksum valid')
+      return
+    }
+    lastError = result.stderr.trim()
+    detachMountedDmg()
+    sleep(500)
+  }
+
+  fail(`hdiutil verify ${dmgPath} failed after 3 attempts\n${lastError}`)
 }
 
 function plistValue(key) {
@@ -123,15 +135,42 @@ function verifyDirectory(path, label) {
 }
 
 function run(command, args) {
+  const result = runResult(command, args)
+  if (result.status !== 0) {
+    fail(`${command} ${args.join(' ')} failed\n${result.stderr.trim()}`)
+  }
+  return result
+}
+
+function runResult(command, args) {
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   })
-  if (result.status !== 0) {
-    fail(`${command} ${args.join(' ')} failed\n${result.stderr.trim()}`)
-  }
   return result
+}
+
+function detachMountedDmg() {
+  const info = runResult('hdiutil', ['info'])
+  if (info.status !== 0) return
+
+  const sections = info.stdout.split(/\n=+\n/)
+  for (const section of sections) {
+    if (!section.includes(dmgPath)) continue
+
+    const devices = Array.from(section.matchAll(/^\/dev\/(disk\d+)/gm), (match) => `/dev/${match[1]}`)
+    for (const device of devices) {
+      // 作者: long
+      // hdiutil verify 偶发资源占用时会留下当前 dmg 的临时挂载，只清理本次 FluxDown 产物，避免误卸载用户其它镜像。
+      const detached = runResult('hdiutil', ['detach', device])
+      if (detached.status === 0) break
+    }
+  }
+}
+
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
 
 function readPackageVersion() {

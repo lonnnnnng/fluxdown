@@ -17,5 +17,5 @@ pub use runner::{
 pub use store::{TaskStore, TaskStoreError, default_store_path};
 pub use task::{
     DownloadRequest, DownloadState, DownloadTask, normalize_sha256_text, redact_url_credentials,
-    redact_url_credentials_in_text, sanitize_download_file_name,
+    redact_url_credentials_in_text, sanitize_download_file_name, validate_sha256_text,
 };

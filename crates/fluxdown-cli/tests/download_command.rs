@@ -981,6 +981,37 @@ fn queue_commands_add_list_and_run_http_task() {
 }
 
 #[test]
+fn queue_add_rejects_invalid_sha256_without_writing_queue() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let downloads_dir = temp_dir.path().join("downloads");
+
+    let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "add",
+            "http://127.0.0.1:9/queued.bin",
+            "--output",
+            downloads_dir.to_str().unwrap(),
+            "--name",
+            "queued.bin",
+            "--sha256",
+            "not-a-sha256",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!add_output.status.success());
+    let stderr = String::from_utf8_lossy(&add_output.stderr);
+    assert!(stderr.contains("invalid SHA-256 checksum"), "{stderr}");
+    assert!(
+        !store_path.exists(),
+        "invalid add must not create a queue file"
+    );
+}
+
+#[test]
 fn queue_run_marks_task_failed_when_sha256_mismatches() {
     let payload = b"fluxdown-cli-queued-download";
     let wrong_sha256 = "8810ad581e59f2bc3928b261707a71308f7e139eb04820366dc4d5c18d980225";
