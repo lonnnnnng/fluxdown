@@ -485,6 +485,70 @@ fn queue_commands_add_and_run_hls_task() {
 }
 
 #[test]
+fn queue_start_runs_hls_task() {
+    let (source, expected_payload, server) = spawn_hls_http_server();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let downloads_dir = temp_dir.path().join("downloads");
+
+    let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "add",
+            &source,
+            "--output",
+            downloads_dir.to_str().unwrap(),
+            "--name",
+            "start-hls.m3u8",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        add_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&add_output.stderr)
+    );
+    let added: Value = serde_json::from_slice(&add_output.stdout).unwrap();
+    let task_id = added["id"].as_str().unwrap().to_string();
+    assert_eq!(added["protocol"], "m3u8");
+
+    let start_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args(["--store", store_path.to_str().unwrap(), "start", &task_id])
+        .output()
+        .unwrap();
+
+    server.join().unwrap();
+    assert!(
+        start_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&start_output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(downloads_dir.join("start-hls.ts")).unwrap(),
+        expected_payload
+    );
+
+    let report: Value = serde_json::from_slice(&start_output.stdout).unwrap();
+    assert_eq!(report["task"]["id"], task_id);
+    assert_eq!(report["task"]["state"], "finished");
+    assert_eq!(report["task"]["file_name"], "start-hls.ts");
+    assert_eq!(
+        report["summary"]["segments_written"], 2,
+        "CLI start should expose the HLS segment summary"
+    );
+
+    let final_list = list_tasks(&store_path);
+    // 作者: long
+    // CLI start 是单任务入口，HLS 完成后也要把 .m3u8 替换成最终产物名，保持脚本和队列页语义一致。
+    assert_eq!(final_list[0]["file_name"], "start-hls.ts");
+    assert_eq!(
+        final_list[0]["downloaded_bytes"],
+        expected_payload.len() as u64
+    );
+}
+
+#[test]
 fn download_command_restart_replaces_existing_http_file() {
     let payload = b"fluxdown-cli-direct-restarted-download";
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
