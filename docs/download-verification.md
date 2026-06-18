@@ -65,6 +65,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 检查项 | 结果 |
 | --- | --- |
 | `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 19、core 48、desktop 20。 |
+| `npm run verify:macos-cli-http-hls` | 通过：脚本启动临时 Range HTTP server，验证 CLI HTTP 直连/队列和 HLS 直连/队列/单任务启动。 |
 | `scripts/verify-macos-cli-p2p.sh` | 通过：脚本创建临时小文件、生成 torrent/magnet、启动本地 tracker 和 Transmission seeder，验证 CLI `.torrent` 队列下载和 magnet `start` 单任务下载。 |
 | `scripts/verify-macos-desktop-p2p.sh` | 通过：脚本创建临时小文件、生成 torrent/magnet、启动本地 tracker 和 Transmission seeder，运行 2 个 ignored 桌面 command P2P 测试。 |
 | `npm run verify:macos-desktop-sftp` | 通过：使用 Rebex 公共只读 SFTP 源运行桌面 command ignored 测试，验证队列下载、输出路径和 SHA-256。 |
@@ -80,7 +81,9 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | HTTP 直接下载 | `http://127.0.0.1:8765/multi/20260614_bundle/readme.txt` | 通过，输出 `readme.txt`，SHA-256 为 `4b75951c517de7955172428fa7030caa7ad837580bcee33095208491031eaf93`。 |
 | HTTP 多线程直连下载 | 本地支持 `HEAD` 和 `Range` 的 HTTP fixture，`download --threads 4` | 通过，CLI 层触发多个 HTTP Range 请求，输出文件内容与源 payload 完全一致。 |
 | HTTP 队列下载 | 同上，通过 `add`、`list`、`run --concurrency 1 --threads 4` | 通过，任务 `queued -> finished`，`total_bytes=43`，输出 hash 一致。 |
+| HTTP 脚本化回归 | `npm run verify:macos-cli-http-hls` 临时生成的 `range.bin` | 通过，直连 `download --threads 4` 和 `add -> run -> list --threads 4` 队列路径均完成，输出 SHA-256 为 `31a1f9dea0169551092d05e8bf4a446228c8c3eb4c9b713c66adcb7fd53c89be`。 |
 | HLS 媒体下载 | `http://127.0.0.1:8765/hls/index.m3u8`；本地两分片 HLS fixture，`fluxdown download --name cli-hls.m3u8`、`add -> run -> list` 队列路径和 `add -> start -> list` 单任务路径 | 媒体级手动验证通过，232 个分片输出 `index.mp4`，大小 `388653222` bytes；`ffprobe` 可识别为 `mov,mp4,m4a,3gp,3g2,mj2`，duration `1514.481333`。CLI 集成回归通过，确认 `.m3u8` 任务输出最终 `.ts` 产物、JSON summary 包含 `segments_written=2`、队列和单任务启动都会把最终文件名回写为 `.ts`，文件内容等于两个分片拼接结果。 |
+| HLS 脚本化回归 | `npm run verify:macos-cli-http-hls` 临时生成的两分片 playlist | 通过，直连 `download`、`add -> run -> list` 队列路径和 `add -> start -> list` 单任务路径均完成，`segments_written=2`，任务名从 `.m3u8` 回写为 `.ts`，输出 SHA-256 为 `e7549c4e2515ab3407a659e9ba66778d7c846d779f0026c36d62ec58b3f5b01e`。 |
 | 单文件 Torrent | `../local_protocol_resources/torrent/20260614.torrent` | 通过，metadata 后输出真实文件名 `20260614.mp4`，SHA-256 为 `4df2d9155b5714274f91beda0029041d9ef880f2996172adfd5bc5e29db42650`。 |
 | 单文件 Magnet | `../local_protocol_resources/torrent/20260614.magnet.txt` 中的 magnet | 通过，metadata 后输出真实文件名 `20260614.mp4`，SHA-256 同源文件。 |
 | 多文件 Torrent | `../local_protocol_resources/multi_torrent/20260614_bundle.torrent` | 通过，输出真实目录 `20260614_bundle`，内部 `20260614.mp4` 和 `readme.txt` 的 SHA-256 均与源文件一致。 |
@@ -121,4 +124,4 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 
 ### 清理状态
 
-验证结束后已确认无 `http.server 8765`、`local_bt_tracker`、`transmission-daemon`、`fluxdown-desktop` 残留进程，`8765`、`6969`、`51413` 端口无监听；CLI 和桌面 P2P 脚本均使用临时随机端口并在退出时清理 tracker、Transmission 和临时目录。
+验证结束后已确认无 `http.server 8765`、`local_bt_tracker`、`transmission-daemon`、`fluxdown-desktop` 残留进程，`8765`、`6969`、`51413` 端口无监听；CLI HTTP/HLS 脚本使用临时随机端口并在退出时清理 HTTP server 和临时目录，CLI 和桌面 P2P 脚本也会清理 tracker、Transmission 和临时目录。
