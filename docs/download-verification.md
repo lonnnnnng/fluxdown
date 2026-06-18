@@ -1,6 +1,6 @@
 # 下载验证状态
 
-截至 2026-06-18，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证，macOS CLI 已补充可重复脚本化 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证，macOS GUI 已完成本地构建、启动、基础界面渲染、纯 GUI HTTP 新建任务下载闭环，以及 Tauri command 级真实 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 下载验证。
+截至 2026-06-18，FluxDown 还没有完成“每一端安装或启动后实际下载成功”的全端端到端验证；Android 真机已经补过一轮正常 App 下载验证，macOS CLI 已补充可重复脚本化 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证，macOS GUI 已完成本地构建、启动、基础界面渲染、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，以及 Tauri command 级真实 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 下载验证。
 
 本页用于区分两类容易混淆的结论：
 
@@ -14,7 +14,7 @@
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
 | --- | --- | --- |
 | 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS、自定义 IPFS gateway、限速、失败重试、暂停继续、运行中删除和并发排队均已验证；其中小体积 FTP/FTPS/SFTP/SMB/Torrent/Magnet 已补充可重复脚本化验证。 | 部分完成 |
-| macOS GUI | 已完成 Tauri `.app` 构建、本地启动、窗口渲染、设置/任务操作 Tauri command 回归测试、纯 GUI HTTP 新建任务下载闭环，以及 Tauri command 级 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 单任务真实下载和队列真实下载。纯 GUI 仍只覆盖 HTTP，HLS/Torrent/Magnet/FTP/SFTP/SMB 等协议尚未逐个通过界面点击验证。 | 部分完成 |
+| macOS GUI | 已完成 Tauri `.app` 构建、本地启动、窗口渲染、设置/任务操作 Tauri command 回归测试、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，以及 Tauri command 级 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 单任务真实下载和队列真实下载。纯 GUI 仍未逐个覆盖 FTP/FTPS/SFTP/SMB/IPFS/WebDAV 等协议。 | 部分完成 |
 | Windows GUI | 已有 CI/Docker 构建产物和 artifact 检查。没有在 Windows 上安装或运行 GUI 完成下载验证。 | 未完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
 | Android App | 已在 Redmi Note 8 Pro 真机安装并通过正常 App 队列完成本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB/IPFS、小 HLS、小 torrent、小 magnet，以及 2026-06-14 媒体级 HLS、单文件 torrent、单文件 magnet、多文件 torrent 和多文件 magnet 选择下载验证。 | 部分完成 |
@@ -26,12 +26,12 @@
 | --- | --- | --- |
 | HTTP/HTTPS | CLI 和核心层有本地下载验证；2026-06-18 macOS CLI 已验证直接下载、队列下载、限速、失败重试、暂停继续、运行中删除、并发排队，以及本地自签 HTTPS opt-in；macOS GUI 已通过真实界面点击完成 HTTP 新建任务、自动下载和文件落盘校验。 | 证据最充分。 |
 | WebDAV/WebDAVS | 核心层验证了 URL 到 HTTP/HTTPS 传输的映射；2026-06-18 macOS CLI 已验证公网 WebDAVS transport 和本地自签 WebDAVS transport，CLI/桌面 command 均有队列回归覆盖。 | 仍未覆盖完整 WebDAV 方法，例如 PROPFIND/目录遍历。 |
-| m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片和 master playlist 首个变体；Android 真机和 macOS CLI 均已验证媒体级 HLS 可生成最终 `.mp4`，CLI 直连/队列和桌面 command 均有本地 HLS fixture 回归。 | 仍需要更多公网和边界 playlist 验证。 |
+| m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片和 master playlist 首个变体；Android 真机和 macOS CLI 均已验证媒体级 HLS 可生成最终 `.mp4`，CLI 直连/队列、桌面 command 和 macOS 纯 GUI 均有本地 HLS fixture 回归；纯 GUI 真实媒体 HLS 输出 `index.mp4` 并通过 `ffprobe` 识别为 MP4 容器。 | 仍需要更多公网和边界 playlist 验证。 |
 | FTP/FTPS | 2026-06-18 macOS CLI 已验证公网 FTP、本地 FTP 直连/队列和本地自签 FTPS 直连/队列下载闭环；macOS GUI command 层已验证本地 FTP 队列、单任务启动下载和本地自签 FTPS 队列下载闭环。 | Rebex 公网 FTPS 仍失败，错误为 `InvalidContentType`；本地可控 FTPS fixture 已通过。 |
 | SFTP | 2026-06-18 macOS CLI 已验证公网 SFTP、本地 Docker SFTP 直连下载和队列下载；macOS GUI command 层已通过本地 Docker SFTP fixture 验证队列下载。 | 公网 Rebex 仍作为兼容性 smoke；可重复脚本已不依赖公网源。 |
 | SMB | 2026-06-18 macOS CLI 已通过 Docker Samba fixture 验证直连下载和队列下载；macOS GUI command 层已通过同类 Samba fixture 验证队列下载。Android 真机也已验证过局域网 SMB 小文件下载。 | 仍未覆盖纯 GUI 点击下载闭环和 Windows/Linux 桌面真实运行。 |
-| BitTorrent `.torrent` | Android 真机已验证本地小种子、媒体级单文件种子和多文件种子选择下载；macOS CLI 已验证单文件和多文件本地种子真实下载、真实文件名/目录名和 SHA-256，并通过 `scripts/verify-macos-cli-p2p.sh` 验证小 torrent 队列下载；macOS GUI command 层已通过临时本地 tracker/seeder 验证小 torrent 队列下载、真实文件名回写和 SHA-256。 | Windows/Linux GUI 仍需要真实下载验证。 |
-| Magnet | Android 真机已验证本地小磁力、媒体级单文件 magnet 和多文件 magnet 选择下载；macOS CLI 已验证本地 magnet metadata 获取、真实文件名和 SHA-256，并通过 `scripts/verify-macos-cli-p2p.sh` 验证小 magnet 单任务启动；macOS GUI command 层已通过临时本地 tracker/seeder 验证小 magnet 单任务启动、metadata 文件名回写和 SHA-256。 | Windows/Linux GUI 仍需要真实下载验证。 |
+| BitTorrent `.torrent` | Android 真机已验证本地小种子、媒体级单文件种子和多文件种子选择下载；macOS CLI 已验证单文件和多文件本地种子真实下载、真实文件名/目录名和 SHA-256，并通过 `scripts/verify-macos-cli-p2p.sh` 验证小 torrent 队列下载；macOS GUI command 层和纯 GUI 均已通过临时本地 tracker/seeder 验证小 torrent 下载、真实文件名回写和 SHA-256。 | Windows/Linux GUI 仍需要真实下载验证。 |
+| Magnet | Android 真机已验证本地小磁力、媒体级单文件 magnet 和多文件 magnet 选择下载；macOS CLI 已验证本地 magnet metadata 获取、真实文件名和 SHA-256，并通过 `scripts/verify-macos-cli-p2p.sh` 验证小 magnet 单任务启动；macOS GUI command 层和纯 GUI 均已通过临时本地 tracker/seeder 验证小 magnet 下载、metadata 文件名回写和 SHA-256。 | Windows/Linux GUI 仍需要真实下载验证。 |
 | ed2k | 核心层验证了 aMule `ed2k` CLI 移交路径。 | FluxDown 不掌控外部客户端的实际下载完成状态。 |
 | IPFS | 2026-06-18 macOS CLI 已验证公网 IPFS 网关下载和本地自定义 gateway 下载，CLI/桌面 command 均有自定义 gateway 队列回归覆盖。 | 仍不运行本地 IPFS 节点。 |
 
@@ -120,6 +120,9 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 启动和窗口 | 通过，`FluxDown` 前台窗口尺寸约 `1180x760`，bundle id `dev.fluxdown.desktop`，版本 `1.0.2`。 |
 | UI 渲染 | 通过，截图确认中文下载列表、全部/排队中/下载中/已暂停/已完成/失败状态 tabs、设置入口和右下角新建按钮正常显示。 |
 | 纯 GUI HTTP 下载闭环 | 通过，启动隔离 `XDG_DATA_HOME=/tmp/fluxdown-gui-e2e-current/xdg` 的 `.app`，使用本地 `http://127.0.0.1:63791/gui-e2e-current.txt`，通过真实界面点击右下角新建按钮、填写下载链接和保存路径 `/tmp/fluxdown-gui-e2e-current/downloads`、点击创建任务；队列显示 `gui-e2e-current.txt` 已完成，落盘文件 `32` bytes，SHA-256 `57c6b733535bb64389ec4264db3e54fea8519328f5c75dee84e4b812d2a7c26b` 与源文件一致，队列 JSON 状态为 `finished`。 |
+| 纯 GUI HLS MP4 下载闭环 | 通过，使用 ffmpeg 生成真实媒体 HLS，启动隔离 `XDG_DATA_HOME=/tmp/fluxdown-gui-hls-mp4-e2e/xdg` 的 `.app`，通过界面输入 `http://127.0.0.1:63793/hls/index.m3u8` 和保存路径 `/tmp/fluxdown-gui-hls-mp4-e2e/downloads`；任务完成后输出 `index.mp4`，大小 `24996` bytes，SHA-256 `b84982ecc8ae75a13cb82c9d33445a1534a4162071b5c96d147c14e2d0f61652`，`ffprobe` 显示 `format_name=mov,mp4,m4a,3gp,3g2,mj2`、`duration=3.000000`。 |
+| 纯 GUI Torrent 下载闭环 | 通过，常驻本地 tracker、Transmission seeder 和 HTTP torrent 文件服务，界面输入 `http://127.0.0.1:63804/fluxdown-gui-torrent-sample-two.torrent` 和保存路径 `/tmp/fluxdown-gui-p2p-e2e2/downloads`；任务完成后文件名从 `.torrent` 回写为真实 `fluxdown-gui-torrent-sample-two.txt`，落盘 `32` bytes，SHA-256 `bcc656966bcc3e468f1a0bdaad3635aa80f1dc0673eec34e633da68c2dc1a650` 与源文件一致。 |
+| 纯 GUI Magnet 下载闭环 | 通过，复用同一个 tracker/seeder，界面输入本地 magnet 链接和保存路径 `/tmp/fluxdown-gui-p2p-e2e2/downloads-magnet`；metadata 获取后文件名回写为真实 `fluxdown-gui-torrent-sample-two.txt`，落盘 `32` bytes，SHA-256 `bcc656966bcc3e468f1a0bdaad3635aa80f1dc0673eec34e633da68c2dc1a650` 与源文件一致，队列 JSON 状态为 `finished`。 |
 | Tauri command 回归 | 通过，桌面测试覆盖任务输出路径、HLS 输出路径、暂停/恢复边界、手动启动并发约束、并发 1-30 / 线程 1-32 / 重试 0-10 / 限速的设置边界、保存路径解析，`start_download` 单任务 HTTP/HLS/WebDAV/FTP/IPFS/Magnet 真实下载，以及 `enqueue_download -> list_downloads -> run_queue -> list_downloads` 的 HTTP、HLS、WebDAV transport、FTP、SFTP、SMB、Torrent 和自定义 IPFS gateway 真实下载闭环。HTTP command 用例还覆盖 `task_output_path` 和 `remove_download`：删除任务会移出队列，但不会误删已下载文件；运行中任务被 `remove_download` 删除后，`run_queue` 正常收尾且任务不会复活。 |
 | Tauri command HTTP 下载 | 通过，测试启动临时 HTTP fixture，隔离 `XDG_DATA_HOME` 队列路径，创建任务、运行队列并校验 `desktop-command.txt` 内容为 `fluxdown-desktop-command-e2e`。 |
 | Tauri command 单任务启动 | 通过，测试启动临时 HTTP、HLS、WebDAV transport 和 IPFS gateway fixture，隔离 `XDG_DATA_HOME` 队列路径，创建任务后调用 `start_download`；HTTP/WebDAV/IPFS 校验任务直接进入 `finished`、`task_output_path` 指向真实文件且内容正确，HLS 校验最终产物名回写、`segments_written=2` 且内容与分片拼接结果一致。 |
@@ -131,8 +134,8 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | Tauri command SMB 下载 | 通过，`npm run verify:macos-desktop-smb` 启动临时 Docker Samba 共享，创建队列任务并运行，输出 `desktop-smb.txt`，SHA-256 为 `9511a9c1777dcaaf7652c0b8090a9c71a8b1dbd8f11e520141afdcef244c1929`。 |
 | Tauri command IPFS gateway 下载 | 通过，测试将 `ipfs://...?...gateway=` 映射到临时 gateway fixture，校验实际请求 `/ipfs/<cid>/readme.txt` 和输出 `desktop-ipfs.txt` 内容。 |
 | Tauri command Torrent/Magnet 下载 | 通过，`npm run verify:macos-desktop-p2p` 创建临时 `fluxdown-p2p-sample.txt`，生成 tracker 为 `127.0.0.1` 的 `.torrent` 和 magnet，启动本地 tracker 与 Transmission seeder；ignored 测试确认 `.torrent` 队列下载会把任务名从 `queued-sample.torrent` 回写为真实 `fluxdown-p2p-sample.txt`，magnet 单任务启动会把任务名从 `magnet-download` 回写为真实文件名，两者输出 SHA-256 均为 `112be889b60bcb800675ca97f2dfd42a2394f80c0176c11cbd4456cacf25faa7`。 |
-| 纯 GUI 其他协议下载闭环 | 未完成。当前纯 GUI 点击只验证了 HTTP；HLS、Torrent、Magnet、FTP、FTPS、SFTP、SMB、IPFS 仍停留在 Tauri command 或 CLI 层真实下载验证。 |
+| 纯 GUI 其他协议下载闭环 | 未完成。当前纯 GUI 点击已验证 HTTP、HLS、Torrent、Magnet；FTP、FTPS、SFTP、SMB、IPFS、WebDAV 仍停留在 Tauri command 或 CLI 层真实下载验证。 |
 
 ### 清理状态
 
-验证结束后已确认无 `http.server 63791/8765`、`local_bt_tracker`、`transmission-daemon`、`fluxdown-desktop` 残留进程，`63791`、`8765`、`6969`、`51413` 端口无监听；CLI HTTP/HLS 和 FTP/FTPS 脚本使用临时随机端口并在退出时清理服务进程和临时目录，CLI 和桌面 P2P 脚本也会清理 tracker、Transmission 和临时目录，CLI/桌面 SFTP 与 SMB 脚本会清理临时容器和共享目录。
+验证结束后已确认无 `http.server 63791/63793/63804/8765`、`local_bt_tracker`、`transmission-daemon`、`fluxdown-desktop` 残留进程，`63791`、`63793`、`63804`、`63805`、`63806`、`63807`、`8765`、`6969`、`51413` 端口无监听；CLI HTTP/HLS 和 FTP/FTPS 脚本使用临时随机端口并在退出时清理服务进程和临时目录，CLI 和桌面 P2P 脚本也会清理 tracker、Transmission 和临时目录，CLI/桌面 SFTP 与 SMB 脚本会清理临时容器和共享目录。
