@@ -30,11 +30,15 @@ FluxDown is a multi-protocol downloader for desktop and mobile, with a CLI, desk
 - The default repository documentation now opens in Chinese; this English README remains available as [README.en.md](README.en.md).
 - The desktop GUI is now focused on two pages: download queue and settings. Windows, macOS, and Linux share the same Tauri UI.
 - The Android queue view is grouped by status and task rows show start/end time, elapsed time, downloaded/total size, real-time speed, and average speed.
-- New task creation supports clipboard input, QR scanning, save-as filename, and output folder selection.
+- New task creation supports clipboard input, QR scanning, protocol/backend preview, save-as filename, and output folder selection.
 - Settings now cover download location, concurrent downloads, download thread count, retry count, and max download speed.
 - Torrent and magnet tasks update to the real file name after metadata arrives; Android supports multi-file selection, while the desktop CLI/Tauri command path supports selecting files by torrent file index.
-- Android real-device verification now covers local protocol fixtures plus media-sized HLS, torrent, and magnet foreground app flows.
-- Remaining foreground desktop GUI click-through protocol tests are explicitly skipped for the current phase to avoid taking over the local desktop; current verification focuses on non-GUI automation and release-readiness checks.
+- CLI output and desktop display redact URL usernames and passwords, while the original source remains available for download and copy actions.
+- CLI and desktop downloads sanitize save-as names to a single file name before writing inside the selected output directory.
+- CLI and desktop task creation support optional SHA-256 verification; mismatches fail direct downloads or mark queued tasks as failed.
+- Windows, macOS, Android, and iOS now have current screenshots and verification notes. Windows has passed CLI direct/queued HTTP downloads plus a foreground GUI HTTP download loop.
+- macOS has passed scripted release CLI protocol downloads, desktop Tauri-command protocol downloads, and foreground GUI HTTP/HLS/Torrent/Magnet download loops.
+- Android real-device verification covers local protocol fixtures plus media-sized HLS, torrent, and magnet foreground app flows. iOS currently has simulator UI and build-artifact verification; signed IPA and real-device download validation remain pending.
 
 ## Screenshots
 
@@ -61,6 +65,17 @@ FluxDown is a multi-protocol downloader for desktop and mobile, with a CLI, desk
 | Queue | New Task | Settings |
 | --- | --- | --- |
 | <img src="docs/artifacts/readme/ios-simulator/queue.jpg" alt="iOS queue" width="220"> | <img src="docs/artifacts/readme/ios-simulator/new-task.jpg" alt="iOS new task" width="220"> | <img src="docs/artifacts/readme/ios-simulator/settings.jpg" alt="iOS settings" width="220"> |
+
+## Verification Progress
+
+| Platform | Verified | Current boundary |
+| --- | --- | --- |
+| Windows Desktop | Native release build, CLI HTTP direct download, CLI queued download, Tauri-command HTTP queued download, foreground GUI HTTP download, and output SHA-256 verification have passed. README screenshots cover queue, new task, and settings. | Foreground GUI clicking currently covers HTTP only; FTP/FTPS/SFTP/SMB/IPFS/WebDAV/Torrent/Magnet remain covered mainly through CLI or Tauri-command real-download tests. |
+| macOS Desktop | Release CLI covers HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet plus queue controls. Foreground GUI covers HTTP/HLS/Torrent/Magnet. Tauri commands cover HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet. | Foreground GUI FTP/FTPS/SFTP/SMB/IPFS/WebDAV loops are still planned separately. |
+| Android Real Device | Redmi Note 8 Pro foreground app verification covers local HTTP/HTTPS/FTP/FTPS/SFTP/SMB/IPFS, small HLS, small torrent, small magnet, media-sized HLS, and single/multi-file torrent and magnet cases. | Store distribution still needs signing, license, and background-behavior validation. |
+| iOS Simulator | Simulator screenshots, Flutter simulator/unsigned-device build artifacts, and URL-scheme configuration checks are in place. | Signed IPA, iPhone installation, and in-app real-download validation are still pending. |
+
+See [Download verification status](docs/download-verification.md) for detailed evidence, commands, and remaining gaps.
 
 ## Protocol roadmap
 
@@ -105,7 +120,7 @@ npm run desktop:web
 npm run desktop:build
 ```
 
-On macOS, the desktop app is generated at `target/release/bundle/macos/FluxDown.app`. Windows and Linux GUI artifacts are built through the local Docker helper scripts or GitHub Actions; see [Build and release](docs/build-release.md).
+On macOS, the desktop app is generated at `target/release/bundle/macos/FluxDown.app`. On a Windows machine with the desktop toolchain installed, `npm run desktop:build` produces `target/release/fluxdown-desktop.exe`, MSI, and NSIS installer artifacts; the current Windows machine has passed a foreground GUI HTTP download loop. Windows and Linux cross-built artifacts can still be produced through the local Docker helper scripts or GitHub Actions; see [Build and release](docs/build-release.md).
 
 ### Mobile
 
