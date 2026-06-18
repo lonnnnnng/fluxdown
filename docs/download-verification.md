@@ -9,6 +9,15 @@
 
 当前可以确认的是构建和自动化测试覆盖较多，Android 真机覆盖了一批真实下载场景，macOS CLI 覆盖了更多协议的下载闭环；但仍不能表述为“所有端都下载验证通过”。
 
+## 当前进度
+
+截至 2026-06-18，远端 `main` 已包含本轮 macOS CLI 和桌面 command 收口提交：
+
+- `dc1ed64`：CLI `remove` 和桌面 `remove_download` 会先恢复异常残留的 `running` 任务，再移出队列，避免删除结果继续展示假下载中状态。
+- `606eac2`：验证报告已记录上述删除入口修复、测试计数和 macOS 非 GUI 总验收结果。
+
+当前 macOS 阶段已完成非 GUI 验证收口：`cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、release CLI 真实协议 fixture、桌面 Tauri command fixture、macOS artifact 校验、许可证检查和 CI 手动触发策略检查均已通过。按当前安排，剩余前台 GUI 点击验证不继续执行；后续 Windows 端开发测试应基于最新 `main` 拉取或新建开发分支。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
