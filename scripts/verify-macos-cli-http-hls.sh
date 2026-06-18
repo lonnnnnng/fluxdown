@@ -7,6 +7,7 @@ export LC_ALL=en_US.UTF-8
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fluxdown-cli-http-hls.XXXXXX")"
 SERVER_PID=""
+FLUXDOWN_BIN_PATH=""
 
 cleanup() {
   set +e
@@ -18,15 +19,35 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for tool in python3 shasum cargo; do
+for tool in python3 shasum; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "missing required tool: $tool" >&2
     exit 1
   fi
 done
 
+if [[ -n "${FLUXDOWN_BIN:-}" ]]; then
+  FLUXDOWN_BIN_PATH="$FLUXDOWN_BIN"
+  if [[ "$FLUXDOWN_BIN_PATH" != /* ]]; then
+    FLUXDOWN_BIN_PATH="$ROOT_DIR/$FLUXDOWN_BIN_PATH"
+  fi
+  if [[ ! -x "$FLUXDOWN_BIN_PATH" ]]; then
+    echo "FLUXDOWN_BIN is not executable: $FLUXDOWN_BIN_PATH" >&2
+    exit 1
+  fi
+else
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "missing required tool: cargo" >&2
+    exit 1
+  fi
+fi
+
 fluxdown() {
-  cargo run --quiet -p fluxdown-cli -- "$@"
+  if [[ -n "$FLUXDOWN_BIN_PATH" ]]; then
+    "$FLUXDOWN_BIN_PATH" "$@"
+  else
+    cargo run --quiet -p fluxdown-cli -- "$@"
+  fi
 }
 
 json_get() {
@@ -161,6 +182,11 @@ echo "macOS CLI HTTP/HLS fixture"
 echo "  base:       $BASE_URL"
 echo "  http sha:   $HTTP_SHA256"
 echo "  hls sha:    $HLS_SHA256"
+if [[ -n "$FLUXDOWN_BIN_PATH" ]]; then
+  echo "  binary:     $FLUXDOWN_BIN_PATH"
+else
+  echo "  binary:     cargo run -p fluxdown-cli"
+fi
 
 cd "$ROOT_DIR"
 

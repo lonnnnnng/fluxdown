@@ -29,6 +29,7 @@
     "verify:windows-cli": "node scripts/verify-artifacts.mjs windows-cli",
     "verify:windows-gui": "node scripts/verify-artifacts.mjs windows-gui",
     "verify:macos-artifacts": "node scripts/verify-macos-artifacts.mjs",
+    "verify:macos-cli-release-http-hls": "FLUXDOWN_BIN=target/release/fluxdown bash scripts/verify-macos-cli-http-hls.sh",
     "verify:macos-cli-ftp-ftps": "bash scripts/verify-macos-cli-ftp-ftps.sh",
     "verify:macos-cli-http-hls": "bash scripts/verify-macos-cli-http-hls.sh",
     "verify:macos-cli-p2p": "bash scripts/verify-macos-cli-p2p.sh",
