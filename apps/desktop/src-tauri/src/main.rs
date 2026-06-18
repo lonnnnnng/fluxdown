@@ -2228,10 +2228,7 @@ mod tests {
         // 桌面继续按钮要能直接接管异常中断任务，避免用户先刷新列表才能把任务重新排队。
         assert_eq!(resumed.state, DownloadState::Queued);
         assert_eq!(resumed.downloaded_bytes, 512);
-        assert_eq!(
-            resumed.error.as_deref(),
-            Some("任务中断，已暂停，可继续下载")
-        );
+        assert_eq!(resumed.error, None);
         assert_eq!(
             store.get(&running_task.id).await.unwrap().state,
             DownloadState::Queued

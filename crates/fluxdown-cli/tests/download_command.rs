@@ -254,7 +254,7 @@ async fn queue_resume_recovers_stale_running_task_before_transition() {
     // 终端恢复命令要能直接处理上次异常退出留下的 running，避免用户必须先 list 一次才可继续。
     assert_eq!(resumed["state"], "queued");
     assert_eq!(resumed["downloaded_bytes"], 256);
-    assert_eq!(resumed["error"], "任务中断，已暂停，可继续下载");
+    assert_eq!(resumed["error"], Value::Null);
     assert_eq!(list_task(&store_path, &running_task.id)["state"], "queued");
 }
 

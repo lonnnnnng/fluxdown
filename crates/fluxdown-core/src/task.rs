@@ -122,14 +122,19 @@ impl DownloadTask {
                     self.started_at_ms = Some(millis);
                 }
                 self.finished_at_ms = None;
+                self.error = None;
             }
             DownloadState::Finished | DownloadState::Failed => {
                 self.finished_at_ms = Some(millis);
                 self.current_speed_bytes_per_second = 0;
+                if state == DownloadState::Finished {
+                    self.error = None;
+                }
             }
             DownloadState::Queued => {
                 self.finished_at_ms = None;
                 self.current_speed_bytes_per_second = 0;
+                self.error = None;
             }
             DownloadState::Paused => {
                 self.current_speed_bytes_per_second = 0;
@@ -566,5 +571,33 @@ mod tests {
         assert_eq!(task.error, None);
         assert_eq!(task.started_at_ms, None);
         assert_eq!(task.finished_at_ms, None);
+    }
+
+    #[test]
+    fn requeue_and_rerun_clear_interruption_error() {
+        let mut task = DownloadTask::from_request(DownloadRequest::new(
+            "https://example.com/file.bin",
+            "/tmp",
+        ));
+
+        task.set_state(DownloadState::Running);
+        task.pause_after_interruption();
+        assert!(
+            task.error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("任务中断")
+        );
+
+        // 作者: long
+        // 中断提示只属于暂停态；重新排队或再次下载后不能继续污染任务卡片和 CLI JSON。
+        task.set_state(DownloadState::Queued);
+        assert_eq!(task.error, None);
+        task.error = Some("old interruption".to_string());
+        task.set_state(DownloadState::Running);
+        assert_eq!(task.error, None);
+        task.error = Some("old interruption".to_string());
+        task.set_state(DownloadState::Finished);
+        assert_eq!(task.error, None);
     }
 }
