@@ -185,12 +185,20 @@ function verifyCiConfig() {
     fail(`.github/workflows/build.yml must not auto-run on ${forbiddenTriggers.join(', ')}`)
   }
 
+  if (!/run_mode:\s*\n\s+description:\s+"只在明确需要打包或发版时选择；普通代码推送不要运行"\s*\n\s+required:\s+true\s*\n\s+type:\s+choice\s*\n\s+default:\s+package\s*\n\s+options:\s*\n\s+- package\s*\n\s+- release/m.test(onBlock)) {
+    fail('.github/workflows/build.yml must require an explicit package/release manual mode')
+  }
+
   if (!/^concurrency:\s*$/m.test(workflow) || !/^\s{2}cancel-in-progress:\s*true\s*$/m.test(workflow)) {
     fail('.github/workflows/build.yml must cancel duplicate manual build runs for the same ref')
   }
 
-  if (!/inputs\.publish_release && startsWith\(github\.ref, 'refs\/tags\/v'\)/.test(workflow)) {
-    fail('.github/workflows/build.yml release job must require publish_release on a v* tag ref')
+  if (!/^\s{2}preflight:\s*$/m.test(workflow) || !/Release mode must run on a v\* tag ref/.test(workflow)) {
+    fail('.github/workflows/build.yml must fail release mode early when the ref is not a v* tag')
+  }
+
+  if (!/inputs\.run_mode == 'release' && startsWith\(github\.ref, 'refs\/tags\/v'\)/.test(workflow)) {
+    fail('.github/workflows/build.yml release job must require release mode on a v* tag ref')
   }
 
   console.log('ok ci   .github/workflows/build.yml manual-only trigger policy')

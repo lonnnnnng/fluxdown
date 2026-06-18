@@ -176,7 +176,7 @@ CI 总是构建 simulator 和 unsigned device iOS artifact 作为编译检查。
 
 `.github/workflows/build.yml` 会针对产品目标平台验证并打包项目：
 
-该流水线只允许在明确打包或发版时，通过 GitHub Actions 页面手动触发。普通代码提交和 `v*` 标签推送都只同步代码或标签，不会自动启动打包；仅打包时保持 `publish_release=false`，发版时选择对应标签 ref 并设置 `publish_release=true`。`npm run verify:ci-config` 会校验 workflow 仍是手动触发策略。Actions 页面中事件为 `push` 的历史记录来自旧版触发配置，当前配置不会因普通 push 继续新增这类运行。
+该流水线只允许在明确打包或发版时，通过 GitHub Actions 页面手动触发。普通代码提交和 `v*` 标签推送都只同步代码或标签，不会自动启动打包；仅打包时选择 `run_mode=package`，发版时选择对应标签 ref 并设置 `run_mode=release`。`npm run verify:ci-config` 会校验 workflow 仍是手动触发策略和显式模式选择。Actions 页面中事件为 `push` 的历史记录来自旧版触发配置，当前配置不会因普通 push 继续新增这类运行。
 
 - `fluxdown-cli-linux`：Linux CLI 二进制，暂存名为 `fluxdown`。
 - `fluxdown-cli-windows`：Windows CLI 二进制，暂存名为 `fluxdown.exe`。

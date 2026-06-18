@@ -1,15 +1,18 @@
 name: Build
-run-name: ${{ inputs.publish_release && format('手动发版 {0}', github.ref_name) || format('手动打包 {0}', github.ref_name) }}
+run-name: ${{ inputs.run_mode == 'release' && format('手动发版 {0}', github.ref_name) || format('手动打包 {0}', github.ref_name) }}
 
 on:
   # long: 构建和发布资源成本较高，只在明确发版或打包时手动启动，避免普通提交或 tag 推送重复触发。
   workflow_dispatch:
     inputs:
-      publish_release:
-        description: "发版时设为 true；仅打包时保持 false"
-        required: false
-        type: boolean
-        default: false
+      run_mode:
+        description: "只在明确需要打包或发版时选择；普通代码推送不要运行"
+        required: true
+        type: choice
+        default: package
+        options:
+          - package
+          - release
 
 concurrency:
   # long: 同一个 ref 上误点多次手动打包或发版时，只保留最后一次运行，避免 Actions 页面继续出现重复执行记录。
@@ -17,8 +20,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  preflight:
+    name: Check manual build intent
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate manual build mode
+        shell: bash
+        run: |
+          case "${{ inputs.run_mode }}" in
+            package|release) ;;
+            *)
+              echo "run_mode must be package or release."
+              exit 1
+              ;;
+          esac
+
+          # long: 发版必须绑定 v* 标签，避免在 main 上误点发版后消耗整套多平台构建资源。
+          if [ "${{ inputs.run_mode }}" = "release" ] && [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            echo "Release mode must run on a v* tag ref. Current ref: $GITHUB_REF"
+            exit 1
+          fi
+
   rust:
     name: Rust core and CLI (${{ matrix.os }})
+    needs: preflight
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -62,6 +87,7 @@ jobs:
 
   desktop:
     name: Desktop GUI (${{ matrix.os }})
+    needs: preflight
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -133,6 +159,7 @@ jobs:
 
   android:
     name: Android app
+    needs: preflight
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -205,6 +232,7 @@ jobs:
 
   ios:
     name: iOS app
+    needs: preflight
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -346,7 +374,7 @@ jobs:
 
   release:
     name: Publish GitHub release
-    if: ${{ inputs.publish_release && startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ inputs.run_mode == 'release' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     needs:
       - rust
