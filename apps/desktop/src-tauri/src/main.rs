@@ -447,6 +447,7 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::LazyLock;
     use std::thread;
+    use std::time::Instant;
 
     static DESKTOP_COMMAND_ENV_LOCK: LazyLock<tokio::sync::Mutex<()>> =
         LazyLock::new(|| tokio::sync::Mutex::new(()));
@@ -503,6 +504,52 @@ mod tests {
             stream.write_all(payload).unwrap();
         });
         format!("http://{address}/fixture.txt")
+    }
+
+    fn spawn_streaming_http_server(payload: Vec<u8>, path: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0; 1024];
+            let read = stream.read(&mut buffer).unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            assert!(request.starts_with(&format!("GET {path} ")));
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                payload.len()
+            );
+            if stream.write_all(response.as_bytes()).is_err() {
+                return;
+            }
+            for chunk in payload.chunks(16 * 1024) {
+                if stream.write_all(chunk).is_err() {
+                    break;
+                }
+            }
+        });
+        format!("http://{address}{path}")
+    }
+
+    async fn wait_for_desktop_running_progress(id: &str) -> DownloadTask {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(task) = list_downloads()
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|task| task.id == id)
+            {
+                if task.state == DownloadState::Running && task.downloaded_bytes > 0 {
+                    return task;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for desktop task {id} to enter running progress"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
 
     fn server_address(source: &str) -> &str {
@@ -596,6 +643,48 @@ mod tests {
         assert_eq!(removed.id, tasks[0].id);
         assert!(list_downloads().await.unwrap().is_empty());
         assert_eq!(std::fs::read(output_path).unwrap(), payload);
+    }
+
+    #[tokio::test]
+    async fn desktop_commands_can_remove_running_task_during_queue_run() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let payload = vec![b'd'; 512 * 1024];
+        let total_bytes = payload.len() as u64;
+        let source = spawn_streaming_http_server(payload, "/delete-running.bin");
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("delete-running.bin".to_string()),
+        })
+        .await
+        .unwrap();
+        let task_id = task.id.clone();
+
+        let run =
+            tokio::spawn(async { run_queue(1, Some(0), Some(1), Some(0.05), Some(false)).await });
+
+        let running = wait_for_desktop_running_progress(&task_id).await;
+        assert!(running.downloaded_bytes < total_bytes);
+
+        let removed = remove_download(task_id.clone()).await.unwrap();
+        assert_eq!(removed.id, task_id);
+        assert_eq!(removed.state, DownloadState::Running);
+
+        let report = tokio::time::timeout(Duration::from_secs(5), run)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 0);
+        assert_eq!(report.failed, 0);
+        assert_eq!(report.tasks[0].id, task_id);
+        assert_eq!(report.tasks[0].state, DownloadState::Paused);
+        assert!(list_downloads().await.unwrap().is_empty());
     }
 
     #[tokio::test]
