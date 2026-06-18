@@ -444,7 +444,7 @@ fn home_dir() -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::ffi::OsString;
-    use std::io::{Read, Write};
+    use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
     use std::sync::LazyLock;
     use std::thread;
@@ -530,6 +530,92 @@ mod tests {
             }
         });
         format!("http://{address}{path}")
+    }
+
+    fn spawn_ftp_server(
+        payload: &'static [u8],
+        expected_path: &'static str,
+    ) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut control, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(control.try_clone().unwrap());
+            let mut passive_listener: Option<TcpListener> = None;
+            control.write_all(b"220 FluxDown test FTP\r\n").unwrap();
+
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap() == 0 {
+                    break;
+                }
+                let command = line.trim_end_matches(['\r', '\n']);
+                let upper = command.to_ascii_uppercase();
+                if upper.starts_with("USER ") {
+                    control.write_all(b"331 Password required\r\n").unwrap();
+                } else if upper.starts_with("PASS ") {
+                    control.write_all(b"230 Logged in\r\n").unwrap();
+                } else if upper == "SYST" {
+                    control.write_all(b"215 UNIX Type: L8\r\n").unwrap();
+                } else if upper == "FEAT" {
+                    control.write_all(b"211 End\r\n").unwrap();
+                } else if upper.starts_with("OPTS ") || upper.starts_with("TYPE ") {
+                    control.write_all(b"200 OK\r\n").unwrap();
+                } else if upper.starts_with("SIZE ") {
+                    let path = command.split_once(' ').map(|(_, path)| path).unwrap_or("");
+                    assert_eq!(
+                        path.trim_start_matches('/'),
+                        expected_path.trim_start_matches('/')
+                    );
+                    control
+                        .write_all(format!("213 {}\r\n", payload.len()).as_bytes())
+                        .unwrap();
+                } else if upper.starts_with("REST ") {
+                    control
+                        .write_all(b"350 Restarting at requested offset\r\n")
+                        .unwrap();
+                } else if upper == "EPSV" {
+                    // 作者: long
+                    // FTP 下载必须经历被动数据连接，fixture 真实打开数据端口，才能覆盖桌面客户端实际传输路径。
+                    let data_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+                    let port = data_listener.local_addr().unwrap().port();
+                    passive_listener = Some(data_listener);
+                    control
+                        .write_all(
+                            format!("229 Entering Extended Passive Mode (|||{port}|)\r\n")
+                                .as_bytes(),
+                        )
+                        .unwrap();
+                } else if upper.starts_with("RETR ") {
+                    let path = command.split_once(' ').map(|(_, path)| path).unwrap_or("");
+                    assert_eq!(
+                        path.trim_start_matches('/'),
+                        expected_path.trim_start_matches('/')
+                    );
+                    control
+                        .write_all(b"150 Opening data connection\r\n")
+                        .unwrap();
+                    // 作者: long
+                    // RETR 阶段才写入文件内容，确保测试验证的是控制连接协商后的真实落盘，而不是绕过协议栈。
+                    let listener = passive_listener
+                        .take()
+                        .expect("RETR should follow EPSV in the desktop FTP fixture");
+                    let (mut data, _) = listener.accept().unwrap();
+                    data.write_all(payload).unwrap();
+                    let _ = data.shutdown(std::net::Shutdown::Both);
+                    control.write_all(b"226 Transfer complete\r\n").unwrap();
+                } else if upper == "QUIT" {
+                    control.write_all(b"221 Bye\r\n").unwrap();
+                    break;
+                } else {
+                    control.write_all(b"200 OK\r\n").unwrap();
+                }
+            }
+        });
+        (
+            format!("ftp://flux:fluxpass@{address}{expected_path}"),
+            server,
+        )
     }
 
     fn spawn_hls_http_server() -> (String, Vec<u8>) {
@@ -724,6 +810,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn desktop_commands_download_ftp_task_through_queue() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let payload = b"fluxdown-desktop-ftp-e2e";
+        let (source, server) = spawn_ftp_server(payload, "/files/desktop-ftp.bin");
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("desktop-ftp.txt".to_string()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.protocol, Protocol::Ftp);
+
+        let report = run_queue(1, Some(1), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 1);
+        assert_eq!(report.failed, 0);
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        assert_eq!(tasks[0].file_name.as_deref(), Some("desktop-ftp.txt"));
+        assert_eq!(
+            std::fs::read(output_dir.join("desktop-ftp.txt")).unwrap(),
+            payload
+        );
+    }
+
+    #[tokio::test]
     async fn desktop_start_download_runs_single_http_task() {
         let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
         let temp_dir = tempfile::tempdir().unwrap();
@@ -760,6 +881,52 @@ mod tests {
         let output_path = output_dir.join("desktop-start.txt");
         // 作者: long
         // 点击单个任务开始下载走 start_download，不经过 run_queue；这里保证主列表的单项操作也能真实落盘。
+        assert_eq!(
+            task_output_path(task.id.clone()).await.unwrap(),
+            output_path.to_string_lossy()
+        );
+        assert_eq!(std::fs::read(output_path).unwrap(), payload);
+    }
+
+    #[tokio::test]
+    async fn desktop_start_download_runs_single_ftp_task() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let payload = b"fluxdown-desktop-start-ftp";
+        let (source, server) = spawn_ftp_server(payload, "/files/start-ftp.bin");
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("desktop-start-ftp.txt".to_string()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.protocol, Protocol::Ftp);
+
+        let report = start_download(
+            task.id.clone(),
+            Some(1),
+            Some(1),
+            Some(1),
+            None,
+            Some(false),
+        )
+        .await
+        .unwrap();
+        server.join().unwrap();
+        assert_eq!(report.task.state, DownloadState::Finished);
+        assert_eq!(
+            report.task.file_name.as_deref(),
+            Some("desktop-start-ftp.txt")
+        );
+        assert_eq!(report.task.downloaded_bytes, payload.len() as u64);
+
+        let output_path = output_dir.join("desktop-start-ftp.txt");
+        // 作者: long
+        // FTP 单任务启动要覆盖真实控制连接和数据连接，确保桌面列表点击开始不是只验证了 HTTP 快路径。
         assert_eq!(
             task_output_path(task.id.clone()).await.unwrap(),
             output_path.to_string_lossy()

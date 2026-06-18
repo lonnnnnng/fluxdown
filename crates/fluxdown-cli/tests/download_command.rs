@@ -225,6 +225,11 @@ fn download_command_uses_threads_for_http_ranges() {
                 thread::sleep(Duration::from_millis(10));
                 continue;
             };
+            // 作者: long
+            // listener 为了轮询退出使用非阻塞模式；已接受连接要切回阻塞写入，避免 Range body 偶发只写入一部分。
+            stream
+                .set_nonblocking(false)
+                .expect("accepted range fixture stream should use blocking writes");
             let handler_payload = Arc::clone(&server_payload);
             let handler_range_hits = Arc::clone(&server_range_hits);
             // 作者: long
@@ -249,7 +254,8 @@ fn download_command_uses_threads_for_http_ranges() {
                         handler_payload.len()
                     );
                     let _ = stream.write_all(response.as_bytes());
-                    let _ = stream.shutdown(Shutdown::Both);
+                    let _ = stream.flush();
+                    let _ = stream.shutdown(Shutdown::Write);
                     return;
                 }
 
@@ -277,7 +283,8 @@ fn download_command_uses_threads_for_http_ranges() {
                 );
                 let _ = stream.write_all(response.as_bytes());
                 let _ = stream.write_all(&body);
-                let _ = stream.shutdown(Shutdown::Both);
+                let _ = stream.flush();
+                let _ = stream.shutdown(Shutdown::Write);
             }));
         }
         for handler in handlers {
