@@ -54,7 +54,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 ### 环境
 
 - 平台：macOS 本机，仓库分支 `main`。
-- 本轮非 GUI 总验收复验提交：`26dcf05`。
+- 本轮非 GUI 总验收复验提交：`dc1ed64`。
 - 构建版本：`1.0.2`。
 - 本地资源目录：`../local_protocol_resources`。
 - 本机局域网 IP：`192.168.1.7`，本轮 CLI 下载主要使用 `127.0.0.1` 本地服务。
@@ -70,7 +70,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | --- | --- |
 | `cargo fmt --check` | 通过：Rust 代码格式已校验。 |
 | `cargo clippy -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop --all-targets -- -D warnings` | 通过：严格 Clippy 通过；覆盖既有队列/协议修复、URL 脱敏、CLI 错误包装、桌面展示改动、平台原生队列路径，以及本轮 CLI/桌面客户端 SHA-256 校验能力。 |
-| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 32、core 67、desktop 30，desktop 另有 7 个需 live fixture 的 ignored 用例；覆盖直连下载 SHA-256 成功/失败、非法 hash 在 `--restart` 清理前失败、非法 hash 在 CLI `add` 和桌面 `enqueue_download` 时提前拒绝且不写入队列、队列任务 SHA-256 持久化和失败状态、macOS CLI 默认队列写入 `~/Library/Application Support/FluxDown/queue.json`、旧版 macOS Unix 队列读取和下次写入迁移、CLI `pause/resume` 直接恢复异常残留的 running 任务，暂停保留中断提示，继续清理旧中断提示、torrent 文件编号排序去重与队列持久化、多文件种子单选文件时 summary 指向真实 metadata 目录落盘路径、桌面 command 层 SHA-256 成功和 mismatch 失败、桌面 command 列表刷新、暂停按钮和继续按钮恢复异常残留的 running 任务、桌面 command 首次 500 后自动重试成功、桌面 command 重新下载已完成任务会替换旧文件，以及桌面 command 运行中暂停/恢复后续传完成。 |
+| `cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` | 通过：CLI 单元 1、CLI 集成 33、core 67、desktop 31，desktop 另有 7 个需 live fixture 的 ignored 用例；覆盖直连下载 SHA-256 成功/失败、非法 hash 在 `--restart` 清理前失败、非法 hash 在 CLI `add` 和桌面 `enqueue_download` 时提前拒绝且不写入队列、队列任务 SHA-256 持久化和失败状态、macOS CLI 默认队列写入 `~/Library/Application Support/FluxDown/queue.json`、旧版 macOS Unix 队列读取和下次写入迁移、CLI `pause/resume/remove` 直接恢复异常残留的 running 任务，暂停和删除保留中断提示，继续清理旧中断提示、torrent 文件编号排序去重与队列持久化、多文件种子单选文件时 summary 指向真实 metadata 目录落盘路径、桌面 command 层 SHA-256 成功和 mismatch 失败、桌面 command 列表刷新、暂停按钮、删除入口和继续按钮恢复异常残留的 running 任务、桌面 command 首次 500 后自动重试成功、桌面 command 重新下载已完成任务会替换旧文件，以及桌面 command 运行中暂停/恢复后续传完成。 |
 | `cargo test -p fluxdown-core task::tests::redacts -- --nocapture` | 通过：验证任务展示副本会隐藏 URL 用户名和密码，也会处理嵌套 gateway URL。 |
 | `cargo test -p fluxdown-cli queue_commands_redact_url_credentials_from_json_output -- --nocapture` | 通过：验证 CLI `add/list` JSON 输出隐藏 `ftp://user:p%40ss@...` 凭据，同时队列文件仍保存原始链接用于真实下载。 |
 | `cargo test -p fluxdown-core task::tests::redacts_credentials_from_magnet_tracker_urls_in_text -- --nocapture` + `cargo test -p fluxdown-cli --test download_command queue_commands_redact_magnet_tracker_credentials_from_json_output -- --nocapture` | 通过：验证错误文本和 CLI `add/list` JSON 输出会隐藏 magnet tracker 嵌套 URL 中的用户名和密码，队列文件仍保留原始 magnet 链接用于真实下载。 |
@@ -79,18 +79,20 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `cargo test -p fluxdown-core -- --nocapture` + `cargo test -p fluxdown-cli --test download_command -- --nocapture` + `cargo test -p fluxdown-desktop resolves_legacy_unsafe_file_name_inside_output_dir -- --nocapture` | 通过：下载文件名统一规范化为单文件名，覆盖用户自定义文件名、HTTP/HLS/FTP/SFTP/SMB 推断文件名、旧队列任务重跑候选路径、CLI 真实 HTTP 落盘和桌面 command 输出路径解析，避免 `../`、路径分隔符和跨平台非法字符写出保存目录。 |
 | `cargo test -p fluxdown-core task::tests::validates_sha256_text_before_queueing_tasks -- --nocapture` + `cargo test -p fluxdown-cli --test download_command queue_add_rejects_invalid_sha256_without_writing_queue -- --nocapture` | 通过：共享 SHA-256 规则接受 `sha256:` 前缀和大小写输入，拒绝非法值；CLI `add --sha256 not-a-sha256` 会直接失败，且不会创建队列文件。 |
 | `cargo test -p fluxdown-core task::tests::normalizes_expected_sha256_when_creating_task -- --nocapture` + `cargo test -p fluxdown-cli --test download_command -- --nocapture` | 通过：验证 `expected_sha256` 兼容旧队列 JSON、输入规范化为小写 64 位 hash、CLI `download --sha256` 成功时 summary 返回实际 hash、hash 不匹配时直连命令失败，非法 hash 不会在 `--restart` 时先删除旧文件，非法 hash 不会进入队列，队列任务校验失败时进入 `failed` 并记录 mismatch 错误。 |
-| `cargo test -p fluxdown-desktop -- --nocapture` | 通过：desktop 非 ignored 用例 30 个通过，7 个 live fixture 用例保持 ignored；验证桌面新建任务可保存可选 SHA-256 和 torrent 文件编号，非法 SHA-256 会在 `enqueue_download` 阶段直接拒绝且不写入队列，队列下载成功时保留期望 hash，hash 不匹配时任务进入 `failed` 并记录 mismatch 错误；覆盖首次 HTTP 500 后按 `retry_attempts` 再次请求并下载成功；覆盖已完成任务通过 `restart_existing` 重新下载时删除旧文件、重新请求且不走 Range 续传；覆盖列表刷新会把异常残留的 running 任务恢复为 `paused` 并保留已下载进度，暂停按钮可直接保留为 `paused` 并展示中断提示，继续按钮可直接把这类任务恢复为 `queued`；覆盖运行中任务暂停为 `paused`、恢复为 `queued`、再次运行后通过 Range 续传完成并校验最终文件内容。 |
+| `cargo test -p fluxdown-desktop -- --nocapture` | 通过：desktop 非 ignored 用例 31 个通过，7 个 live fixture 用例保持 ignored；验证桌面新建任务可保存可选 SHA-256 和 torrent 文件编号，非法 SHA-256 会在 `enqueue_download` 阶段直接拒绝且不写入队列，队列下载成功时保留期望 hash，hash 不匹配时任务进入 `failed` 并记录 mismatch 错误；覆盖首次 HTTP 500 后按 `retry_attempts` 再次请求并下载成功；覆盖已完成任务通过 `restart_existing` 重新下载时删除旧文件、重新请求且不走 Range 续传；覆盖列表刷新会把异常残留的 running 任务恢复为 `paused` 并保留已下载进度，暂停按钮可直接保留为 `paused` 并展示中断提示，删除入口可先恢复中断态再移出队列，继续按钮可直接把这类任务恢复为 `queued`；覆盖运行中任务暂停为 `paused`、恢复为 `queued`、再次运行后通过 Range 续传完成并校验最终文件内容。 |
 | `cargo test -p fluxdown-cli --test download_command queue_commands_use_macos_native_default_store_path -- --nocapture` | 通过：在隔离临时 `HOME` 且空 `XDG_DATA_HOME` 下执行真实 CLI `add/list`，队列写入 `home/Library/Application Support/FluxDown/queue.json`，且不会新建旧版 `home/.local/share/fluxdown/queue.json`。 |
 | `cargo test -p fluxdown-cli --test download_command queue_commands_migrate_legacy_macos_store_on_next_write -- --nocapture` | 通过：先用真实 CLI 在旧版 `home/.local/share/fluxdown/queue.json` 写入任务，再用默认 macOS 环境执行 `list` 读取旧任务，随后执行默认 `add`，确认新旧任务一起写入 `home/Library/Application Support/FluxDown/queue.json`。 |
 | `cargo test -p fluxdown-cli --test download_command queue_resume_recovers_stale_running_task_before_transition -- --nocapture` | 通过：构造异常残留的 running 队列任务后直接执行真实 CLI `resume`，确认无需先 `list`，任务会恢复为 `queued`，保留已下载进度并清理旧中断提示。 |
 | `cargo test -p fluxdown-cli --test download_command queue_pause_recovers_stale_running_task_before_transition -- --nocapture` | 通过：构造异常残留的 running 队列任务后直接执行真实 CLI `pause`，确认无需先 `list`，任务会恢复为 `paused`，保留已下载进度并展示“任务中断，已暂停，可继续下载”。 |
+| `cargo test -p fluxdown-cli --test download_command queue_remove_recovers_stale_running_task_before_removal -- --nocapture` | 通过：构造异常残留的 running 队列任务后直接执行真实 CLI `remove`，确认删除前会恢复为 `paused`，返回值保留已下载进度和中断提示，随后队列为空。 |
 | `cargo test -p fluxdown-desktop desktop_pause_download_recovers_stale_running_task_before_transition -- --nocapture` | 通过：构造异常残留的 running 桌面队列任务后直接调用 `pause_download`，确认桌面暂停入口会恢复为 `paused`，保留进度并保留中断提示。 |
+| `cargo test -p fluxdown-desktop desktop_remove_download_recovers_stale_running_task_before_removal -- --nocapture` | 通过：构造异常残留的 running 桌面队列任务后直接调用 `remove_download`，确认桌面删除入口会先恢复中断状态，再把任务移出队列。 |
 | `npm --workspace apps/desktop run build` | 通过：桌面前端新建任务协议/后端状态预览、SHA-256 输入、属性弹框、任务错误和 toast 错误脱敏改动完成 TypeScript 编译和 Vite 构建。 |
 | `npm run verify:licenses` | 通过：检查 Rust workspace、桌面运行时依赖和 Flutter 移动端运行时依赖均已列入第三方许可证清单，并确认 `libtorrent_flutter` GPL 风险提示仍保留。 |
-| `npm run verify:macos` | 通过：已在提交 `26dcf05` 复跑当前 macOS 非 GUI 总验收入口，串起 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、`npm run verify:macos-cli-release`、`npm run verify:macos-desktop-command`、`npm run verify:licenses` 和 `npm run verify:ci-config`。 |
+| `npm run verify:macos` | 通过：已在提交 `dc1ed64` 复跑当前 macOS 非 GUI 总验收入口，串起 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、`npm run verify:macos-cli-release`、`npm run verify:macos-desktop-command`、`npm run verify:licenses` 和 `npm run verify:ci-config`。 |
 | `npm run audit:release` | 已执行：代码覆盖类检查已通过，包括 CLI 直连下载、桌面 command 任务启动、前端进度轮询、协议模型、移动端队列和 CI 配置；本轮未进入发版/打包阶段，因此 Linux/Windows 桌面产物、iOS simulator/framework 产物、Release staging manifest 尚不存在，审计结果为 `11 failed, 1 warning`，这些产物缺口不作为本阶段阻塞。 |
 | `cargo clippy -p fluxdown-cli --all-targets -- -D warnings` | 通过：修复 release CLI 不支持 `--version` 的基础可用性问题后，CLI 专项 Clippy 通过。 |
-| `cargo test -p fluxdown-cli` | 通过：CLI 单元 1、CLI 集成 32。 |
+| `cargo test -p fluxdown-cli` | 通过：CLI 单元 1、CLI 集成 33。 |
 | `npm run verify:macos-cli-release` | 通过：一键重新构建 `target/release/fluxdown`，依次运行 release CLI 的 HTTP/HLS、FTP/FTPS、SFTP、SMB、Torrent/Magnet、队列控制真实下载脚本，并执行 `npm run verify:macos-artifacts`。 |
 | `npm run verify:macos-cli-ftp-ftps` | 通过：脚本启动临时 FTP 和显式 TLS FTPS fixture，验证 CLI FTP/FTPS 直连下载和队列下载。 |
 | `npm run verify:macos-cli-http-hls` | 通过：脚本启动临时 Range HTTP server，验证 CLI HTTP 直连/队列和 HLS 直连/队列/单任务启动。 |
@@ -111,7 +113,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `cargo build -p fluxdown-cli --release` | 通过，生成 `target/release/fluxdown`。 |
 | `npm --workspace apps/desktop run build` | 通过。 |
 | `npm run desktop:build` | 通过，生成 `target/release/bundle/macos/FluxDown.app`。 |
-| `npm run desktop:dmg` | 通过，打包前会对 `FluxDown.app` 执行本地 ad-hoc bundle 签名并通过 `codesign --verify --deep --strict`，生成 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg`，大小 `8728272` bytes。该签名只证明本地产物完整，不代表开发者证书签名或 notarization 已完成。 |
+| `npm run desktop:dmg` | 通过，打包前会对 `FluxDown.app` 执行本地 ad-hoc bundle 签名并通过 `codesign --verify --deep --strict`，生成 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg`，大小 `8728841` bytes。该签名只证明本地产物完整，不代表开发者证书签名或 notarization 已完成。 |
 | `node scripts/verify-artifacts.mjs desktop-macos` | 通过，校验 `target/release/fluxdown-desktop`、`target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg` 均存在且非空。 |
 | `npm run verify:macos-artifacts` | 通过：校验 release CLI 文件、桌面二进制、`.app` 目录、`Info.plist` 元数据、bundle 可执行文件、CLI `--version/detect/support/doctor`、`.app` ad-hoc 签名和 dmg checksum；校验脚本会在 `hdiutil verify` 前后清理当前 FluxDown DMG 的临时挂载并短重试，避免 `资源暂时不可用` 造成误报失败。 |
 | Release 许可证随包文本 | 通过：本地 `release:stage` 和 GitHub Release assets 准备脚本会输出项目 `LICENSE` 与 `docs/third-party-licenses.md` 副本，`verify:release` 会检查本地 Release staging 中的许可证文件存在且非空。 |
