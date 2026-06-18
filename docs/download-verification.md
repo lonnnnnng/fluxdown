@@ -83,6 +83,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run verify:macos-cli-sftp` | 通过：脚本启动临时 Docker SFTP 服务，等待 SSH banner 后验证 CLI SFTP 直连下载和队列下载。 |
 | `npm run verify:macos-cli-smb` | 通过：脚本启动临时 Docker Samba 共享，验证 CLI SMB 直连下载和队列下载。 |
 | `npm run verify:macos-desktop-ftps` | 通过：脚本启动临时显式 TLS FTPS fixture，运行桌面 command ignored 测试，验证 FTPS 队列下载、输出路径和 SHA-256。 |
+| `npm run verify:macos-desktop-command` | 通过：一键运行 `cargo test -p fluxdown-desktop`、`npm run desktop:dmg`、桌面 command FTPS/SFTP/SMB/Torrent/Magnet fixture 和 `npm run verify:macos-artifacts`，全程不启动前台 GUI。 |
 | `npm run verify:macos-desktop-p2p` | 通过：脚本创建临时小文件、生成 torrent/magnet、启动本地 tracker 和 Transmission seeder，只运行 2 个 P2P ignored 桌面 command 测试，避免误触发其他协议 fixture 用例。 |
 | `npm run verify:macos-desktop-smb` | 通过：脚本启动临时 Docker Samba 共享，运行桌面 command ignored 测试，验证 SMB 队列下载、输出路径和 SHA-256。 |
 | `npm run verify:macos-desktop-sftp` | 通过：脚本启动临时 Docker SFTP 服务，等待 SSH banner 后运行桌面 command ignored 测试，验证队列下载、输出路径和 SHA-256。 |
