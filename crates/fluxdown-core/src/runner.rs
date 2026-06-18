@@ -418,6 +418,10 @@ fn range_temp_output_path(output_path: &PathBuf) -> PathBuf {
 mod tests {
     use super::*;
     use crate::DownloadRequest;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
@@ -491,6 +495,74 @@ mod tests {
         assert_eq!(recovered.state, DownloadState::Paused);
         assert!(recovered.error.unwrap().contains("任务中断"));
         let _ = tokio::fs::remove_file(path).await;
+    }
+
+    #[tokio::test]
+    async fn run_queue_limits_simultaneous_downloads() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let server_active = Arc::clone(&active);
+        let server_max_active = Arc::clone(&max_active);
+        let server = tokio::spawn(async move {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let active = Arc::clone(&server_active);
+                let max_active = Arc::clone(&server_max_active);
+                tokio::spawn(async move {
+                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_active.fetch_max(current, Ordering::SeqCst);
+
+                    let mut buffer = [0; 1024];
+                    let _ = stream.read(&mut buffer).await;
+                    let chunk = vec![b'q'; 4096];
+                    let chunks = 10;
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        chunk.len() * chunks
+                    );
+                    stream.write_all(response.as_bytes()).await.unwrap();
+                    // 作者: long
+                    // 分片之间留一点时间，保证测试能观察到真实的并发窗口，而不是三个小文件瞬间串行完成。
+                    for index in 0..chunks {
+                        if index + 1 == chunks {
+                            active.fetch_sub(1, Ordering::SeqCst);
+                        }
+                        if stream.write_all(&chunk).await.is_err() {
+                            break;
+                        }
+                        let _ = stream.flush().await;
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                    }
+                });
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let output_dir = temp_dir.path().join("downloads");
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        for index in 0..3 {
+            let mut request =
+                DownloadRequest::new(format!("http://{address}/file-{index}.bin"), &output_dir);
+            request.file_name = Some(format!("file-{index}.bin"));
+            store.enqueue(request).await.unwrap();
+        }
+
+        let report = QueueRunner::new(store.clone()).run_queued(2).await.unwrap();
+        let tasks = store.list().await.unwrap();
+
+        assert_eq!(report.total_queued, 3);
+        assert_eq!(report.started, 3);
+        assert_eq!(report.finished, 3);
+        assert_eq!(report.failed, 0);
+        assert_eq!(max_active.load(Ordering::SeqCst), 2);
+        assert!(
+            tasks
+                .iter()
+                .all(|task| task.state == DownloadState::Finished)
+        );
+        server.await.unwrap();
     }
 
     #[tokio::test]
