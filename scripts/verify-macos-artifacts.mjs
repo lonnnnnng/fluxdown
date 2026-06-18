@@ -46,7 +46,7 @@ function verifyCli() {
   assert(versionOutput === `fluxdown ${version}`, `unexpected CLI version output: ${versionOutput}`)
 
   const detectOutput = run(cliPath, ['detect', 'https://example.com/file.zip']).stdout.trim()
-  assert(detectOutput === 'Https', `unexpected detect output: ${detectOutput}`)
+  assert(detectOutput === 'https', `unexpected detect output: ${detectOutput}`)
 
   const support = JSON.parse(run(cliPath, ['support', 'https://example.com/file.zip']).stdout)
   assert(support.executable === true, 'HTTPS support must be executable')

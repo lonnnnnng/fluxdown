@@ -1,6 +1,6 @@
 use crate::{
     CancelToken, DownloadEngine, DownloadError, DownloadOptions, DownloadProgress, DownloadState,
-    DownloadTask, Protocol, TaskStore, TaskStoreError,
+    DownloadTask, Protocol, TaskStore, TaskStoreError, sanitize_download_file_name,
 };
 use futures_util::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -409,6 +409,7 @@ fn output_file_candidates(task: &DownloadTask) -> Vec<PathBuf> {
             .unwrap_or("download.bin")
             .to_string()
     });
+    let file_name = sanitize_download_file_name(&file_name, "download.bin");
     let primary = task.output_dir.join(&file_name);
     let mut candidates = Vec::new();
     match task.protocol {
@@ -449,6 +450,21 @@ mod tests {
     };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+
+    #[test]
+    fn output_file_candidates_sanitize_legacy_task_file_name() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut task = DownloadTask::from_request(DownloadRequest::new(
+            "https://example.com/archive.zip",
+            temp_dir.path(),
+        ));
+        task.file_name = Some("../legacy:name.zip".to_string());
+
+        let candidates = output_file_candidates(&task);
+
+        assert!(candidates.contains(&temp_dir.path().join("_legacy_name.zip")));
+        assert!(!candidates.contains(&temp_dir.path().join("../legacy:name.zip")));
+    }
 
     #[tokio::test]
     async fn run_empty_queue() {

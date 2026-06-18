@@ -8,6 +8,7 @@
 - 已将根 README 收敛为短快速开始、截图和关键文档入口；详细构建、签名、产物和 CI 信息继续维护在 `docs/`。
 - 已为桌面队列路径接入平台原生数据目录：macOS 使用 `~/Library/Application Support/FluxDown/queue.json`，Windows 使用 `%APPDATA%/FluxDown/queue.json`，Linux/Unix 保持 XDG 路径；macOS 会兼容读取旧版 `~/.local/share/fluxdown/queue.json`。
 - 已增加 URL 凭据脱敏，CLI JSON 输出、命令错误、桌面属性页和任务错误展示不再暴露 URL 中的用户名和密码；原始队列数据仍保留真实链接用于下载和复制。
+- 已增加下载文件名规范化，CLI/桌面端会把用户另存名、协议推断名和旧队列文件名收敛为单文件名，避免异常文件名写出保存目录。
 - 扩展 CLI 集成测试，覆盖队列生命周期和更多协议检测样例。
 - 为 HLS、FTP、SFTP、SMB 增加更多边界单元测试。
 - 为移动端 App 增加协议下载 mock 测试和队列恢复测试。

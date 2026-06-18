@@ -1,4 +1,6 @@
-use crate::{Backend, DownloadRequest, Protocol, backend_availability};
+use crate::{
+    Backend, DownloadRequest, Protocol, backend_availability, sanitize_download_file_name,
+};
 use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
 use futures_util::{StreamExt, stream};
 use librqbit::{AddTorrent, AddTorrentOptions, Session, SessionOptions, limits::LimitsConfig};
@@ -321,6 +323,7 @@ impl DownloadEngine {
         let protocol = request.protocol();
         let file_name = request
             .file_name
+            .map(|name| sanitize_download_file_name(&name, "download.bin"))
             .unwrap_or_else(|| infer_file_name(&url, "download.bin"));
         let output_path = request.output_dir.join(file_name);
         let existing_bytes = existing_file_size(&output_path).await?;
@@ -875,6 +878,7 @@ impl DownloadEngine {
 
         let file_name = request
             .file_name
+            .map(|name| sanitize_download_file_name(&name, "stream.mp4"))
             .unwrap_or_else(|| infer_file_name(&playlist_url, "stream.mp4"));
         let requested_output_path = request.output_dir.join(file_name);
         let output_path = hls_mp4_output_name(&requested_output_path);
@@ -1366,6 +1370,7 @@ fn output_file_candidates_for_request(request: &DownloadRequest) -> Vec<PathBuf>
     let file_name = request
         .file_name
         .clone()
+        .map(|name| sanitize_download_file_name(&name, "download.bin"))
         .unwrap_or_else(|| inferred_file_name_from_source(&request.source));
     let primary = request.output_dir.join(&file_name);
     let mut candidates = Vec::new();
@@ -1488,11 +1493,13 @@ fn unsatisfied_range_total(content_range: Option<&reqwest::header::HeaderValue>)
 }
 
 fn infer_file_name(url: &Url, fallback: &str) -> String {
-    url.path_segments()
+    let inferred = url
+        .path_segments()
         .and_then(|mut segments| segments.next_back())
         .filter(|segment| !segment.is_empty())
         .unwrap_or(fallback)
-        .to_string()
+        .to_string();
+    sanitize_download_file_name(&percent_decode(&inferred), fallback)
 }
 
 fn url_credentials(url: &mut Url) -> Result<Option<(String, Option<String>)>, DownloadError> {
@@ -1883,13 +1890,16 @@ impl SftpDownloadSpec {
             DownloadError::InvalidSftpUrl("sftp url must include a password".to_string())
         })?;
 
-        let file_name = requested_file_name.unwrap_or_else(|| {
-            path.rsplit('/')
-                .next()
-                .filter(|segment| !segment.is_empty())
-                .map(percent_decode)
-                .unwrap_or_else(|| "sftp-download.bin".to_string())
-        });
+        let file_name = requested_file_name
+            .map(|name| sanitize_download_file_name(&name, "sftp-download.bin"))
+            .unwrap_or_else(|| {
+                path.rsplit('/')
+                    .next()
+                    .filter(|segment| !segment.is_empty())
+                    .map(percent_decode)
+                    .map(|name| sanitize_download_file_name(&name, "sftp-download.bin"))
+                    .unwrap_or_else(|| "sftp-download.bin".to_string())
+            });
 
         Ok(Self {
             address: format!("{host}:{port}"),
@@ -1936,13 +1946,15 @@ impl SmbDownloadSpec {
 
         let share = path_segments[0].clone();
         let remote_path = path_segments[1..].join("/");
-        let file_name = requested_file_name.unwrap_or_else(|| {
-            path_segments
-                .last()
-                .filter(|segment| !segment.is_empty())
-                .cloned()
-                .unwrap_or_else(|| "smb-download.bin".to_string())
-        });
+        let file_name = requested_file_name
+            .map(|name| sanitize_download_file_name(&name, "smb-download.bin"))
+            .unwrap_or_else(|| {
+                path_segments
+                    .last()
+                    .filter(|segment| !segment.is_empty())
+                    .map(|name| sanitize_download_file_name(name, "smb-download.bin"))
+                    .unwrap_or_else(|| "smb-download.bin".to_string())
+            });
         let domain = url
             .query_pairs()
             .find_map(|(key, value)| {
@@ -2010,13 +2022,16 @@ impl FtpDownloadSpec {
             return Err(DownloadError::InvalidFtpUrl(url.to_string()));
         }
 
-        let file_name = requested_file_name.unwrap_or_else(|| {
-            path.rsplit('/')
-                .next()
-                .filter(|segment| !segment.is_empty())
-                .map(percent_decode)
-                .unwrap_or_else(|| "ftp-download.bin".to_string())
-        });
+        let file_name = requested_file_name
+            .map(|name| sanitize_download_file_name(&name, "ftp-download.bin"))
+            .unwrap_or_else(|| {
+                path.rsplit('/')
+                    .next()
+                    .filter(|segment| !segment.is_empty())
+                    .map(percent_decode)
+                    .map(|name| sanitize_download_file_name(&name, "ftp-download.bin"))
+                    .unwrap_or_else(|| "ftp-download.bin".to_string())
+            });
         let username = if url.username().is_empty() {
             "anonymous".to_string()
         } else {
@@ -2236,6 +2251,25 @@ mod tests {
     }
 
     #[test]
+    fn sanitizes_inferred_and_requested_file_names() {
+        let http_url = Url::parse("https://example.com/files/bad%2Fname%3F.bin").unwrap();
+        assert_eq!(infer_file_name(&http_url, "download.bin"), "bad_name_.bin");
+
+        let ftp_url = Url::parse("ftp://example.com/pub/bad%2Fname.bin").unwrap();
+        let ftp_spec =
+            FtpDownloadSpec::from_url(&ftp_url, Some("../custom:name.bin".to_string())).unwrap();
+        assert_eq!(ftp_spec.file_name, "_custom_name.bin");
+
+        let hls_request = DownloadRequest {
+            source: "https://example.com/live/index.m3u8".to_string(),
+            output_dir: PathBuf::from("/tmp/fluxdown"),
+            file_name: Some("../movie:name.m3u8".to_string()),
+        };
+        let candidates = output_file_candidates_for_request(&hls_request);
+        assert!(candidates.contains(&PathBuf::from("/tmp/fluxdown/_movie_name.mp4")));
+    }
+
+    #[test]
     fn uses_anonymous_ftp_defaults_and_requested_name() {
         let url = Url::parse("ftp://example.com/pub/file.bin").unwrap();
         let spec = FtpDownloadSpec::from_url(&url, Some("renamed.bin".to_string())).unwrap();
@@ -2271,6 +2305,28 @@ mod tests {
         assert_eq!(spec.address, "127.0.0.1:2121");
         assert!(!spec.implicit_tls);
         assert!(spec.allow_bad_certificate);
+    }
+
+    #[test]
+    fn protocol_specs_keep_local_file_names_inside_output_dir() {
+        let ftp_url = Url::parse("ftp://example.com/pub/bad%2Fname.bin").unwrap();
+        let sftp_url = Url::parse("sftp://user:pass@example.com/pub/%2Fescape.bin").unwrap();
+        let smb_url = Url::parse("smb://nas/Share/path/bad%5Cname?.bin").unwrap();
+
+        assert_eq!(
+            FtpDownloadSpec::from_url(&ftp_url, None).unwrap().file_name,
+            "bad_name.bin"
+        );
+        assert_eq!(
+            SftpDownloadSpec::from_url(&sftp_url, None)
+                .unwrap()
+                .file_name,
+            "_escape.bin"
+        );
+        assert_eq!(
+            SmbDownloadSpec::from_url(&smb_url, None).unwrap().file_name,
+            "bad_name"
+        );
     }
 
     #[test]

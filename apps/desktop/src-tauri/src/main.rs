@@ -2,6 +2,7 @@ use fluxdown_core::{
     DoctorReport, DownloadOptions, DownloadRequest, DownloadState, DownloadTask, Protocol,
     QueueRunReport, QueueRunner, QueueRunnerOptions, RuntimeSupportStatus, TaskRunReport,
     TaskStore, default_store_path, detect_protocol, doctor_report, runtime_support_status,
+    sanitize_download_file_name,
 };
 use serde::Deserialize;
 use std::{
@@ -297,7 +298,9 @@ fn resolve_task_output_path(task: &DownloadTask) -> PathBuf {
         return task
             .file_name
             .as_ref()
-            .map(|file_name| output_dir.join(file_name))
+            .map(|file_name| {
+                output_dir.join(sanitize_download_file_name(file_name, "download.bin"))
+            })
             .filter(|path| path.exists())
             .unwrap_or(output_dir);
     }
@@ -305,6 +308,7 @@ fn resolve_task_output_path(task: &DownloadTask) -> PathBuf {
     let file_name = task
         .file_name
         .clone()
+        .map(|file_name| sanitize_download_file_name(&file_name, "download.bin"))
         .unwrap_or_else(|| inferred_file_name_from_source(&task.source));
     if task.protocol == Protocol::M3u8 {
         let base = PathBuf::from(&file_name);
@@ -323,13 +327,14 @@ fn resolve_task_output_path(task: &DownloadTask) -> PathBuf {
 }
 
 fn inferred_file_name_from_source(source: &str) -> String {
-    source
+    let inferred = source
         .rsplit('/')
         .next()
         .and_then(|segment| segment.split('?').next())
         .filter(|segment| !segment.is_empty())
         .unwrap_or("download.bin")
-        .to_string()
+        .to_string();
+    sanitize_download_file_name(&inferred, "download.bin")
 }
 
 fn reveal_path(path: &Path) -> Result<(), String> {
@@ -726,6 +731,21 @@ mod tests {
         assert_eq!(
             resolve_task_output_path(&task),
             temp_dir.path().join("renamed.zip")
+        );
+    }
+
+    #[test]
+    fn resolves_legacy_unsafe_file_name_inside_output_dir() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut task = DownloadTask::from_request(DownloadRequest::new(
+            "https://example.com/archive.zip",
+            temp_dir.path(),
+        ));
+        task.file_name = Some("../legacy:name.zip".to_string());
+
+        assert_eq!(
+            resolve_task_output_path(&task),
+            temp_dir.path().join("_legacy_name.zip")
         );
     }
 

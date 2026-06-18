@@ -423,6 +423,55 @@ fn download_command_fetches_http_file() {
 }
 
 #[test]
+fn download_command_sanitizes_requested_output_name() {
+    let payload = b"fluxdown-cli-safe-name";
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0; 1024];
+        let _ = stream.read(&mut buffer).unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            payload.len()
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+        stream.write_all(payload).unwrap();
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let output_dir = temp_dir.path().join("downloads");
+    let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "download",
+            &format!("http://{address}/file.bin"),
+            "--output",
+            output_dir.to_str().unwrap(),
+            "--name",
+            "../outside:name?.bin",
+        ])
+        .output()
+        .unwrap();
+
+    server.join().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let safe_path = output_dir.join("_outside_name_.bin");
+    assert_eq!(std::fs::read(&safe_path).unwrap(), payload);
+    assert!(!temp_dir.path().join("outside:name?.bin").exists());
+
+    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        summary["output_path"].as_str().unwrap(),
+        safe_path.to_string_lossy()
+    );
+}
+
+#[test]
 fn download_command_fetches_hls_playlist() {
     let (source, expected_payload, server) = spawn_hls_http_server();
     let temp_dir = tempfile::tempdir().unwrap();

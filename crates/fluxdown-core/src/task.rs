@@ -60,15 +60,19 @@ pub struct DownloadTask {
 impl DownloadTask {
     pub fn from_request(request: DownloadRequest) -> Self {
         let millis = now_ms();
+        let protocol = request.protocol();
+        let file_name = request
+            .file_name
+            .map(|name| sanitize_download_file_name(&name, "download.bin"));
 
         Self {
             id: format!("task-{}", Uuid::new_v4()),
-            protocol: request.protocol(),
-            support: support_status(request.protocol()),
+            protocol,
+            support: support_status(protocol),
             source: request.source,
             state: DownloadState::Queued,
             output_dir: request.output_dir,
-            file_name: request.file_name,
+            file_name,
             total_bytes: None,
             downloaded_bytes: 0,
             current_speed_bytes_per_second: 0,
@@ -84,7 +88,10 @@ impl DownloadTask {
         DownloadRequest {
             source: self.source.clone(),
             output_dir: self.output_dir.clone(),
-            file_name: self.file_name.clone(),
+            file_name: self
+                .file_name
+                .as_deref()
+                .map(|name| sanitize_download_file_name(name, "download.bin")),
         }
     }
 
@@ -156,6 +163,35 @@ impl DownloadTask {
         task.source = redact_url_credentials(&task.source);
         task.error = task.error.as_deref().map(redact_url_credentials_in_text);
         task
+    }
+}
+
+pub fn sanitize_download_file_name(name: &str, fallback: &str) -> String {
+    let candidate = name
+        .trim()
+        .chars()
+        .map(|character| {
+            if character.is_control()
+                || matches!(
+                    character,
+                    '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+                )
+            {
+                '_'
+            } else {
+                character
+            }
+        })
+        .collect::<String>()
+        .trim_matches(|character: char| character.is_whitespace() || character == '.')
+        .to_string();
+
+    // 作者: long
+    // 下载文件名最终会和保存目录拼成本地路径，空名、当前目录和上级目录都要回退，避免 CLI/桌面任务写出用户选择的目录。
+    if candidate.is_empty() || candidate == "." || candidate == ".." {
+        sanitize_download_file_name(fallback, "download.bin")
+    } else {
+        candidate
     }
 }
 
@@ -264,6 +300,46 @@ mod tests {
         assert_eq!(restored.current_speed_bytes_per_second, 0);
         assert_eq!(restored.started_at_ms, None);
         assert_eq!(restored.finished_at_ms, None);
+    }
+
+    #[test]
+    fn sanitizes_requested_file_name_when_creating_task() {
+        let mut request = DownloadRequest::new("https://example.com/file.bin", "/tmp");
+        request.file_name = Some("../bad:name?.zip".to_string());
+
+        let task = DownloadTask::from_request(request);
+
+        assert_eq!(task.file_name.as_deref(), Some("_bad_name_.zip"));
+    }
+
+    #[test]
+    fn sanitizes_legacy_task_file_name_when_building_request() {
+        let mut task = DownloadTask::from_request(DownloadRequest::new(
+            "https://example.com/file.bin",
+            "/tmp",
+        ));
+        task.file_name = Some("../legacy:name.bin".to_string());
+
+        assert_eq!(
+            task.request().file_name.as_deref(),
+            Some("_legacy_name.bin")
+        );
+    }
+
+    #[test]
+    fn unsafe_file_names_fall_back_to_single_file_name() {
+        assert_eq!(
+            sanitize_download_file_name("..", "download.bin"),
+            "download.bin"
+        );
+        assert_eq!(
+            sanitize_download_file_name(" . ", "download.bin"),
+            "download.bin"
+        );
+        assert_eq!(
+            sanitize_download_file_name("folder\\name?.bin", "download.bin"),
+            "folder_name_.bin"
+        );
     }
 
     #[test]
