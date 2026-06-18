@@ -61,6 +61,66 @@ fn list_tasks(store_path: &std::path::Path) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn queue_commands_use_macos_native_default_store_path() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let home_dir = temp_dir.path().join("home");
+    let downloads_dir = temp_dir.path().join("downloads");
+    let native_store = home_dir
+        .join("Library")
+        .join("Application Support")
+        .join("FluxDown")
+        .join("queue.json");
+    let legacy_store = home_dir
+        .join(".local")
+        .join("share")
+        .join("fluxdown")
+        .join("queue.json");
+
+    let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .env("HOME", &home_dir)
+        .env_remove("XDG_DATA_HOME")
+        .args([
+            "add",
+            "http://127.0.0.1:9/native-store.bin",
+            "--output",
+            downloads_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        add_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&add_output.stderr)
+    );
+
+    // 作者: long
+    // macOS CLI 默认队列应落在 Application Support，避免桌面端和命令行继续分裂到旧 Unix 路径。
+    assert!(native_store.exists(), "missing {}", native_store.display());
+    assert!(
+        !legacy_store.exists(),
+        "new CLI task should not create legacy store {}",
+        legacy_store.display()
+    );
+
+    let list_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .env("HOME", &home_dir)
+        .env_remove("XDG_DATA_HOME")
+        .args(["list"])
+        .output()
+        .unwrap();
+    assert!(
+        list_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&list_output.stderr)
+    );
+    let listed: Value = serde_json::from_slice(&list_output.stdout).unwrap();
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    assert_eq!(listed[0]["state"], "queued");
+    assert_eq!(listed[0]["source"], "http://127.0.0.1:9/native-store.bin");
+}
+
 fn wait_for_running_progress(store_path: &std::path::Path, task_id: &str) -> Value {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {

@@ -89,7 +89,7 @@ cargo run -p fluxdown-cli -- add "https://example.com/file.zip" --output ./downl
 cargo run -p fluxdown-cli -- run --concurrency 2
 ```
 
-`download` runs a source immediately and prints a JSON summary. `add` stores a task in the queue. `run` executes queued tasks with the requested concurrency. The default queue file is `$XDG_DATA_HOME/fluxdown/queue.json` or `~/.local/share/fluxdown/queue.json`; override it with `--store /path/to/queue.json`.
+`download` runs a source immediately and prints a JSON summary. `add` stores a task in the queue. `run` executes queued tasks with the requested concurrency. On macOS, the default queue file is `~/Library/Application Support/FluxDown/queue.json`; `XDG_DATA_HOME` or `--store /path/to/queue.json` can override it, and an older `~/.local/share/fluxdown/queue.json` is read and migrated when the native path does not exist.
 
 ### Desktop
 
