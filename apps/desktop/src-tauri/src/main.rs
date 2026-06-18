@@ -588,6 +588,26 @@ mod tests {
         (format!("http://{address}{expected_path}"), attempts)
     }
 
+    fn spawn_restart_http_server(payload: &'static [u8], expected_path: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0; 2048];
+            let read = stream.read(&mut buffer).unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            assert!(request.starts_with(&format!("GET {expected_path} ")));
+            assert!(!request.to_ascii_lowercase().contains("range:"));
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                payload.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            stream.write_all(payload).unwrap();
+        });
+        format!("http://{address}{expected_path}")
+    }
+
     fn spawn_streaming_http_server(payload: Vec<u8>, path: &'static str) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
@@ -1160,6 +1180,49 @@ mod tests {
             output_path.to_string_lossy()
         );
         assert_eq!(std::fs::read(output_path).unwrap(), payload);
+    }
+
+    #[tokio::test]
+    async fn desktop_start_download_restart_replaces_finished_output() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        std::fs::create_dir_all(&output_dir).unwrap();
+        std::fs::write(
+            output_dir.join("desktop-restart.txt"),
+            b"stale complete file",
+        )
+        .unwrap();
+        let payload = b"fluxdown-desktop-restarted-download";
+        let source = spawn_restart_http_server(payload, "/restart.txt");
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("desktop-restart.txt".to_string()),
+            expected_sha256: None,
+        })
+        .await
+        .unwrap();
+        TaskStore::new(default_store_path())
+            .set_state(&task.id, DownloadState::Finished)
+            .await
+            .unwrap();
+
+        let report = start_download(task.id.clone(), Some(1), Some(1), Some(1), None, Some(true))
+            .await
+            .unwrap();
+        assert_eq!(report.task.state, DownloadState::Finished);
+        assert_eq!(report.task.downloaded_bytes, payload.len() as u64);
+        assert!(report.task.started_at_ms.is_some());
+        assert!(report.task.finished_at_ms >= report.task.started_at_ms);
+        // 作者: long
+        // 重新下载已完成任务要丢弃旧文件重新拉取，避免把上一次的完整文件当作断点继续。
+        assert_eq!(
+            std::fs::read(output_dir.join("desktop-restart.txt")).unwrap(),
+            payload
+        );
     }
 
     #[tokio::test]
