@@ -487,7 +487,10 @@ mod tests {
     use std::ffi::OsString;
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
-    use std::sync::LazyLock;
+    use std::sync::{
+        Arc, LazyLock,
+        atomic::{AtomicUsize, Ordering},
+    };
     use std::thread;
     use std::time::Instant;
 
@@ -546,6 +549,43 @@ mod tests {
             stream.write_all(payload).unwrap();
         });
         format!("http://{address}/fixture.txt")
+    }
+
+    fn spawn_flaky_http_server(
+        payload: &'static [u8],
+        expected_path: &'static str,
+    ) -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let server_attempts = Arc::clone(&attempts);
+        thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0; 1024];
+                let read = stream.read(&mut buffer).unwrap();
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                assert!(request.starts_with(&format!("GET {expected_path} ")));
+                let attempt = server_attempts.fetch_add(1, Ordering::SeqCst) + 1;
+                if attempt == 1 {
+                    let body = b"temporary desktop retry failure";
+                    let response = format!(
+                        "HTTP/1.1 500 Internal Server Error\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    stream.write_all(response.as_bytes()).unwrap();
+                    stream.write_all(body).unwrap();
+                    continue;
+                }
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    payload.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+                stream.write_all(payload).unwrap();
+            }
+        });
+        (format!("http://{address}{expected_path}"), attempts)
     }
 
     fn spawn_streaming_http_server(payload: Vec<u8>, path: &'static str) -> String {
@@ -981,6 +1021,44 @@ mod tests {
         let error = report.tasks[0].error.as_deref().unwrap_or_default();
         assert!(error.contains("SHA-256 mismatch"), "{error}");
         assert!(error.contains(wrong_sha256), "{error}");
+    }
+
+    #[tokio::test]
+    async fn desktop_queue_retries_failed_http_task() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let payload = b"fluxdown-desktop-retry-success";
+        let (source, attempts) = spawn_flaky_http_server(payload, "/retry.txt");
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("desktop-retry.txt".to_string()),
+            expected_sha256: None,
+        })
+        .await
+        .unwrap();
+
+        let report = run_queue(1, Some(1), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 1);
+        assert_eq!(report.failed, 0);
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].id, task.id);
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        assert_eq!(tasks[0].file_name.as_deref(), Some("desktop-retry.txt"));
+        // 作者: long
+        // 桌面设置里的自动重试要真正驱动队列重新发起下载，不能只停留在参数保存或失败状态展示。
+        assert_eq!(
+            std::fs::read(output_dir.join("desktop-retry.txt")).unwrap(),
+            payload
+        );
     }
 
     #[tokio::test]
