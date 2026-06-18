@@ -301,16 +301,20 @@ fn non_empty_path(path: Option<PathBuf>) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
     use std::ffi::OsString;
 
+    #[cfg(target_os = "macos")]
     static STORE_ENV_LOCK: LazyLock<tokio::sync::Mutex<()>> =
         LazyLock::new(|| tokio::sync::Mutex::new(()));
 
+    #[cfg(target_os = "macos")]
     struct EnvVarGuard {
         key: &'static str,
         old_value: Option<OsString>,
     }
 
+    #[cfg(target_os = "macos")]
     impl EnvVarGuard {
         fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
             let old_value = std::env::var_os(key);
@@ -333,6 +337,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             // 作者: long

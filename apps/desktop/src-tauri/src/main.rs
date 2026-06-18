@@ -5,10 +5,11 @@ use fluxdown_core::{
     sanitize_download_file_name, validate_sha256_text,
 };
 use serde::Deserialize;
+#[cfg(any(target_os = "macos", test))]
+use std::process::Command;
 use std::{
     env,
     path::{Path, PathBuf},
-    process::Command,
     time::Duration,
 };
 
