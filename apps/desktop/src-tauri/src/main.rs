@@ -2152,6 +2152,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn desktop_list_downloads_recovers_stale_running_tasks() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let store = TaskStore::new(default_store_path());
+        let task = store
+            .enqueue(DownloadRequest::new(
+                "http://127.0.0.1:9/stale.bin",
+                temp_dir.path(),
+            ))
+            .await
+            .unwrap();
+        let mut running_task = task;
+        running_task.set_state(DownloadState::Running);
+        running_task.set_progress_with_speed(512, Some(1024), 256);
+        running_task.updated_at_ms = 0;
+        store.update(running_task.clone()).await.unwrap();
+
+        let listed = list_downloads().await.unwrap();
+        let recovered = listed
+            .iter()
+            .find(|candidate| candidate.id == running_task.id)
+            .unwrap();
+
+        // 作者: long
+        // 客户端启动后首先刷新列表；这里必须释放异常残留的 running 槽位，否则用户会看到无法继续调度的假下载中任务。
+        assert_eq!(recovered.state, DownloadState::Paused);
+        assert_eq!(recovered.downloaded_bytes, 512);
+        assert_eq!(recovered.current_speed_bytes_per_second, 0);
+        assert_eq!(
+            recovered.error.as_deref(),
+            Some("任务中断，已暂停，可继续下载")
+        );
+        assert_eq!(
+            store.get(&running_task.id).await.unwrap().state,
+            DownloadState::Paused
+        );
+    }
+
+    #[tokio::test]
     async fn direct_start_defers_queued_task_when_capacity_is_full() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = TaskStore::new(temp_dir.path().join("queue.json"));
