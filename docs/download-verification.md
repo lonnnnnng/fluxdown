@@ -54,6 +54,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 ### 环境
 
 - 平台：macOS 本机，仓库分支 `main`。
+- 本轮非 GUI 总验收复验提交：`26dcf05`。
 - 构建版本：`1.0.2`。
 - 本地资源目录：`../local_protocol_resources`。
 - 本机局域网 IP：`192.168.1.7`，本轮 CLI 下载主要使用 `127.0.0.1` 本地服务。
@@ -86,7 +87,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `cargo test -p fluxdown-desktop desktop_pause_download_recovers_stale_running_task_before_transition -- --nocapture` | 通过：构造异常残留的 running 桌面队列任务后直接调用 `pause_download`，确认桌面暂停入口会恢复为 `paused`，保留进度并保留中断提示。 |
 | `npm --workspace apps/desktop run build` | 通过：桌面前端新建任务协议/后端状态预览、SHA-256 输入、属性弹框、任务错误和 toast 错误脱敏改动完成 TypeScript 编译和 Vite 构建。 |
 | `npm run verify:licenses` | 通过：检查 Rust workspace、桌面运行时依赖和 Flutter 移动端运行时依赖均已列入第三方许可证清单，并确认 `libtorrent_flutter` GPL 风险提示仍保留。 |
-| `npm run verify:macos` | 通过：当前 macOS 非 GUI 总验收入口，串起 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、`npm run verify:macos-cli-release`、`npm run verify:macos-desktop-command`、`npm run verify:licenses` 和 `npm run verify:ci-config`。 |
+| `npm run verify:macos` | 通过：已在提交 `26dcf05` 复跑当前 macOS 非 GUI 总验收入口，串起 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、`npm run verify:macos-cli-release`、`npm run verify:macos-desktop-command`、`npm run verify:licenses` 和 `npm run verify:ci-config`。 |
 | `npm run audit:release` | 已执行：代码覆盖类检查已通过，包括 CLI 直连下载、桌面 command 任务启动、前端进度轮询、协议模型、移动端队列和 CI 配置；本轮未进入发版/打包阶段，因此 Linux/Windows 桌面产物、iOS simulator/framework 产物、Release staging manifest 尚不存在，审计结果为 `11 failed, 1 warning`，这些产物缺口不作为本阶段阻塞。 |
 | `cargo clippy -p fluxdown-cli --all-targets -- -D warnings` | 通过：修复 release CLI 不支持 `--version` 的基础可用性问题后，CLI 专项 Clippy 通过。 |
 | `cargo test -p fluxdown-cli` | 通过：CLI 单元 1、CLI 集成 32。 |
@@ -110,7 +111,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `cargo build -p fluxdown-cli --release` | 通过，生成 `target/release/fluxdown`。 |
 | `npm --workspace apps/desktop run build` | 通过。 |
 | `npm run desktop:build` | 通过，生成 `target/release/bundle/macos/FluxDown.app`。 |
-| `npm run desktop:dmg` | 通过，打包前会对 `FluxDown.app` 执行本地 ad-hoc bundle 签名并通过 `codesign --verify --deep --strict`，生成 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg`，大小 `8725182` bytes。该签名只证明本地产物完整，不代表开发者证书签名或 notarization 已完成。 |
+| `npm run desktop:dmg` | 通过，打包前会对 `FluxDown.app` 执行本地 ad-hoc bundle 签名并通过 `codesign --verify --deep --strict`，生成 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg`，大小 `8728272` bytes。该签名只证明本地产物完整，不代表开发者证书签名或 notarization 已完成。 |
 | `node scripts/verify-artifacts.mjs desktop-macos` | 通过，校验 `target/release/fluxdown-desktop`、`target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.2_aarch64.dmg` 均存在且非空。 |
 | `npm run verify:macos-artifacts` | 通过：校验 release CLI 文件、桌面二进制、`.app` 目录、`Info.plist` 元数据、bundle 可执行文件、CLI `--version/detect/support/doctor`、`.app` ad-hoc 签名和 dmg checksum；校验脚本会在 `hdiutil verify` 前后清理当前 FluxDown DMG 的临时挂载并短重试，避免 `资源暂时不可用` 造成误报失败。 |
 | Release 许可证随包文本 | 通过：本地 `release:stage` 和 GitHub Release assets 准备脚本会输出项目 `LICENSE` 与 `docs/third-party-licenses.md` 副本，`verify:release` 会检查本地 Release staging 中的许可证文件存在且非空。 |
