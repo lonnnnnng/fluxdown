@@ -1,6 +1,6 @@
 # 下载验证状态
 
-截至 2026-06-19，FluxDown 已完成 macOS、Windows、Android、iOS 当前阶段的界面截图和验证记录，但还不能表述为“所有平台、所有协议、所有前台 GUI/App 路径都已完成真实下载验证”。Android 真机已经补过一轮正常 App 下载验证；macOS CLI 已补充可重复脚本化 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证；macOS GUI 已完成本地构建、启动、基础界面渲染、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，以及 Tauri command 级真实 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 下载验证；Windows 已完成本机 release 构建、CLI HTTP 直连/队列真实下载、Tauri command HTTP 队列下载，以及真实 GUI 前台 HTTP 下载闭环；Linux 目前只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。按当前安排，本阶段保留已覆盖的 GUI/App 前台验证证据，剩余协议和平台差距继续通过后续专项验证收口。
+截至 2026-06-23，FluxDown 已完成 macOS、Windows、Android、iOS 当前阶段的界面截图和验证记录，但还不能表述为“所有平台、所有协议、所有前台 GUI/App 路径都已完成真实下载验证”。Android 真机已经补过一轮正常 App 下载验证；macOS CLI 已补充可重复脚本化 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证；macOS GUI 已完成本地构建、启动、基础界面渲染、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，Tauri command 级真实 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 下载验证，以及 1.0.3 非 GUI 总验收复跑；iOS 已在 Flutter 3.41.9 / Xcode 16.2 上完成 analyze、Flutter 测试、simulator build、unsigned device build、artifact 校验和 URL scheme 配置校验。Windows 已完成本机 release 构建、CLI HTTP 直连/队列真实下载、Tauri command HTTP 队列下载，以及真实 GUI 前台 HTTP 下载闭环；Linux 目前只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。按当前安排，本阶段保留已覆盖的 GUI/App 前台验证证据，剩余协议和平台差距继续通过后续专项验证收口。
 
 本页用于区分两类容易混淆的结论：
 
@@ -11,13 +11,15 @@
 
 ## 当前进度
 
-截至 2026-06-19，远端 `main` 已包含本轮 macOS CLI、桌面 command、Windows 客户端和 README 截图收口提交：
+截至 2026-06-23，远端 `main` 已包含本轮 macOS CLI、桌面 command、Windows 客户端和 README 截图收口提交；本轮继续补充 1.0.3 macOS/iOS 复验记录：
 
 - `dc1ed64`：CLI `remove` 和桌面 `remove_download` 会先恢复异常残留的 `running` 任务，再移出队列，避免删除结果继续展示假下载中状态。
 - `606eac2`：验证报告已记录上述删除入口修复、测试计数和 macOS 非 GUI 总验收结果。
 - `3137027`：合并 Windows 端依赖/前端修复、Windows CLI/GUI 构建与下载验证，以及 Windows README 截图。
 
 当前 macOS 阶段已完成非 GUI 验证收口：`cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、release CLI 真实协议 fixture、桌面 Tauri command fixture、macOS artifact 校验、许可证检查和 CI 手动触发策略检查均已通过。Windows 阶段已完成本机 release 构建、CLI HTTP 直连/队列、Tauri command HTTP 队列、GUI 前台 HTTP 下载和 SHA-256 落盘校验。后续重点是 Linux GUI、iPhone 真机/签名 IPA，以及 Windows/macOS 剩余 GUI 前台协议点击验证。
+
+2026-06-23 复验发现并修复了 macOS 验证脚本顺序问题：`verify:macos-cli-release` 原本会在桌面 DMG 构建前执行完整 `verify:macos-artifacts`，导致 1.0.3 环境下缺少 `FluxDown_1.0.3_aarch64.dmg` 时失败；现在 release CLI 阶段改为 `verify:macos-cli-artifact`，只校验刚构建出的 CLI，完整 `.app`/DMG 校验仍在 `verify:macos-desktop-command` 生成桌面产物后执行。
 
 ## 分端结论
 
@@ -28,7 +30,7 @@
 | Windows GUI | 已在 Windows 开发机完成本机 release 构建，生成 `target/release/fluxdown-desktop.exe`、MSI 和 NSIS installer；CLI release 二进制完成 HTTP 直连下载和队列下载，Tauri command 完成 HTTP 队列下载，真实 GUI 前台完成本地 HTTP 下载闭环，落盘 `1048576` bytes，SHA-256 与源文件一致。 | 部分完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
 | Android App | 已在 Redmi Note 8 Pro 真机安装并通过正常 App 队列完成本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB/IPFS、小 HLS、小 torrent、小 magnet，以及 2026-06-14 媒体级 HLS、单文件 torrent、单文件 magnet、多文件 torrent 和多文件 magnet 选择下载验证。 | 部分完成 |
-| iOS App | 已有 iOS simulator 截图、simulator / unsigned device 编译产物检查和 URL scheme 配置验证。缺少签名 IPA，也没有在 iPhone 真机中完成 App 内下载验证。 | 未完成 |
+| iOS App | 已有 iOS simulator 截图；2026-06-23 在 Flutter 3.41.9 / Xcode 16.2 上通过 `flutter analyze`、`flutter test`、simulator build、unsigned device build、artifact 校验和 URL scheme 配置验证。缺少签名 IPA，也没有在 iPhone 真机中完成 App 内下载验证。 | 未完成 |
 
 ## 分协议结论
 
@@ -58,6 +60,30 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 3. 每次验证记录：平台、版本、安装方式、下载源、输出路径、文件大小、校验和、失败日志。
 4. 再补真实公网协议：torrent、magnet、IPFS、ed2k 外部客户端移交。
 5. 发布前补齐自动化许可证扫描和随包许可证文本，当前人工清单见 [第三方许可证清单](third-party-licenses.md)。
+
+## 2026-06-23 macOS CLI/GUI 与 iOS 验证记录
+
+### 环境
+
+- 平台：macOS 本机，仓库分支 `main`。
+- 构建版本：`1.0.3`。
+- Flutter：`3.41.9`。
+- Xcode：`16.2`。
+- 验证边界：本轮不启动前台 GUI，不构建签名 IPA，不宣称 iPhone 真机 App 内真实下载闭环完成。
+
+### 结果
+
+| 检查项 | 结果 |
+| --- | --- |
+| `npm run verify:macos` | 通过：覆盖 `cargo fmt --check`、严格 Clippy、core 67、CLI 单元 1、CLI 集成 33、desktop 非 ignored 31 / ignored 7、release CLI HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制真实 fixture、CLI-only artifact 校验、desktop command FTPS/SFTP/SMB/Torrent/Magnet fixture、完整 macOS artifact 校验、许可证和 CI 手动触发策略检查。 |
+| `npm run verify:macos-cli-artifact` | 通过：校验 `target/release/fluxdown` 存在且非空，大小 `14689536` bytes；`--version` 输出 `fluxdown 1.0.3`，`detect/support/doctor` 均通过。 |
+| `npm run desktop:dmg` | 通过：生成 `target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.3_aarch64.dmg`；DMG 大小 `8731861` bytes，`hdiutil verify` checksum 通过；`.app` ad-hoc 签名校验通过。 |
+| macOS 验证脚本修复 | 已修复：`verify:macos-cli-release` 不再在 CLI 阶段要求桌面 DMG 存在，改为调用 `verify:macos-cli-artifact`；完整桌面 artifact 校验仍由 `verify:macos-desktop-command` 在 DMG 构建后执行。 |
+| `flutter analyze` | 通过：`No issues found!`。 |
+| `flutter test` | 通过：33 个移动端测试全部通过，覆盖协议识别、队列状态、并发、重试、限速、线程数、HTTP/WebDAV/IPFS/HLS/FTP 下载和续传。 |
+| `npm run mobile:ios:simulator` + `npm run mobile:ios:simulator:verify` | 通过：Xcode 构建 `build/ios/iphonesimulator/Runner.app` 成功，artifact 目录存在；目录大小约 `195M`。 |
+| `npm run mobile:ios` + `npm run mobile:ios:verify` | 通过：无代码签名 device 构建 `build/ios/iphoneos/Runner.app` 成功，Flutter 输出大小 `34.6MB`，artifact 目录存在；目录大小约 `33M`。 |
+| `npm run verify:mobile-url-schemes` | 通过：Android 和 iOS 均声明 `ed2k` URL 查询能力。 |
 
 ## 2026-06-19 Windows CLI/GUI 验证记录
 
@@ -124,7 +150,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run audit:release` | 已执行：代码覆盖类检查已通过，包括 CLI 直连下载、桌面 command 任务启动、前端进度轮询、协议模型、移动端队列和 CI 配置；本轮未进入发版/打包阶段，因此 Linux/Windows 桌面产物、iOS simulator/framework 产物、Release staging manifest 尚不存在，审计结果为 `11 failed, 1 warning`，这些产物缺口不作为本阶段阻塞。 |
 | `cargo clippy -p fluxdown-cli --all-targets -- -D warnings` | 通过：修复 release CLI 不支持 `--version` 的基础可用性问题后，CLI 专项 Clippy 通过。 |
 | `cargo test -p fluxdown-cli` | 通过：CLI 单元 1、CLI 集成 33。 |
-| `npm run verify:macos-cli-release` | 通过：一键重新构建 `target/release/fluxdown`，依次运行 release CLI 的 HTTP/HLS、FTP/FTPS、SFTP、SMB、Torrent/Magnet、队列控制真实下载脚本，并执行 `npm run verify:macos-artifacts`。 |
+| `npm run verify:macos-cli-release` | 通过：一键重新构建 `target/release/fluxdown`，依次运行 release CLI 的 HTTP/HLS、FTP/FTPS、SFTP、SMB、Torrent/Magnet、队列控制真实下载脚本，并执行 `npm run verify:macos-cli-artifact` 校验 CLI 产物。 |
 | `npm run verify:macos-cli-ftp-ftps` | 通过：脚本启动临时 FTP 和显式 TLS FTPS fixture，验证 CLI FTP/FTPS 直连下载和队列下载。 |
 | `npm run verify:macos-cli-http-hls` | 通过：脚本启动临时 Range HTTP server，验证 CLI HTTP 直连/队列和 HLS 直连/队列/单任务启动。 |
 | `npm run verify:macos-cli-release-http-hls` | 通过：复用 HTTP/HLS fixture，但强制使用 `target/release/fluxdown`，验证 release CLI 二进制的 HTTP 直连/队列、HLS 直连/队列/单任务启动和 SHA-256 落盘校验。 |

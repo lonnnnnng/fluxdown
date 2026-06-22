@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
 const version = readPackageVersion()
+const scope = process.argv[2] ?? 'all'
 const cliPath = resolve(root, 'target/release/fluxdown')
 const desktopBinaryPath = resolve(root, 'target/release/fluxdown-desktop')
 const appPath = resolve(root, 'target/release/bundle/macos/FluxDown.app')
@@ -27,14 +28,26 @@ const expectedProtocols = [
   'ipfs',
 ]
 
+if (!['all', 'cli'].includes(scope)) {
+  fail(`unknown verification scope: ${scope}`)
+}
+
 verifyFile(cliPath, 'target/release/fluxdown')
+verifyCli()
+
+if (scope === 'cli') {
+  // 作者: long
+  // release CLI 阶段只校验刚构建出的 CLI，完整桌面 app/dmg 产物会在 desktop command 阶段生成后再校验。
+  console.log('ok macos cli artifact verification')
+  process.exit(0)
+}
+
 verifyFile(desktopBinaryPath, 'target/release/fluxdown-desktop')
 verifyDirectory(appPath, 'target/release/bundle/macos/FluxDown.app')
 verifyFile(appExecutablePath, 'FluxDown.app/Contents/MacOS/fluxdown-desktop')
 verifyFile(infoPlistPath, 'FluxDown.app/Contents/Info.plist')
 verifyFile(dmgPath, `target/release/bundle/dmg/FluxDown_${version}_aarch64.dmg`)
 
-verifyCli()
 verifyInfoPlist()
 verifyAppSignature()
 verifyDmg()

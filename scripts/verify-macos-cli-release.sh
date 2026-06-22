@@ -27,6 +27,6 @@ npm run verify:macos-cli-release-sftp
 npm run verify:macos-cli-release-smb
 npm run verify:macos-cli-release-p2p
 npm run verify:macos-cli-release-queue-controls
-npm run verify:macos-artifacts
+npm run verify:macos-cli-artifact
 
 echo "macOS release CLI verification passed"
