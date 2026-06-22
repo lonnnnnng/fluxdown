@@ -55,6 +55,7 @@
     "verify:ios:device-readiness": "node scripts/verify-ios-device-readiness.mjs",
     "verify:ios:signing-readiness": "node scripts/verify-ios-signing-readiness.mjs",
     "verify:ios:integration": "bash scripts/verify-ios-integration.sh",
+    "verify:ios:physical-integration": "bash scripts/verify-ios-physical-integration.sh",
     "verify:release": "node scripts/verify-artifacts.mjs release",
     "verify:ci-config": "node scripts/verify-artifacts.mjs ci-config",
     "verify:licenses": "node scripts/verify-licenses.mjs",

@@ -309,13 +309,17 @@ npm run verify:ios:device-readiness
 
 如果该命令返回 `78`，表示 Xcode 能看到设备但 Flutter 暂时不能部署，通常需要先解锁手机、信任这台 Mac 或确认 Developer Mode。
 
-连接真机时，如果 iPhone 不能通过 `127.0.0.1` 访问 Mac 上的本地 fixture，需要显式指定
-Mac 的局域网地址：
+真机恢复可部署后，优先使用专用入口。该入口只选择物理 iPhone，不会回退到 simulator；它会自动推断 Mac 局域网 IP，并默认打开 TS HLS 探针：
 
 ```sh
-FLUXDOWN_IOS_DEVICE_ID=<device-id-or-name> \
+npm run verify:ios:physical-integration
+```
+
+如果自动推断的地址不对，需要显式指定 Mac 的局域网地址：
+
+```sh
 FLUXDOWN_E2E_HOST=<mac-lan-ip> \
-npm run verify:ios:integration
+npm run verify:ios:physical-integration
 ```
 
 示例：

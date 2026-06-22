@@ -35,6 +35,8 @@
 
 2026-06-23 05:42 CST 复跑当前 `origin/main` 的 Apple 非前台总验收与 iOS App 内下载 smoke：`npm run verify:apple` 通过，覆盖 macOS release CLI 多协议 fixture、macOS 桌面 command/artifact、许可证、CI 手动触发策略、iOS analyze/test/framework/simulator/unsigned device build 和 URL scheme；`FLUXDOWN_IOS_INCLUDE_TS_HLS=1 FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration` 在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 通过，HTTP 输出 `29` bytes，fMP4 HLS 与 BYTERANGE HLS 均输出 `4815` bytes，TS HLS 输出 `19884` bytes，MP4 输出头均包含 `66747970`；真机和签名前置检查仍按预期返回 `78`，物理 iPhone `LMY` 仍为 `xcdevice-unavailable`，签名自动化仍缺 5 个签名环境变量、codesigning identity 和匹配 provisioning profile。
 
+2026-06-23 05:55 CST 新增 `npm run verify:ios:physical-integration` 真机专用入口：该入口只选择物理 iPhone，不会回退到 simulator；会自动推断 Mac 局域网地址并传给 `verify:ios:integration`，默认打开 TS HLS 探针。当前本机复跑按预期返回 `78`，因为 Flutter 没有可部署的物理 iPhone，脚本已串起 `npm run verify:ios:device-readiness` 并输出 `LMY` 的 `xcdevice-unavailable` 状态。
+
 ## 推荐验收命令
 
 日常非前台总验收：
@@ -67,18 +69,23 @@ FLUXDOWN_IOS_INCLUDE_TS_HLS=1 npm run verify:ios:integration
 npm run verify:ios:device-readiness
 ```
 
+真机恢复可部署后，优先使用真机专用下载验收入口。该入口不会误选 simulator，并会自动尝试使用 Mac 局域网 IP：
+
+```sh
+npm run verify:ios:physical-integration
+```
+
 先确认签名 IPA 自动化输入是否齐全：
 
 ```sh
 npm run verify:ios:signing-readiness
 ```
 
-连接真机下载验证时，如果 iPhone 需要访问 Mac 上的本地 fixture，显式传入 Mac 局域网地址：
+如自动推断的地址不对，可显式传入 Mac 局域网地址：
 
 ```sh
-FLUXDOWN_IOS_DEVICE_ID=<device-id-or-name> \
 FLUXDOWN_E2E_HOST=<mac-lan-ip> \
-npm run verify:ios:integration
+npm run verify:ios:physical-integration
 ```
 
 ## 完成判定

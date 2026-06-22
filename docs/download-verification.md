@@ -45,6 +45,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-06-23 05:42 CST 在当前 `origin/main` 复跑 Apple 侧非前台验收：`npm run verify:apple` 通过，macOS CLI release 覆盖 HTTP/HLS/HLS BYTERANGE、FTP/FTPS、SFTP、SMB、Torrent/Magnet 和队列控制 fixture；macOS 桌面 command 覆盖 FTPS、SFTP、SMB、单文件 Torrent、单文件 Magnet、多文件 Torrent 选择和多文件 Magnet 选择，`.app` ad-hoc 签名与 DMG checksum 均通过；iOS 静态验证覆盖 analyze、36 个 Flutter 测试、framework、simulator app、unsigned device app 和 URL scheme。随后 `FLUXDOWN_IOS_INCLUDE_TS_HLS=1 FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration` 在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 通过，HTTP 输出 `29` bytes，fMP4 HLS 和 BYTERANGE HLS 均输出 `4815` bytes，TS HLS 输出 `19884` bytes；`npm run verify:ios:device-readiness` 与 `npm run verify:ios:signing-readiness` 仍返回 `78`，说明 iPhone 真机与签名 IPA 继续受外部条件阻塞。
 
+2026-06-23 05:55 CST 增加 iOS 真机专用下载验收入口 `npm run verify:ios:physical-integration`：脚本只接受 Flutter 已就绪的物理 iPhone，不会回退到 simulator；会自动推断 Mac 局域网地址并传入本地 fixture，默认启用 TS HLS 探针，真机可用后会复用现有 `verify:ios:integration` 跑 HTTP/fMP4 HLS/BYTERANGE HLS/TS HLS。当前复跑该入口返回 `78`，并输出 `LMY iPhone 11 18.6.2 (22G100)` 仍为 `xcdevice-unavailable`，所以真机下载闭环仍未完成。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
@@ -115,6 +117,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run verify:mobile-url-schemes` | 通过：Android 和 iOS 均声明 `ed2k` URL 查询能力。 |
 | iOS integration test | 通过 simulator smoke：`ios-http-local`、`ios-hls-local`、`ios-hls-byterange-local` 和启用专项探针后的 `ios-hls-ts-local` 均为 `finished`；iPhone 真机仍留作后续专项验证。 |
 | `npm run verify:ios:device-readiness` | 通过边界判定：该入口只读 `flutter devices --machine`、`xcrun xctrace list devices` 和 `xcrun xcdevice list --timeout 10`；当前本机可见 iPhone `LMY 18.6.2 (00008030-001905801E50802E)` 但状态为 Offline/unavailable，命令按预期以 `78` 退出，`xcdevice` 原因为 `Browsing on the local area network for LMY`。 |
+| `npm run verify:ios:physical-integration` | 通过边界判定：新增真机专用入口不会回退到 simulator，会自动推断 Mac 局域网 IP 并调用 `verify:ios:integration`；当前因 Flutter 没有可部署物理 iPhone，命令按预期以 `78` 退出，并继续输出 `LMY` 的 `xcdevice-unavailable` 原因。 |
 | `npm run verify:ios:signing-readiness` | 通过边界判定：新增入口只检查签名自动化输入和本机签名资产，不读取或打印密钥内容；当前按预期以 `78` 退出，缺少 `IOS_CERTIFICATE_BASE64`、`IOS_CERTIFICATE_PASSWORD`、`IOS_PROVISIONING_PROFILE_BASE64`、`IOS_KEYCHAIN_PASSWORD`、`APPLE_TEAM_ID`，且没有 codesigning identity 和匹配 `dev.fluxdown.mobile` 的 provisioning profile。 |
 
 ## 2026-06-19 Windows CLI/GUI 验证记录
