@@ -41,7 +41,7 @@ ProtocolSupport supportStatus(String protocol) {
       backendLabel: 'Built-in mobile',
       executable: true,
       note:
-          'Native VOD HLS downloader with master playlist selection and AES-128 segment decryption.',
+          'Native VOD HLS downloader with master playlist selection, byte ranges, and AES-128 segment decryption.',
     );
   }
 

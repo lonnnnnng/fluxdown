@@ -632,12 +632,9 @@ class MobileDownloadRunner {
       if (_cancelled.contains(task.id)) {
         throw const DownloadCancelled();
       }
-      final response = await _client.send(http.Request('GET', segment.uri));
-      if (response.statusCode != HttpStatus.ok) {
-        throw HttpException('HTTP ${response.statusCode}', uri: segment.uri);
-      }
-      final bytes = await _readResponseBytes(
-        response,
+      final bytes = await _readHlsResourceBytes(
+        uri: segment.uri,
+        byteRange: segment.byteRange,
         speedLimiter: speedLimiter,
         taskId: task.id,
       );
@@ -675,7 +672,7 @@ class MobileDownloadRunner {
         throw const DownloadCancelled();
       }
 
-      if (hlsParts.initSegmentUri == null) {
+      if (hlsParts.initSegment == null) {
         final sink = tempTsFile.openWrite(mode: FileMode.write);
         try {
           for (final segmentFile in segmentFiles) {
@@ -687,7 +684,7 @@ class MobileDownloadRunner {
         }
       } else {
         fragmentedOutputBytes = await _writeFragmentedMp4Output(
-          initSegmentUri: hlsParts.initSegmentUri!,
+          initSegment: hlsParts.initSegment!,
           segmentFiles: segmentFiles,
           outputMp4: outputFile,
           speedLimiter: speedLimiter,
@@ -887,7 +884,10 @@ class MobileDownloadRunner {
     final lines = _playlistLines(playlistText);
     final segments = <HlsSegment>[];
     HlsKey? currentKey;
-    Uri? initSegmentUri;
+    HlsMap? initSegment;
+    _PendingHlsByteRange? pendingByteRange;
+    int? nextImplicitByteRangeOffset;
+    Uri? previousByteRangeUri;
     var mediaSequence = 0;
     var segmentIndex = 0;
 
@@ -903,20 +903,63 @@ class MobileDownloadRunner {
         if (uri == null || uri.isEmpty) {
           throw const FormatException('HLS map is missing URI.');
         }
-        initSegmentUri = playlistUri.resolve(uri);
+        initSegment = HlsMap(
+          uri: playlistUri.resolve(uri),
+          byteRange: attrs['BYTERANGE'] == null
+              ? null
+              : _parseHlsMapByteRange(attrs['BYTERANGE']!),
+        );
+      } else if (line.startsWith('#EXT-X-BYTERANGE:')) {
+        pendingByteRange = _parseHlsByteRange(
+          line.substring('#EXT-X-BYTERANGE:'.length),
+        );
       } else if (!line.startsWith('#')) {
+        final segmentUri = playlistUri.resolve(line);
+        HlsByteRange? byteRange;
+        final pending = pendingByteRange;
+        if (pending != null) {
+          final offset = pending.offset;
+          if (offset == null) {
+            // 作者: long
+            // HLS 允许后续 BYTERANGE 省略 @offset，此时只能沿用同一个媒体资源的上一段结尾，换 URI 时必须拒绝以免拼出错误内容。
+            if (nextImplicitByteRangeOffset == null ||
+                previousByteRangeUri != segmentUri) {
+              throw const FormatException(
+                'HLS BYTERANGE without offset requires a previous byte range segment with the same URI.',
+              );
+            }
+            byteRange = HlsByteRange(
+              offset: nextImplicitByteRangeOffset,
+              length: pending.length,
+            );
+          } else {
+            byteRange = HlsByteRange(offset: offset, length: pending.length);
+          }
+          nextImplicitByteRangeOffset = byteRange.offset + byteRange.length;
+          previousByteRangeUri = segmentUri;
+          pendingByteRange = null;
+        } else {
+          nextImplicitByteRangeOffset = null;
+          previousByteRangeUri = null;
+        }
+
         segments.add(
           HlsSegment(
-            uri: playlistUri.resolve(line),
+            uri: segmentUri,
             sequence: mediaSequence + segmentIndex,
             key: currentKey,
+            byteRange: byteRange,
           ),
         );
         segmentIndex += 1;
       }
     }
 
-    return HlsPlaylistParts(initSegmentUri: initSegmentUri, segments: segments);
+    if (pendingByteRange != null) {
+      throw const FormatException('HLS BYTERANGE is missing a media segment.');
+    }
+
+    return HlsPlaylistParts(initSegment: initSegment, segments: segments);
   }
 
   List<String> _playlistLines(String playlistText) {
@@ -933,6 +976,55 @@ class MobileDownloadRunner {
       return fileName;
     }
     return '${p.basenameWithoutExtension(fileName)}.mp4';
+  }
+
+  Future<Uint8List> _readHlsResourceBytes({
+    required Uri uri,
+    required HlsByteRange? byteRange,
+    required DownloadSpeedLimiter speedLimiter,
+    required String taskId,
+  }) async {
+    final request = http.Request('GET', uri);
+    if (byteRange != null) {
+      request.headers[HttpHeaders.rangeHeader] =
+          'bytes=${byteRange.offset}-${byteRange.endInclusive}';
+    }
+    final response = await _client.send(request);
+    final validStatus = byteRange == null
+        ? response.statusCode == HttpStatus.ok
+        : response.statusCode == HttpStatus.partialContent ||
+              response.statusCode == HttpStatus.ok;
+    if (!validStatus) {
+      throw HttpException('HTTP ${response.statusCode}', uri: uri);
+    }
+    final bytes = await _readResponseBytes(
+      response,
+      speedLimiter: speedLimiter,
+      taskId: taskId,
+    );
+    if (byteRange == null) {
+      return bytes;
+    }
+
+    if (response.statusCode == HttpStatus.partialContent) {
+      if (bytes.length != byteRange.length) {
+        throw FormatException(
+          'HLS byte range expected ${byteRange.length} bytes, got ${bytes.length}.',
+        );
+      }
+      return bytes;
+    }
+
+    final end = byteRange.offset + byteRange.length;
+    if (bytes.length < end) {
+      throw FormatException(
+        'HLS byte range ${byteRange.offset}-${byteRange.endInclusive} exceeds resource size ${bytes.length}.',
+      );
+    }
+
+    // 作者: long
+    // 有些实验室 HTTP 服务会忽略 Range 并返回 200，全量响应时在本地裁剪，保证 BYTERANGE 播放列表仍按规范输出选中的片段。
+    return Uint8List.sublistView(bytes, byteRange.offset, end);
   }
 
   Future<int> _remuxHlsTransportStream({
@@ -957,19 +1049,16 @@ class MobileDownloadRunner {
   }
 
   Future<int> _writeFragmentedMp4Output({
-    required Uri initSegmentUri,
+    required HlsMap initSegment,
     required List<File> segmentFiles,
     required File outputMp4,
     required DownloadSpeedLimiter speedLimiter,
     required String taskId,
     required Future<void> Function(int bytes) onInitBytes,
   }) async {
-    final response = await _client.send(http.Request('GET', initSegmentUri));
-    if (response.statusCode != HttpStatus.ok) {
-      throw HttpException('HTTP ${response.statusCode}', uri: initSegmentUri);
-    }
-    final initBytes = await _readResponseBytes(
-      response,
+    final initBytes = await _readHlsResourceBytes(
+      uri: initSegment.uri,
+      byteRange: initSegment.byteRange,
       speedLimiter: speedLimiter,
       taskId: taskId,
     );
@@ -996,6 +1085,27 @@ class MobileDownloadRunner {
       throw StateError('HLS fragmented MP4 output was empty.');
     }
     return outputBytes;
+  }
+
+  _PendingHlsByteRange _parseHlsByteRange(String value) {
+    final parts = value.trim().split('@');
+    if (parts.isEmpty || parts.length > 2) {
+      throw FormatException('Invalid HLS BYTERANGE: $value');
+    }
+    final length = int.tryParse(parts.first.trim());
+    final offset = parts.length == 2 ? int.tryParse(parts[1].trim()) : null;
+    if (length == null || length <= 0) {
+      throw FormatException('Invalid HLS BYTERANGE length: $value');
+    }
+    if (parts.length == 2 && (offset == null || offset < 0)) {
+      throw FormatException('Invalid HLS BYTERANGE offset: $value');
+    }
+    return _PendingHlsByteRange(length: length, offset: offset);
+  }
+
+  HlsByteRange _parseHlsMapByteRange(String value) {
+    final pending = _parseHlsByteRange(value);
+    return HlsByteRange(offset: pending.offset ?? 0, length: pending.length);
   }
 
   int? _readPlatformInt(Object? value) {
@@ -1197,21 +1307,43 @@ class HlsSegment {
     required this.uri,
     required this.sequence,
     required this.key,
+    required this.byteRange,
   });
 
   final Uri uri;
   final int sequence;
   final HlsKey? key;
+  final HlsByteRange? byteRange;
 }
 
 class HlsPlaylistParts {
-  const HlsPlaylistParts({
-    required this.initSegmentUri,
-    required this.segments,
-  });
+  const HlsPlaylistParts({required this.initSegment, required this.segments});
 
-  final Uri? initSegmentUri;
+  final HlsMap? initSegment;
   final List<HlsSegment> segments;
+}
+
+class HlsMap {
+  const HlsMap({required this.uri, required this.byteRange});
+
+  final Uri uri;
+  final HlsByteRange? byteRange;
+}
+
+class HlsByteRange {
+  const HlsByteRange({required this.offset, required this.length});
+
+  final int offset;
+  final int length;
+
+  int get endInclusive => offset + length - 1;
+}
+
+class _PendingHlsByteRange {
+  const _PendingHlsByteRange({required this.length, required this.offset});
+
+  final int length;
+  final int? offset;
 }
 
 class HlsKey {

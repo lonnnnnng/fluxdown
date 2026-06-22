@@ -1128,6 +1128,109 @@ seg-2.m4s
     }
   });
 
+  test('downloads byte-range fragmented mp4 m3u8 playlists', () async {
+    final init = <int>[
+      0,
+      0,
+      0,
+      24,
+      0x66,
+      0x74,
+      0x79,
+      0x70,
+      ...utf8.encode('isom'),
+      0,
+      0,
+      0,
+      0,
+      ...utf8.encode('isomiso6'),
+    ];
+    final first = [1, 2, 3, 4];
+    final second = [5, 6, 7];
+    final media = <int>[...init, ...first, ...second];
+    final requestedRanges = <String>[];
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_hls_byterange_test_',
+    );
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final serverDone = server.listen((request) async {
+      switch (request.uri.path) {
+        case '/playlist.m3u8':
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..headers.contentType = ContentType(
+              'application',
+              'vnd.apple.mpegurl',
+            )
+            ..write('''
+#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-MAP:URI="media.mp4",BYTERANGE="${init.length}@0"
+#EXTINF:1,
+#EXT-X-BYTERANGE:${first.length}@${init.length}
+media.mp4
+#EXTINF:1,
+#EXT-X-BYTERANGE:${second.length}
+media.mp4
+#EXT-X-ENDLIST
+''');
+        case '/media.mp4':
+          final range = request.headers.value(HttpHeaders.rangeHeader);
+          requestedRanges.add(range ?? '');
+          final match = RegExp(r'^bytes=(\d+)-(\d+)$').firstMatch(range ?? '');
+          if (match == null) {
+            request.response.statusCode =
+                HttpStatus.requestedRangeNotSatisfiable;
+          } else {
+            final start = int.parse(match.group(1)!);
+            final end = int.parse(match.group(2)!);
+            request.response
+              ..statusCode = HttpStatus.partialContent
+              ..headers.set(
+                HttpHeaders.contentRangeHeader,
+                'bytes $start-$end/${media.length}',
+              )
+              ..add(media.sublist(start, end + 1));
+          }
+        default:
+          request.response.statusCode = HttpStatus.notFound;
+      }
+      await request.response.close();
+    });
+
+    try {
+      final source =
+          'http://${server.address.host}:${server.port}/playlist.m3u8';
+      final task = DownloadTask.create(
+        source: source,
+        outputFolder: tempDir.path,
+      );
+      final runner = MobileDownloadRunner();
+
+      final finished = await runner.download(task, onProgress: (_) {});
+      expect(finished.state, DownloadState.finished);
+      expect(finished.fileName, 'playlist.mp4');
+      expect(finished.downloadedBytes, media.length);
+      expect(await File(p.join(tempDir.path, 'playlist.mp4')).readAsBytes(), [
+        ...init,
+        ...first,
+        ...second,
+      ]);
+      expect(
+        requestedRanges,
+        unorderedEquals([
+          'bytes=0-${init.length - 1}',
+          'bytes=${init.length}-${init.length + first.length - 1}',
+          'bytes=${init.length + first.length}-${media.length - 1}',
+        ]),
+      );
+    } finally {
+      await server.close(force: true);
+      await serverDone.cancel();
+      await tempDir.delete(recursive: true);
+    }
+  });
+
   test('downloads m3u8 segments concurrently and preserves order', () async {
     final tempDir = await Directory.systemTemp.createTemp(
       'fluxdown_mobile_hls_parallel_test_',

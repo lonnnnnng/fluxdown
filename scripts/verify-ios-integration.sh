@@ -187,6 +187,7 @@ printf '%s' "$HTTP_TEXT" > "$TMP_DIR/ios-http.txt"
 HTTP_BYTES="$(wc -c < "$TMP_DIR/ios-http.txt" | tr -d ' ')"
 
 mkdir -p "$TMP_DIR/hls"
+HLS_BYTERANGE_AVAILABLE=0
 if command -v ffmpeg >/dev/null 2>&1; then
   ffmpeg -hide_banner -loglevel error \
     -f lavfi -i testsrc=size=160x90:rate=15 \
@@ -201,6 +202,30 @@ if command -v ffmpeg >/dev/null 2>&1; then
     -hls_segment_filename "$TMP_DIR/hls/seg_%03d.m4s" \
     "$TMP_DIR/hls/index.m3u8"
   HLS_AVAILABLE=1
+  SEGMENT_FILES=("$TMP_DIR"/hls/seg_*.m4s)
+  if [ -f "$TMP_DIR/hls/init.mp4" ] && [ -e "${SEGMENT_FILES[0]}" ]; then
+    mkdir -p "$TMP_DIR/hls-byterange"
+    BYTERANGE_MEDIA="$TMP_DIR/hls-byterange/media.mp4"
+    # 作者: long
+    # iOS 自检需要覆盖单文件 fMP4 HLS，BYTERANGE 场景会把 init 和 m4s 片段放进同一个资源并强制客户端发起 Range 请求。
+    cat "$TMP_DIR/hls/init.mp4" "${SEGMENT_FILES[@]}" > "$BYTERANGE_MEDIA"
+    INIT_BYTES="$(wc -c < "$TMP_DIR/hls/init.mp4" | tr -d ' ')"
+    OFFSET="$INIT_BYTES"
+    {
+      printf '%s\n' '#EXTM3U'
+      printf '%s\n' '#EXT-X-VERSION:7'
+      printf '#EXT-X-MAP:URI="media.mp4",BYTERANGE="%s@0"\n' "$INIT_BYTES"
+      for segment_file in "${SEGMENT_FILES[@]}"; do
+        SEGMENT_BYTES="$(wc -c < "$segment_file" | tr -d ' ')"
+        printf '%s\n' '#EXTINF:1,'
+        printf '#EXT-X-BYTERANGE:%s@%s\n' "$SEGMENT_BYTES" "$OFFSET"
+        printf '%s\n' 'media.mp4'
+        OFFSET=$((OFFSET + SEGMENT_BYTES))
+      done
+      printf '%s\n' '#EXT-X-ENDLIST'
+    } > "$TMP_DIR/hls-byterange/index.m3u8"
+    HLS_BYTERANGE_AVAILABLE=1
+  fi
 else
   echo "ffmpeg is not installed; HLS integration case will be skipped." >&2
   HLS_AVAILABLE=0
@@ -228,8 +253,8 @@ fi
 
 BASE_URL="http://$SOURCE_HOST:$PORT"
 CASES_JSON="$(
-  node - "$BASE_URL" "$HTTP_BYTES" "$HTTP_TEXT" "$HLS_AVAILABLE" <<'NODE'
-const [baseUrl, httpBytes, httpText, hlsAvailable] = process.argv.slice(2);
+  node - "$BASE_URL" "$HTTP_BYTES" "$HTTP_TEXT" "$HLS_AVAILABLE" "$HLS_BYTERANGE_AVAILABLE" <<'NODE'
+const [baseUrl, httpBytes, httpText, hlsAvailable, hlsByteRangeAvailable] = process.argv.slice(2);
 const cases = [
   {
     id: 'ios-http-local',
@@ -245,6 +270,17 @@ if (hlsAvailable === '1') {
     id: 'ios-hls-local',
     source: `${baseUrl}/hls/index.m3u8`,
     fileName: 'ios-hls.mp4',
+    maxBytes: 10 * 1024 * 1024,
+    expectedHeadHexContains: '66747970',
+    timeoutSeconds: 120,
+  });
+}
+
+if (hlsByteRangeAvailable === '1') {
+  cases.push({
+    id: 'ios-hls-byterange-local',
+    source: `${baseUrl}/hls-byterange/index.m3u8`,
+    fileName: 'ios-hls-byterange.mp4',
     maxBytes: 10 * 1024 * 1024,
     expectedHeadHexContains: '66747970',
     timeoutSeconds: 120,

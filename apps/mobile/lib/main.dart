@@ -368,8 +368,8 @@ class AppStrings {
 
     if (protocol == 'm3u8') {
       return language == AppLanguage.zh
-          ? '原生 VOD HLS 下载器，支持主播放列表选择和 AES-128 分片解密。'
-          : 'Native VOD HLS downloader with master playlist selection and AES-128 segment decryption.';
+          ? '原生 VOD HLS 下载器，支持主播放列表、字节范围和 AES-128 分片解密。'
+          : 'Native VOD HLS downloader with master playlist selection, byte ranges, and AES-128 segment decryption.';
     }
 
     if (protocol == 'ftp' || protocol == 'ftps') {
