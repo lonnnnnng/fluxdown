@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | macOS CLI | 非前台验收已通过 | `npm run verify:apple` 已串联 `npm run verify:macos`；release CLI 覆盖 HTTP/HLS、HLS BYTERANGE、FTP/FTPS、SFTP、SMB、Torrent/Magnet、队列控制和 artifact 校验。 | 真实公网边界资源仍可继续扩展，但当前本地可重复 fixture 已覆盖主要协议闭环。 |
 | macOS 桌面端 | 非前台 command/artifact 验收已通过，既有前台 GUI 最小闭环已记录 | `npm run verify:apple` 已串联桌面 Tauri command fixture、`.app`/DMG 构建、ad-hoc 签名和 checksum；桌面 command 已覆盖 HLS BYTERANGE；历史前台 GUI 已覆盖 HTTP、HLS、Torrent、Magnet。 | 纯 GUI 前台的 FTP/FTPS、SFTP、SMB、IPFS、WebDAV 点击下载闭环仍按当前阶段暂缓。 |
-| iOS 构建与静态验证 | 已通过 | `npm run verify:apple` 已串联 `flutter analyze`、`flutter test`、iOS framework build、simulator build、unsigned device build、artifact 校验和 URL scheme 校验。 | 签名 IPA 需要 Apple 证书和 provisioning profile。 |
+| iOS 构建与静态验证 | 已通过 | `npm run verify:apple` 已串联 `flutter analyze`、`flutter test`、iOS framework build、simulator build、unsigned device build、artifact 校验和 URL scheme 校验；`npm run verify:ios:signing-readiness` 已能独立检查签名输入。 | 签名 IPA 需要 Apple 证书、provisioning profile、Team ID 和 keychain 密码输入；当前本机没有 codesigning identity 和匹配 profile。 |
 | iOS App 内下载 | simulator smoke 已通过 | `npm run verify:ios:integration` 已在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 上完成 App 内 HTTP、fMP4 HLS 和 fMP4 BYTERANGE HLS 下载；显式设置 `FLUXDOWN_IOS_INCLUDE_TS_HLS=1` 后，TS HLS 也已通过同一 simulator 下载并输出 MP4。HTTP 输出 `29` bytes，fMP4 HLS 输出 `4815` bytes，TS HLS 输出 `19884` bytes，文件头均符合预期。脚本默认不自动启动模拟器，显式设置 `FLUXDOWN_IOS_BOOT_SIMULATOR=1` 时才会尝试通过 `simctl` 启动可用 iPhone simulator。 | iPhone 真机、签名 IPA、扫码/文件选择/分享打开等真机能力仍待证书和设备窗口补验；TS HLS 当前先覆盖 H.264/AAC VOD 主流路径，仍需更多公网和编码边界验证。 |
 
 ## 本轮复验记录
@@ -30,6 +30,8 @@
 2026-06-23 04:56 CST 新增 iOS TS HLS 专项探针：默认 `npm run verify:ios:integration` 仍只跑稳定的 HTTP/fMP4 HLS/fMP4 BYTERANGE HLS smoke 并通过；显式设置 `FLUXDOWN_IOS_INCLUDE_TS_HLS=1` 时会额外生成视频+AAC 的 MPEG-TS HLS 用例。探针最初在 simulator 上复现 `AVFoundationErrorDomain -11838`。
 
 2026-06-23 05:10 CST 新增 Dart 内置 H.264/AAC TS -> fragmented MP4 remuxer 后复跑：`flutter analyze` 通过，`flutter test` 通过 36 个测试，新增 MPEG-TS HLS 测试会在本机有 ffmpeg 时生成真实 TS HLS 并用 ffprobe 校验输出；`FLUXDOWN_IOS_INCLUDE_TS_HLS=1 npm run verify:ios:integration` 在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 通过，`ios-hls-ts-local` 状态 `finished`，输出 `19884` bytes，`outputHeadHex` 包含 `66747970`。
+
+2026-06-23 05:20 CST 增强 iOS 真机/签名前置检查：`npm run verify:ios:device-readiness` 继续返回 `78`，现在会额外输出 `xcdevice-unavailable`，当前 `LMY iPhone 11 18.6.2 (22G100)` 不可用，Xcode 原因为 `Browsing on the local area network for LMY`，建议解锁、接线或同局域网并开启 Developer Mode；新增 `npm run verify:ios:signing-readiness`，当前返回 `78`，缺少 `IOS_CERTIFICATE_BASE64`、`IOS_CERTIFICATE_PASSWORD`、`IOS_PROVISIONING_PROFILE_BASE64`、`IOS_KEYCHAIN_PASSWORD`、`APPLE_TEAM_ID`，本机 `codesigning-identities: none`，也没有匹配 `dev.fluxdown.mobile` 的 provisioning profile。
 
 ## 推荐验收命令
 
@@ -61,6 +63,12 @@ FLUXDOWN_IOS_INCLUDE_TS_HLS=1 npm run verify:ios:integration
 
 ```sh
 npm run verify:ios:device-readiness
+```
+
+先确认签名 IPA 自动化输入是否齐全：
+
+```sh
+npm run verify:ios:signing-readiness
 ```
 
 连接真机下载验证时，如果 iPhone 需要访问 Mac 上的本地 fixture，显式传入 Mac 局域网地址：

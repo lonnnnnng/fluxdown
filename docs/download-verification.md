@@ -41,6 +41,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-06-23 05:10 CST 新增 Dart 内置 H.264/AAC TS -> fragmented MP4 remuxer，并优先用于移动端 TS HLS 输出；平台原生 remux 仅作为兜底。`flutter analyze` 通过，`flutter test` 通过 36 个测试，新增 MPEG-TS HLS 测试会在本机有 ffmpeg 时生成真实 TS HLS 并用 ffprobe 校验输出。`FLUXDOWN_IOS_INCLUDE_TS_HLS=1 npm run verify:ios:integration` 在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 通过，`ios-hls-ts-local` 输出 `19884` bytes，`outputHeadHex` 包含 `66747970`。
 
+2026-06-23 05:20 CST 补充 iOS 真机与签名 IPA 前置检查：`npm run verify:ios:device-readiness` 继续返回 `78`，但已增强为同时读取 `xcrun xcdevice list --timeout 10`，当前 `LMY iPhone 11 18.6.2 (22G100)` 为 `xcdevice-unavailable`，Xcode 原因为 `Browsing on the local area network for LMY`；新增 `npm run verify:ios:signing-readiness`，当前返回 `78`，缺少签名所需的 5 个环境变量，本机没有可用 codesigning identity，也没有匹配 `dev.fluxdown.mobile` 的 provisioning profile。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
@@ -50,7 +52,7 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 | Windows GUI | 已在 Windows 开发机完成本机 release 构建，生成 `target/release/fluxdown-desktop.exe`、MSI 和 NSIS installer；CLI release 二进制完成 HTTP 直连下载和队列下载，Tauri command 完成 HTTP 队列下载，真实 GUI 前台完成本地 HTTP 下载闭环，落盘 `1048576` bytes，SHA-256 与源文件一致。 | 部分完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
 | Android App | 已在 Redmi Note 8 Pro 真机安装并通过正常 App 队列完成本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB/IPFS、小 HLS、小 torrent、小 magnet，以及 2026-06-14 媒体级 HLS、单文件 torrent、单文件 magnet、多文件 torrent 和多文件 magnet 选择下载验证。 | 部分完成 |
-| iOS App | 已有 iOS simulator 截图；2026-06-23 在 Flutter 3.41.9 / Xcode 16.2 上通过 `flutter analyze`、`flutter test`、simulator build、unsigned device build、artifact 校验和 URL scheme 配置验证；同日通过 iOS simulator App 内 HTTP、fMP4 HLS、fMP4 BYTERANGE HLS 和 TS HLS 下载 smoke。缺少签名 IPA，也没有在 iPhone 真机中完成扫码、文件选择、分享/打开、HLS/Torrent/Magnet 等真机下载验证。 | 部分完成 |
+| iOS App | 已有 iOS simulator 截图；2026-06-23 在 Flutter 3.41.9 / Xcode 16.2 上通过 `flutter analyze`、`flutter test`、simulator build、unsigned device build、artifact 校验和 URL scheme 配置验证；同日通过 iOS simulator App 内 HTTP、fMP4 HLS、fMP4 BYTERANGE HLS 和 TS HLS 下载 smoke。当前真机 `LMY` 在 `xcdevice` 中为 unavailable；签名 IPA 自动化缺少证书、profile、Team ID 和 keychain 密码输入。 | 部分完成 |
 
 ## 分协议结论
 
@@ -110,7 +112,8 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run mobile:ios` + `npm run mobile:ios:verify` | 通过：无代码签名 device 构建 `build/ios/iphoneos/Runner.app` 成功，Flutter 输出大小 `34.6MB`，artifact 目录存在。 |
 | `npm run verify:mobile-url-schemes` | 通过：Android 和 iOS 均声明 `ed2k` URL 查询能力。 |
 | iOS integration test | 通过 simulator smoke：`ios-http-local`、`ios-hls-local`、`ios-hls-byterange-local` 和启用专项探针后的 `ios-hls-ts-local` 均为 `finished`；iPhone 真机仍留作后续专项验证。 |
-| `npm run verify:ios:device-readiness` | 通过边界判定：该入口只读 `flutter devices --machine` 和 `xcrun xctrace list devices`；当前本机可见 iPhone `LMY 18.6.2 (00008030-001905801E50802E)` 但状态为 Offline，命令按预期以 `78` 退出，需解锁、信任 Mac、确认 Developer Mode 或 USB/无线连接后再跑真机下载验证。 |
+| `npm run verify:ios:device-readiness` | 通过边界判定：该入口只读 `flutter devices --machine`、`xcrun xctrace list devices` 和 `xcrun xcdevice list --timeout 10`；当前本机可见 iPhone `LMY 18.6.2 (00008030-001905801E50802E)` 但状态为 Offline/unavailable，命令按预期以 `78` 退出，`xcdevice` 原因为 `Browsing on the local area network for LMY`。 |
+| `npm run verify:ios:signing-readiness` | 通过边界判定：新增入口只检查签名自动化输入和本机签名资产，不读取或打印密钥内容；当前按预期以 `78` 退出，缺少 `IOS_CERTIFICATE_BASE64`、`IOS_CERTIFICATE_PASSWORD`、`IOS_PROVISIONING_PROFILE_BASE64`、`IOS_KEYCHAIN_PASSWORD`、`APPLE_TEAM_ID`，且没有 codesigning identity 和匹配 `dev.fluxdown.mobile` 的 provisioning profile。 |
 
 ## 2026-06-19 Windows CLI/GUI 验证记录
 

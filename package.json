@@ -53,6 +53,7 @@
     "verify:apple": "bash scripts/verify-apple.sh",
     "verify:ios": "bash scripts/verify-ios.sh",
     "verify:ios:device-readiness": "node scripts/verify-ios-device-readiness.mjs",
+    "verify:ios:signing-readiness": "node scripts/verify-ios-signing-readiness.mjs",
     "verify:ios:integration": "bash scripts/verify-ios-integration.sh",
     "verify:release": "node scripts/verify-artifacts.mjs release",
     "verify:ci-config": "node scripts/verify-artifacts.mjs ci-config",
