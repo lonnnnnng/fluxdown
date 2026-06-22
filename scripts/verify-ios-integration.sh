@@ -188,6 +188,7 @@ HTTP_BYTES="$(wc -c < "$TMP_DIR/ios-http.txt" | tr -d ' ')"
 
 mkdir -p "$TMP_DIR/hls"
 HLS_BYTERANGE_AVAILABLE=0
+HLS_TS_AVAILABLE=0
 if command -v ffmpeg >/dev/null 2>&1; then
   ffmpeg -hide_banner -loglevel error \
     -f lavfi -i testsrc=size=160x90:rate=15 \
@@ -202,6 +203,29 @@ if command -v ffmpeg >/dev/null 2>&1; then
     -hls_segment_filename "$TMP_DIR/hls/seg_%03d.m4s" \
     "$TMP_DIR/hls/index.m3u8"
   HLS_AVAILABLE=1
+
+  if [ "${FLUXDOWN_IOS_INCLUDE_TS_HLS:-0}" = "1" ]; then
+    mkdir -p "$TMP_DIR/hls-ts"
+    # 作者: long
+    # TS HLS 走 iOS 原生 remux 通道，目前属于专项探针；默认不纳入 smoke，避免 AVFoundation 已知限制让日常验证变红。
+    ffmpeg -hide_banner -loglevel error \
+      -f lavfi -i testsrc=size=160x90:rate=15 \
+      -f lavfi -i sine=frequency=1000:sample_rate=44100 \
+      -t 1 \
+      -shortest \
+      -c:v libx264 \
+      -pix_fmt yuv420p \
+      -c:a aac \
+      -b:a 64k \
+      -f hls \
+      -hls_segment_type mpegts \
+      -hls_time 1 \
+      -hls_playlist_type vod \
+      -hls_segment_filename "$TMP_DIR/hls-ts/seg_%03d.ts" \
+      "$TMP_DIR/hls-ts/index.m3u8"
+    HLS_TS_AVAILABLE=1
+  fi
+
   SEGMENT_FILES=("$TMP_DIR"/hls/seg_*.m4s)
   if [ -f "$TMP_DIR/hls/init.mp4" ] && [ -e "${SEGMENT_FILES[0]}" ]; then
     mkdir -p "$TMP_DIR/hls-byterange"
@@ -253,8 +277,8 @@ fi
 
 BASE_URL="http://$SOURCE_HOST:$PORT"
 CASES_JSON="$(
-  node - "$BASE_URL" "$HTTP_BYTES" "$HTTP_TEXT" "$HLS_AVAILABLE" "$HLS_BYTERANGE_AVAILABLE" <<'NODE'
-const [baseUrl, httpBytes, httpText, hlsAvailable, hlsByteRangeAvailable] = process.argv.slice(2);
+  node - "$BASE_URL" "$HTTP_BYTES" "$HTTP_TEXT" "$HLS_AVAILABLE" "$HLS_BYTERANGE_AVAILABLE" "$HLS_TS_AVAILABLE" <<'NODE'
+const [baseUrl, httpBytes, httpText, hlsAvailable, hlsByteRangeAvailable, hlsTsAvailable] = process.argv.slice(2);
 const cases = [
   {
     id: 'ios-http-local',
@@ -281,6 +305,17 @@ if (hlsByteRangeAvailable === '1') {
     id: 'ios-hls-byterange-local',
     source: `${baseUrl}/hls-byterange/index.m3u8`,
     fileName: 'ios-hls-byterange.mp4',
+    maxBytes: 10 * 1024 * 1024,
+    expectedHeadHexContains: '66747970',
+    timeoutSeconds: 120,
+  });
+}
+
+if (hlsTsAvailable === '1') {
+  cases.push({
+    id: 'ios-hls-ts-local',
+    source: `${baseUrl}/hls-ts/index.m3u8`,
+    fileName: 'ios-hls-ts.mp4',
     maxBytes: 10 * 1024 * 1024,
     expectedHeadHexContains: '66747970',
     timeoutSeconds: 120,

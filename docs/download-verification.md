@@ -37,6 +37,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-06-23 04:50 CST 推送 `a7b2c67` 后复验 iOS：`npm run verify:ios:device-readiness` 返回 `78`，物理 iPhone `LMY 18.6.2 (00008030-001905801E50802E)` 仍为 Offline；`npm run verify:ios:integration` 在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 通过，HTTP 输出 `29` bytes，fMP4 HLS 与 fMP4 BYTERANGE HLS 均输出 `4815` bytes 且文件头包含 `ftyp`；`npm run verify:ios` 通过，覆盖 analyze、35 个 Flutter 测试、framework、simulator app、unsigned device app 和 URL scheme。
 
+2026-06-23 04:56 CST 为 `scripts/verify-ios-integration.sh` 增加 iOS TS HLS 专项探针：默认 smoke 不启用该用例，保持 HTTP/fMP4 HLS/fMP4 BYTERANGE HLS 通过；显式设置 `FLUXDOWN_IOS_INCLUDE_TS_HLS=1` 时会生成视频+AAC 的 MPEG-TS HLS 并要求输出 MP4。当前 simulator 结果仍失败，`ios-hls-ts-local` 下载了 `15604` bytes 后在原生 remux 阶段返回 `AVFoundationErrorDomain -11838`，错误原因为 `The operation is not supported for this media.`。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
@@ -94,7 +96,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | --- | --- |
 | `npm run verify:apple` | 通过：串联 `npm run verify:macos` 和 `npm run verify:ios`，完成当前 macOS 桌面/CLI 与 iOS 构建产物的非前台总验收；不会启动前台桌面 GUI，也不会自动启动 iOS simulator。 |
 | `npm run verify:ios` | 通过：该脚本汇总 `flutter --version`、`xcodebuild -version`、`mobile:analyze`、`mobile:test`、iOS framework build/artifact 校验、iOS simulator build/artifact 校验、无签名 device build/artifact 校验和移动端 URL scheme 校验；用于日常非前台 iOS 构建验证。 |
-| `npm run verify:ios:integration` | 通过：在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 上生成本地 HTTP/fMP4 HLS/BYTERANGE HLS fixture，构建隐藏自检 App，staged install 后通过 `simctl launch --console` 收集结果；`ios-http-local` 输出 `29` bytes，`ios-hls-local` 和 `ios-hls-byterange-local` 均输出 `4815` bytes，`outputHeadHex` 包含 `66747970`。 |
+| `npm run verify:ios:integration` | 通过：在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 上生成本地 HTTP/fMP4 HLS/BYTERANGE HLS fixture，构建隐藏自检 App，staged install 后通过 `simctl launch --console` 收集结果；`ios-http-local` 输出 `29` bytes，`ios-hls-local` 和 `ios-hls-byterange-local` 均输出 `4815` bytes，`outputHeadHex` 包含 `66747970`。显式设置 `FLUXDOWN_IOS_INCLUDE_TS_HLS=1` 可额外启用 TS HLS 专项探针，当前用于复现 `AVFoundationErrorDomain -11838`。 |
 | `npm run verify:macos` | 通过：覆盖 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、release CLI HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制真实 fixture、CLI-only artifact 校验、desktop command FTPS/SFTP/SMB/Torrent/Magnet fixture、完整 macOS artifact 校验、许可证和 CI 手动触发策略检查；04:38 单独复跑 Rust 测试后当前计数为 core 68、CLI 单元 1、CLI 集成 33、desktop 非 ignored 32 / ignored 7。 |
 | `npm run verify:macos-cli-artifact` | 通过：校验 `target/release/fluxdown` 存在且非空，大小 `14689536` bytes；`--version` 输出 `fluxdown 1.0.3`，`detect/support/doctor` 均通过。 |
 | `npm run desktop:dmg` | 通过：生成 `target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.3_aarch64.dmg`；本轮 04:16 复验 DMG 大小 `8731864` bytes，`hdiutil verify` checksum 通过；`.app` ad-hoc 签名校验通过。 |

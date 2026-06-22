@@ -27,6 +27,8 @@
 
 2026-06-23 04:50 CST 推送提交 `a7b2c67` 后复验 iOS：`npm run verify:ios:device-readiness` 按预期返回 `78`，物理 iPhone `LMY 18.6.2 (00008030-001905801E50802E)` 仍为 Offline；`npm run verify:ios:integration` 在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 通过，`ios-http-local` 输出 `29` bytes，`ios-hls-local` 和 `ios-hls-byterange-local` 均输出 `4815` bytes 且文件头包含 `66747970`；`npm run verify:ios` 通过，覆盖 analyze、35 个 Flutter 测试、iOS framework、simulator app、unsigned device app 和 URL scheme 校验。
 
+2026-06-23 04:56 CST 新增 iOS TS HLS 专项探针：默认 `npm run verify:ios:integration` 仍只跑稳定的 HTTP/fMP4 HLS/fMP4 BYTERANGE HLS smoke 并通过；显式设置 `FLUXDOWN_IOS_INCLUDE_TS_HLS=1` 时会额外生成视频+AAC 的 MPEG-TS HLS 用例。当前该专项用例在 simulator 上复现 `AVFoundationErrorDomain -11838`，确认 iOS TS HLS 转 MP4 仍未完成。
+
 ## 推荐验收命令
 
 日常非前台总验收：
@@ -45,6 +47,12 @@ npm run verify:ios:integration
 
 ```sh
 FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration
+```
+
+iOS TS HLS 转 MP4 专项探针：
+
+```sh
+FLUXDOWN_IOS_INCLUDE_TS_HLS=1 npm run verify:ios:integration
 ```
 
 先确认真机是否已经能被 Flutter 部署：
