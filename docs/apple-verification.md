@@ -25,6 +25,8 @@
 
 2026-06-23 04:38 CST 新增并验证 macOS core/CLI/桌面 command 的 HLS BYTERANGE 支持：`cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` 通过，当前 core 68、CLI 单元 1、CLI 集成 33、desktop 非 ignored 32 / ignored 7；`cargo clippy -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop --all-targets -- -D warnings` 通过；`npm run verify:macos-cli-http-hls` 和 `npm run verify:macos-cli-release-http-hls` 均通过，新增 HLS BYTERANGE 输出 SHA-256 为 `df20d9dcdbecbf0dce43b2148bbc312626f8a384660bbdaf33cbcb46e985886e`。
 
+2026-06-23 04:50 CST 推送提交 `a7b2c67` 后复验 iOS：`npm run verify:ios:device-readiness` 按预期返回 `78`，物理 iPhone `LMY 18.6.2 (00008030-001905801E50802E)` 仍为 Offline；`npm run verify:ios:integration` 在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 通过，`ios-http-local` 输出 `29` bytes，`ios-hls-local` 和 `ios-hls-byterange-local` 均输出 `4815` bytes 且文件头包含 `66747970`；`npm run verify:ios` 通过，覆盖 analyze、35 个 Flutter 测试、iOS framework、simulator app、unsigned device app 和 URL scheme 校验。
+
 ## 推荐验收命令
 
 日常非前台总验收：

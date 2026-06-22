@@ -1,6 +1,6 @@
 # 下载验证状态
 
-截至 2026-06-23，FluxDown 已完成 macOS、Windows、Android、iOS 当前阶段的界面截图和验证记录，但还不能表述为“所有平台、所有协议、所有前台 GUI/App 路径都已完成真实下载验证”。Android 真机已经补过一轮正常 App 下载验证；macOS CLI 已补充可重复脚本化 HTTP/HLS/HLS BYTERANGE/FTP/FTPS/SFTP/SMB/Torrent/Magnet、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证；macOS GUI 已完成本地构建、启动、基础界面渲染、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，Tauri command 级真实 HTTP/HLS/HLS BYTERANGE/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 下载验证，以及 1.0.3 非 GUI 总验收复跑；iOS 已在 Flutter 3.41.9 / Xcode 16.2 上完成 analyze、Flutter 测试、framework build、simulator build、unsigned device build、artifact 校验、URL scheme 配置校验，并在 iOS simulator 中跑通 App 内 HTTP/fMP4 HLS 下载 smoke。Windows 已完成本机 release 构建、CLI HTTP 直连/队列真实下载、Tauri command HTTP 队列下载，以及真实 GUI 前台 HTTP 下载闭环；Linux 目前只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。按当前安排，本阶段保留已覆盖的 GUI/App 前台验证证据，剩余协议和平台差距继续通过后续专项验证收口。
+截至 2026-06-23，FluxDown 已完成 macOS、Windows、Android、iOS 当前阶段的界面截图和验证记录，但还不能表述为“所有平台、所有协议、所有前台 GUI/App 路径都已完成真实下载验证”。Android 真机已经补过一轮正常 App 下载验证；macOS CLI 已补充可重复脚本化 HTTP/HLS/HLS BYTERANGE/FTP/FTPS/SFTP/SMB/Torrent/Magnet、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证；macOS GUI 已完成本地构建、启动、基础界面渲染、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，Tauri command 级真实 HTTP/HLS/HLS BYTERANGE/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 下载验证，以及 1.0.3 非 GUI 总验收复跑；iOS 已在 Flutter 3.41.9 / Xcode 16.2 上完成 analyze、Flutter 测试、framework build、simulator build、unsigned device build、artifact 校验、URL scheme 配置校验，并在 iOS simulator 中跑通 App 内 HTTP/fMP4 HLS/fMP4 BYTERANGE HLS 下载 smoke。Windows 已完成本机 release 构建、CLI HTTP 直连/队列真实下载、Tauri command HTTP 队列下载，以及真实 GUI 前台 HTTP 下载闭环；Linux 目前只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。按当前安排，本阶段保留已覆盖的 GUI/App 前台验证证据，剩余协议和平台差距继续通过后续专项验证收口。
 
 本页用于区分两类容易混淆的结论：
 
@@ -34,6 +34,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 2026-06-23 04:25 CST 新增移动端 HLS BYTERANGE 支持并复验：Dart 下载器会解析 `#EXT-X-MAP` 的 `BYTERANGE` 和媒体分片 `#EXT-X-BYTERANGE`，对同一资源发起 HTTP Range 请求后按播放列表顺序输出 fMP4/MP4。`flutter analyze` 通过，`flutter test` 通过 35 个测试；`npm run verify:ios:integration` 新增 `ios-hls-byterange-local`，在 iOS 18.3 simulator 上输出 `ios-hls-byterange.mp4`，`4815` bytes，文件头包含 `ftyp`。
 
 2026-06-23 04:38 CST 新增 macOS core/CLI/桌面 command 的 HLS BYTERANGE 支持并复验：Rust core 会解析 `#EXT-X-BYTERANGE`，对同一媒体资源发起 HTTP Range 请求，并支持省略 `@offset` 的连续 byte-range 分片。`cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` 通过，当前 CLI 单元 1、CLI 集成 33、core 68、desktop 非 ignored 32 / ignored 7；严格 Clippy 通过；`npm run verify:macos-cli-http-hls` 和 `npm run verify:macos-cli-release-http-hls` 均通过，新增 HLS BYTERANGE 输出 SHA-256 为 `df20d9dcdbecbf0dce43b2148bbc312626f8a384660bbdaf33cbcb46e985886e`。
+
+2026-06-23 04:50 CST 推送 `a7b2c67` 后复验 iOS：`npm run verify:ios:device-readiness` 返回 `78`，物理 iPhone `LMY 18.6.2 (00008030-001905801E50802E)` 仍为 Offline；`npm run verify:ios:integration` 在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 通过，HTTP 输出 `29` bytes，fMP4 HLS 与 fMP4 BYTERANGE HLS 均输出 `4815` bytes 且文件头包含 `ftyp`；`npm run verify:ios` 通过，覆盖 analyze、35 个 Flutter 测试、framework、simulator app、unsigned device app 和 URL scheme。
 
 ## 分端结论
 
