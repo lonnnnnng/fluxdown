@@ -43,6 +43,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-06-23 05:20 CST 补充 iOS 真机与签名 IPA 前置检查：`npm run verify:ios:device-readiness` 继续返回 `78`，但已增强为同时读取 `xcrun xcdevice list --timeout 10`，当前 `LMY iPhone 11 18.6.2 (22G100)` 为 `xcdevice-unavailable`，Xcode 原因为 `Browsing on the local area network for LMY`；新增 `npm run verify:ios:signing-readiness`，当前返回 `78`，缺少签名所需的 5 个环境变量，本机没有可用 codesigning identity，也没有匹配 `dev.fluxdown.mobile` 的 provisioning profile。
 
+2026-06-23 05:42 CST 在当前 `origin/main` 复跑 Apple 侧非前台验收：`npm run verify:apple` 通过，macOS CLI release 覆盖 HTTP/HLS/HLS BYTERANGE、FTP/FTPS、SFTP、SMB、Torrent/Magnet 和队列控制 fixture；macOS 桌面 command 覆盖 FTPS、SFTP、SMB、单文件 Torrent、单文件 Magnet、多文件 Torrent 选择和多文件 Magnet 选择，`.app` ad-hoc 签名与 DMG checksum 均通过；iOS 静态验证覆盖 analyze、36 个 Flutter 测试、framework、simulator app、unsigned device app 和 URL scheme。随后 `FLUXDOWN_IOS_INCLUDE_TS_HLS=1 FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration` 在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 通过，HTTP 输出 `29` bytes，fMP4 HLS 和 BYTERANGE HLS 均输出 `4815` bytes，TS HLS 输出 `19884` bytes；`npm run verify:ios:device-readiness` 与 `npm run verify:ios:signing-readiness` 仍返回 `78`，说明 iPhone 真机与签名 IPA 继续受外部条件阻塞。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |

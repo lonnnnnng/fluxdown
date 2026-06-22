@@ -33,6 +33,8 @@
 
 2026-06-23 05:20 CST 增强 iOS 真机/签名前置检查：`npm run verify:ios:device-readiness` 继续返回 `78`，现在会额外输出 `xcdevice-unavailable`，当前 `LMY iPhone 11 18.6.2 (22G100)` 不可用，Xcode 原因为 `Browsing on the local area network for LMY`，建议解锁、接线或同局域网并开启 Developer Mode；新增 `npm run verify:ios:signing-readiness`，当前返回 `78`，缺少 `IOS_CERTIFICATE_BASE64`、`IOS_CERTIFICATE_PASSWORD`、`IOS_PROVISIONING_PROFILE_BASE64`、`IOS_KEYCHAIN_PASSWORD`、`APPLE_TEAM_ID`，本机 `codesigning-identities: none`，也没有匹配 `dev.fluxdown.mobile` 的 provisioning profile。
 
+2026-06-23 05:42 CST 复跑当前 `origin/main` 的 Apple 非前台总验收与 iOS App 内下载 smoke：`npm run verify:apple` 通过，覆盖 macOS release CLI 多协议 fixture、macOS 桌面 command/artifact、许可证、CI 手动触发策略、iOS analyze/test/framework/simulator/unsigned device build 和 URL scheme；`FLUXDOWN_IOS_INCLUDE_TS_HLS=1 FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration` 在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 通过，HTTP 输出 `29` bytes，fMP4 HLS 与 BYTERANGE HLS 均输出 `4815` bytes，TS HLS 输出 `19884` bytes，MP4 输出头均包含 `66747970`；真机和签名前置检查仍按预期返回 `78`，物理 iPhone `LMY` 仍为 `xcdevice-unavailable`，签名自动化仍缺 5 个签名环境变量、codesigning identity 和匹配 provisioning profile。
+
 ## 推荐验收命令
 
 日常非前台总验收：
