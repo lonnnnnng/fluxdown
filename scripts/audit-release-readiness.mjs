@@ -288,6 +288,12 @@ const checks = [
     values: ['verify:apple:runtime', 'verify-apple-runtime.sh'],
   },
   {
+    label: 'Apple current-stage verification entry exists',
+    kind: 'source-contains',
+    file: 'package.json',
+    values: ['verify:apple:current', 'verify-apple-current.sh'],
+  },
+  {
     label: 'iPhone signing readiness verification entry exists',
     kind: 'source-contains',
     file: 'package.json',
@@ -339,6 +345,12 @@ const checks = [
     kind: 'source-contains',
     file: 'scripts/verify-apple-runtime.sh',
     values: ['verify:ios:integration', 'verify:ios:device-readiness', 'verify:ios:signing-readiness', 'FLUXDOWN_IOS_INCLUDE_TS_HLS'],
+  },
+  {
+    label: 'Apple current-stage verification combines build and runtime gates',
+    kind: 'source-contains',
+    file: 'scripts/verify-apple-current.sh',
+    values: ['verify:apple', 'verify:apple:runtime', 'Apple current-stage verification'],
   },
   {
     label: 'Signed iPhone IPA exists locally',

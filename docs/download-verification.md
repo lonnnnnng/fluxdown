@@ -53,6 +53,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-06-23 06:05 CST 新增 Apple 运行态补充验收入口 `npm run verify:apple:runtime` 并复跑通过：脚本默认后台启动可用 iOS simulator、启用 TS HLS 探针，先执行 `npm run verify:ios:integration`，再汇总 `verify:ios:device-readiness` 和 `verify:ios:signing-readiness`；真机/签名返回 `78` 时按外部条件未就绪记录，不让 simulator 下载 smoke 被误判失败。本轮 simulator `FluxDownTemp2-iPhone16` 上 HTTP 输出 `29` bytes，fMP4 HLS 和 BYTERANGE HLS 均输出 `4815` bytes，TS HLS 输出 `19884` bytes，全部状态为 `finished`。
 
+2026-06-23 06:21 CST 新增 Apple 当前阶段总验收入口 `npm run verify:apple:current` 并首跑通过：脚本顺序串联 `npm run verify:apple` 和 `npm run verify:apple:runtime`，一键覆盖 macOS CLI/桌面 command/iOS 构建产物门禁，以及 iOS simulator 运行态下载 smoke。首跑中 macOS CLI release 多协议 fixture、macOS 桌面 command/artifact、iOS 静态构建均通过；iOS simulator HTTP 输出 `29` bytes，fMP4 HLS 和 BYTERANGE HLS 均输出 `4815` bytes，TS HLS 输出 `19884` bytes；真机和签名 readiness 的 `78` 仍按外部条件未就绪记录。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
@@ -109,6 +111,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 检查项 | 结果 |
 | --- | --- |
 | `npm run verify:apple` | 通过：串联 `npm run verify:macos` 和 `npm run verify:ios`，完成当前 macOS 桌面/CLI 与 iOS 构建产物的非前台总验收；不会启动前台桌面 GUI，也不会自动启动 iOS simulator。 |
+| `npm run verify:apple:current` | 通过：串联 `npm run verify:apple` 与 `npm run verify:apple:runtime`，用于当前阶段 Apple 构建/产物和 iOS 运行态 smoke 的一键复验；真机和签名 readiness 的 `78` 仍按外部条件未就绪记录。 |
 | `npm run verify:apple:runtime` | 通过：用于补充运行态证据，默认后台 boot simulator 并启用 TS HLS，完成 iOS App 内 HTTP/fMP4 HLS/BYTERANGE HLS/TS HLS 下载 smoke；真机和签名 readiness 当前返回 `78`，按外部条件未就绪记录。 |
 | `npm run verify:ios` | 通过：该脚本汇总 `flutter --version`、`xcodebuild -version`、`mobile:analyze`、`mobile:test`、iOS framework build/artifact 校验、iOS simulator build/artifact 校验、无签名 device build/artifact 校验和移动端 URL scheme 校验；用于日常非前台 iOS 构建验证。 |
 | `npm run verify:ios:integration` | 通过：在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 上生成本地 HTTP/fMP4 HLS/BYTERANGE HLS fixture，构建隐藏自检 App，staged install 后通过 `simctl launch --console` 收集结果；`ios-http-local` 输出 `29` bytes，`ios-hls-local` 和 `ios-hls-byterange-local` 均输出 `4815` bytes，`outputHeadHex` 包含 `66747970`。显式设置 `FLUXDOWN_IOS_INCLUDE_TS_HLS=1` 可额外启用 TS HLS 专项探针，当前 `ios-hls-ts-local` 也已通过，输出 `19884` bytes。 |

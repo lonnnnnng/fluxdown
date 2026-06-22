@@ -41,12 +41,20 @@
 
 2026-06-23 06:05 CST 新增并复跑 `npm run verify:apple:runtime` 通过：该入口默认后台使用 iOS simulator，启用 TS HLS 探针，串联 iOS App 内 HTTP/fMP4 HLS/BYTERANGE HLS/TS HLS 下载 smoke，并汇总 iPhone 真机和签名 readiness。当前 simulator `FluxDownTemp2-iPhone16` 上 4 个用例均为 `finished`：HTTP `29` bytes，fMP4 HLS `4815` bytes，BYTERANGE HLS `4815` bytes，TS HLS `19884` bytes；物理 iPhone 和签名输入仍按预期报告 `78` 外部条件未就绪。
 
+2026-06-23 06:21 CST 新增并首跑 `npm run verify:apple:current` 通过：该入口顺序串联 `npm run verify:apple` 与 `npm run verify:apple:runtime`，覆盖 macOS CLI release 多协议 fixture、macOS 桌面 command/artifact、iOS 静态构建和 iOS simulator 运行态下载 smoke。iOS simulator 本轮 HTTP 输出 `29` bytes，fMP4 HLS 和 BYTERANGE HLS 均输出 `4815` bytes，TS HLS 输出 `19884` bytes；物理 iPhone `LMY` 与签名输入继续按预期报告 `78` 外部条件未就绪。
+
 ## 推荐验收命令
 
 日常非前台总验收：
 
 ```sh
 npm run verify:apple
+```
+
+当前阶段 Apple 总验收：
+
+```sh
+npm run verify:apple:current
 ```
 
 iOS 运行态补充验收：
