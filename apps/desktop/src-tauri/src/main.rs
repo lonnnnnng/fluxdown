@@ -885,6 +885,77 @@ mod tests {
         (format!("http://{address}/playlist.m3u8"), expected)
     }
 
+    fn spawn_hls_byte_range_http_server() -> (String, Vec<u8>) {
+        let first_segment = b"desktop command byte range hls first".to_vec();
+        let second_segment = b"desktop command byte range hls second".to_vec();
+        let expected = [first_segment.clone(), second_segment.clone()].concat();
+        let media = expected.clone();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0; 2048];
+                let read = stream.read(&mut buffer).unwrap();
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let range = request.lines().find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    if name.eq_ignore_ascii_case("range") {
+                        value.trim().strip_prefix("bytes=")
+                    } else {
+                        None
+                    }
+                });
+                let (status, content_type, headers, body): (&str, &str, String, Vec<u8>) =
+                    match path {
+                        "/playlist.m3u8" => (
+                            "200 OK",
+                            "application/vnd.apple.mpegurl",
+                            String::new(),
+                            format!(
+                                "#EXTM3U\n#EXT-X-VERSION:4\n#EXTINF:1,\n#EXT-X-BYTERANGE:{}@0\nmedia.ts\n#EXTINF:1,\n#EXT-X-BYTERANGE:{}\nmedia.ts\n#EXT-X-ENDLIST\n",
+                                first_segment.len(),
+                                second_segment.len()
+                            )
+                            .into_bytes(),
+                        ),
+                        "/media.ts" => {
+                            let (start, end) = range
+                                .and_then(|value| value.split_once('-'))
+                                .and_then(|(start, end)| {
+                                    Some((start.parse::<usize>().ok()?, end.parse::<usize>().ok()?))
+                                })
+                                .expect("HLS BYTERANGE media requests must include Range");
+                            (
+                                "206 Partial Content",
+                                "video/mp2t",
+                                format!("Content-Range: bytes {start}-{end}/{}\r\n", media.len()),
+                                media[start..=end].to_vec(),
+                            )
+                        }
+                        _ => (
+                            "404 Not Found",
+                            "text/plain",
+                            String::new(),
+                            b"not found".to_vec(),
+                        ),
+                    };
+                let header = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream.write_all(header.as_bytes()).unwrap();
+                stream.write_all(&body).unwrap();
+            }
+        });
+        (format!("http://{address}/playlist.m3u8"), expected)
+    }
+
     async fn wait_for_desktop_running_progress(id: &str) -> DownloadTask {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -1013,6 +1084,47 @@ mod tests {
         );
         // 作者: long
         // 桌面队列必须能把 HLS 任务收敛成一个真实本地文件，列表和打开文件动作都依赖这个最终产物路径。
+        assert_eq!(std::fs::read(output_path).unwrap(), expected_payload);
+    }
+
+    #[tokio::test]
+    async fn desktop_commands_download_hls_byte_range_task_through_queue() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let (source, expected_payload) = spawn_hls_byte_range_http_server();
+
+        let task = enqueue_download(AddPayload {
+            source,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some("desktop-hls-byte-range.m3u8".to_string()),
+            expected_sha256: None,
+            torrent_file_indices: Vec::new(),
+        })
+        .await
+        .unwrap();
+        assert_eq!(task.protocol, Protocol::M3u8);
+
+        let report = run_queue(1, Some(1), Some(1), None, Some(false))
+            .await
+            .unwrap();
+        assert_eq!(report.started, 1);
+        assert_eq!(report.finished, 1);
+        assert_eq!(report.failed, 0);
+
+        let tasks = list_downloads().await.unwrap();
+        assert_eq!(tasks[0].state, DownloadState::Finished);
+        let file_name = tasks[0].file_name.as_deref().unwrap();
+        assert!(matches!(
+            file_name,
+            "desktop-hls-byte-range.ts" | "desktop-hls-byte-range.mp4"
+        ));
+        let output_path = PathBuf::from(task_output_path(tasks[0].id.clone()).await.unwrap());
+        assert_eq!(
+            output_path.file_name().and_then(|name| name.to_str()),
+            Some(file_name)
+        );
         assert_eq!(std::fs::read(output_path).unwrap(), expected_payload);
     }
 

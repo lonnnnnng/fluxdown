@@ -1,6 +1,6 @@
 # 下载验证状态
 
-截至 2026-06-23，FluxDown 已完成 macOS、Windows、Android、iOS 当前阶段的界面截图和验证记录，但还不能表述为“所有平台、所有协议、所有前台 GUI/App 路径都已完成真实下载验证”。Android 真机已经补过一轮正常 App 下载验证；macOS CLI 已补充可重复脚本化 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证；macOS GUI 已完成本地构建、启动、基础界面渲染、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，Tauri command 级真实 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 下载验证，以及 1.0.3 非 GUI 总验收复跑；iOS 已在 Flutter 3.41.9 / Xcode 16.2 上完成 analyze、Flutter 测试、framework build、simulator build、unsigned device build、artifact 校验、URL scheme 配置校验，并在 iOS simulator 中跑通 App 内 HTTP/fMP4 HLS 下载 smoke。Windows 已完成本机 release 构建、CLI HTTP 直连/队列真实下载、Tauri command HTTP 队列下载，以及真实 GUI 前台 HTTP 下载闭环；Linux 目前只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。按当前安排，本阶段保留已覆盖的 GUI/App 前台验证证据，剩余协议和平台差距继续通过后续专项验证收口。
+截至 2026-06-23，FluxDown 已完成 macOS、Windows、Android、iOS 当前阶段的界面截图和验证记录，但还不能表述为“所有平台、所有协议、所有前台 GUI/App 路径都已完成真实下载验证”。Android 真机已经补过一轮正常 App 下载验证；macOS CLI 已补充可重复脚本化 HTTP/HLS/HLS BYTERANGE/FTP/FTPS/SFTP/SMB/Torrent/Magnet、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证；macOS GUI 已完成本地构建、启动、基础界面渲染、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，Tauri command 级真实 HTTP/HLS/HLS BYTERANGE/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 下载验证，以及 1.0.3 非 GUI 总验收复跑；iOS 已在 Flutter 3.41.9 / Xcode 16.2 上完成 analyze、Flutter 测试、framework build、simulator build、unsigned device build、artifact 校验、URL scheme 配置校验，并在 iOS simulator 中跑通 App 内 HTTP/fMP4 HLS 下载 smoke。Windows 已完成本机 release 构建、CLI HTTP 直连/队列真实下载、Tauri command HTTP 队列下载，以及真实 GUI 前台 HTTP 下载闭环；Linux 目前只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。按当前安排，本阶段保留已覆盖的 GUI/App 前台验证证据，剩余协议和平台差距继续通过后续专项验证收口。
 
 本页用于区分两类容易混淆的结论：
 
@@ -33,12 +33,14 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-06-23 04:25 CST 新增移动端 HLS BYTERANGE 支持并复验：Dart 下载器会解析 `#EXT-X-MAP` 的 `BYTERANGE` 和媒体分片 `#EXT-X-BYTERANGE`，对同一资源发起 HTTP Range 请求后按播放列表顺序输出 fMP4/MP4。`flutter analyze` 通过，`flutter test` 通过 35 个测试；`npm run verify:ios:integration` 新增 `ios-hls-byterange-local`，在 iOS 18.3 simulator 上输出 `ios-hls-byterange.mp4`，`4815` bytes，文件头包含 `ftyp`。
 
+2026-06-23 04:38 CST 新增 macOS core/CLI/桌面 command 的 HLS BYTERANGE 支持并复验：Rust core 会解析 `#EXT-X-BYTERANGE`，对同一媒体资源发起 HTTP Range 请求，并支持省略 `@offset` 的连续 byte-range 分片。`cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` 通过，当前 CLI 单元 1、CLI 集成 33、core 68、desktop 非 ignored 32 / ignored 7；严格 Clippy 通过；`npm run verify:macos-cli-http-hls` 和 `npm run verify:macos-cli-release-http-hls` 均通过，新增 HLS BYTERANGE 输出 SHA-256 为 `df20d9dcdbecbf0dce43b2148bbc312626f8a384660bbdaf33cbcb46e985886e`。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
 | --- | --- | --- |
-| 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS、自定义 IPFS gateway、限速、失败重试、暂停继续、运行中删除和并发排队均已验证；其中小体积 FTP/FTPS/SFTP/SMB/Torrent/Magnet 已补充可重复脚本化验证。 | 部分完成 |
-| macOS GUI | 已完成 Tauri `.app` 构建、本地启动、窗口渲染、设置/任务操作 Tauri command 回归测试、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，以及 Tauri command 级 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 单任务真实下载和队列真实下载。纯 GUI 的 FTP/FTPS/SFTP/SMB/IPFS/WebDAV 点击验证按当前阶段安排暂缓，不作为本阶段阻塞。 | 部分完成 |
+| 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/HLS BYTERANGE/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS、自定义 IPFS gateway、限速、失败重试、暂停继续、运行中删除和并发排队均已验证；其中小体积 FTP/FTPS/SFTP/SMB/Torrent/Magnet 已补充可重复脚本化验证。 | 部分完成 |
+| macOS GUI | 已完成 Tauri `.app` 构建、本地启动、窗口渲染、设置/任务操作 Tauri command 回归测试、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，以及 Tauri command 级 HTTP/HLS/HLS BYTERANGE/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 单任务真实下载和队列真实下载。纯 GUI 的 FTP/FTPS/SFTP/SMB/IPFS/WebDAV 点击验证按当前阶段安排暂缓，不作为本阶段阻塞。 | 部分完成 |
 | Windows GUI | 已在 Windows 开发机完成本机 release 构建，生成 `target/release/fluxdown-desktop.exe`、MSI 和 NSIS installer；CLI release 二进制完成 HTTP 直连下载和队列下载，Tauri command 完成 HTTP 队列下载，真实 GUI 前台完成本地 HTTP 下载闭环，落盘 `1048576` bytes，SHA-256 与源文件一致。 | 部分完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
 | Android App | 已在 Redmi Note 8 Pro 真机安装并通过正常 App 队列完成本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB/IPFS、小 HLS、小 torrent、小 magnet，以及 2026-06-14 媒体级 HLS、单文件 torrent、单文件 magnet、多文件 torrent 和多文件 magnet 选择下载验证。 | 部分完成 |
@@ -50,7 +52,7 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 | --- | --- | --- |
 | HTTP/HTTPS | CLI 和核心层有本地下载验证；2026-06-18 macOS CLI 已验证直接下载、队列下载、限速、失败重试、暂停继续、运行中删除、并发排队，以及本地自签 HTTPS opt-in；macOS GUI 已通过真实界面点击完成 HTTP 新建任务、自动下载和文件落盘校验；2026-06-19 Windows CLI 已验证 HTTP 直连/队列下载，Windows GUI 已通过真实界面完成 HTTP 下载和 SHA-256 落盘校验。 | 证据最充分。 |
 | WebDAV/WebDAVS | 核心层验证了 URL 到 HTTP/HTTPS 传输的映射；2026-06-18 macOS CLI 已验证公网 WebDAVS transport 和本地自签 WebDAVS transport，CLI/桌面 command 均有队列回归覆盖。 | 仍未覆盖完整 WebDAV 方法，例如 PROPFIND/目录遍历。 |
-| m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片和 master playlist 首个变体；Android 真机和 macOS CLI 均已验证媒体级 HLS 可生成最终 `.mp4`，CLI 直连/队列、桌面 command 和 macOS 纯 GUI 均有本地 HLS fixture 回归；纯 GUI 真实媒体 HLS 输出 `index.mp4` 并通过 `ffprobe` 识别为 MP4 容器；iOS simulator 已通过 App 内 fMP4 HLS 和 fMP4 BYTERANGE HLS smoke，两个输出文件头均包含 `ftyp`。 | iOS 本地 TS HLS 转 MP4 仍受 AVFoundation 限制，需要 FFmpeg 或更完整 TS muxer；仍需要更多公网和边界 playlist 验证。 |
+| m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片、master playlist 首个变体和 TS BYTERANGE 分片；Android 真机和 macOS CLI 均已验证媒体级 HLS 可生成最终 `.mp4`，CLI 直连/队列、桌面 command 和 macOS 纯 GUI 均有本地 HLS fixture 回归；macOS CLI release 与桌面 command 已验证 HLS BYTERANGE 真实落盘；纯 GUI 真实媒体 HLS 输出 `index.mp4` 并通过 `ffprobe` 识别为 MP4 容器；iOS simulator 已通过 App 内 fMP4 HLS 和 fMP4 BYTERANGE HLS smoke，两个输出文件头均包含 `ftyp`。 | iOS 本地 TS HLS 转 MP4 仍受 AVFoundation 限制，需要 FFmpeg 或更完整 TS muxer；仍需要更多公网和边界 playlist 验证。 |
 | FTP/FTPS | 2026-06-18 macOS CLI 已验证公网 FTP、本地 FTP 直连/队列和本地自签 FTPS 直连/队列下载闭环；macOS GUI command 层已验证本地 FTP 队列、单任务启动下载和本地自签 FTPS 队列下载闭环。 | Rebex 公网 FTPS 仍失败，错误为 `InvalidContentType`；本地可控 FTPS fixture 已通过。 |
 | SFTP | 2026-06-18 macOS CLI 已验证公网 SFTP、本地 Docker SFTP 直连下载和队列下载；macOS GUI command 层已通过本地 Docker SFTP fixture 验证队列下载。 | 公网 Rebex 仍作为兼容性 smoke；可重复脚本已不依赖公网源。 |
 | SMB | 2026-06-18 macOS CLI 已通过 Docker Samba fixture 验证直连下载和队列下载；macOS GUI command 层已通过同类 Samba fixture 验证队列下载。Android 真机也已验证过局域网 SMB 小文件下载。 | 仍未覆盖纯 GUI 点击下载闭环和 Linux 桌面真实运行；Windows GUI 当前只覆盖 HTTP 前台闭环。 |
@@ -91,7 +93,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run verify:apple` | 通过：串联 `npm run verify:macos` 和 `npm run verify:ios`，完成当前 macOS 桌面/CLI 与 iOS 构建产物的非前台总验收；不会启动前台桌面 GUI，也不会自动启动 iOS simulator。 |
 | `npm run verify:ios` | 通过：该脚本汇总 `flutter --version`、`xcodebuild -version`、`mobile:analyze`、`mobile:test`、iOS framework build/artifact 校验、iOS simulator build/artifact 校验、无签名 device build/artifact 校验和移动端 URL scheme 校验；用于日常非前台 iOS 构建验证。 |
 | `npm run verify:ios:integration` | 通过：在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 上生成本地 HTTP/fMP4 HLS/BYTERANGE HLS fixture，构建隐藏自检 App，staged install 后通过 `simctl launch --console` 收集结果；`ios-http-local` 输出 `29` bytes，`ios-hls-local` 和 `ios-hls-byterange-local` 均输出 `4815` bytes，`outputHeadHex` 包含 `66747970`。 |
-| `npm run verify:macos` | 通过：覆盖 `cargo fmt --check`、严格 Clippy、core 67、CLI 单元 1、CLI 集成 33、desktop 非 ignored 31 / ignored 7、release CLI HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制真实 fixture、CLI-only artifact 校验、desktop command FTPS/SFTP/SMB/Torrent/Magnet fixture、完整 macOS artifact 校验、许可证和 CI 手动触发策略检查。 |
+| `npm run verify:macos` | 通过：覆盖 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、release CLI HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制真实 fixture、CLI-only artifact 校验、desktop command FTPS/SFTP/SMB/Torrent/Magnet fixture、完整 macOS artifact 校验、许可证和 CI 手动触发策略检查；04:38 单独复跑 Rust 测试后当前计数为 core 68、CLI 单元 1、CLI 集成 33、desktop 非 ignored 32 / ignored 7。 |
 | `npm run verify:macos-cli-artifact` | 通过：校验 `target/release/fluxdown` 存在且非空，大小 `14689536` bytes；`--version` 输出 `fluxdown 1.0.3`，`detect/support/doctor` 均通过。 |
 | `npm run desktop:dmg` | 通过：生成 `target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.3_aarch64.dmg`；本轮 04:16 复验 DMG 大小 `8731864` bytes，`hdiutil verify` checksum 通过；`.app` ad-hoc 签名校验通过。 |
 | macOS 验证脚本修复 | 已修复：`verify:macos-cli-release` 不再在 CLI 阶段要求桌面 DMG 存在，改为调用 `verify:macos-cli-artifact`；完整桌面 artifact 校验仍由 `verify:macos-desktop-command` 在 DMG 构建后执行。 |
@@ -101,7 +103,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run mobile:ios:simulator` + `npm run mobile:ios:simulator:verify` | 通过：Xcode 构建 `build/ios/iphonesimulator/Runner.app` 成功，artifact 目录存在；目录大小约 `195M`。 |
 | `npm run mobile:ios` + `npm run mobile:ios:verify` | 通过：无代码签名 device 构建 `build/ios/iphoneos/Runner.app` 成功，Flutter 输出大小 `34.6MB`，artifact 目录存在。 |
 | `npm run verify:mobile-url-schemes` | 通过：Android 和 iOS 均声明 `ed2k` URL 查询能力。 |
-| iOS integration test | 通过 simulator smoke：`ios-http-local` 和 `ios-hls-local` 均为 `finished`，HLS 使用 fMP4 fixture 产出真实 `.mp4`；iPhone 真机和 iOS TS HLS 转 MP4 仍留作后续专项验证。 |
+| iOS integration test | 通过 simulator smoke：`ios-http-local`、`ios-hls-local` 和 `ios-hls-byterange-local` 均为 `finished`，HLS 使用 fMP4 fixture 产出真实 `.mp4`；iPhone 真机和 iOS TS HLS 转 MP4 仍留作后续专项验证。 |
 | `npm run verify:ios:device-readiness` | 通过边界判定：该入口只读 `flutter devices --machine` 和 `xcrun xctrace list devices`；当前本机可见 iPhone `LMY 18.6.2 (00008030-001905801E50802E)` 但状态为 Offline，命令按预期以 `78` 退出，需解锁、信任 Mac、确认 Developer Mode 或 USB/无线连接后再跑真机下载验证。 |
 
 ## 2026-06-19 Windows CLI/GUI 验证记录

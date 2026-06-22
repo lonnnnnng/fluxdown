@@ -38,6 +38,7 @@
 | `smb-local-small` | SMB | `smb://<user>:<pass>@<host>/<share>/sample.txt` | <= 1 MB | 输出文本/hash 匹配 fixture | LAN SMB2/3 共享；不要把 SMB 暴露到公网。 |
 | `http-local-small` | HTTP | `http://<host>:<port>/seg1.ts` | <= 1 MB | 输出文本/hash 匹配 fixture | 设备网络和 App 写入路径 smoke case。 |
 | `hls-local-small` | m3u8/HLS | `http://<host>:<port>/playlist.m3u8` | <= 1 MB | 移动端输出 `.mp4` header 包含 `ftyp`；核心层 `.ts` 可比对 hash | 使用有效 MPEG-TS 分片验证移动端 remux。 |
+| `hls-local-ts-byterange` | m3u8/HLS | `http://<host>:<port>/hls-byte-range/playlist.m3u8` | <= 1 MB | CLI/桌面 core 输出 `.ts` hash 匹配，服务端收到 `Range` 请求 | 验证单文件 TS HLS 的媒体分片 `#EXT-X-BYTERANGE`，包括省略 `@offset` 的连续分片。 |
 | `hls-local-fmp4-byterange` | m3u8/HLS | `http://<host>:<port>/hls-byterange/index.m3u8` | <= 10 MB | 移动端输出 `.mp4` header 包含 `ftyp`，服务端收到 `Range` 请求 | 验证单文件 fMP4 HLS 的 `#EXT-X-MAP` 和媒体分片 `#EXT-X-BYTERANGE`。 |
 | `torrent-local-small` | BitTorrent | `http://<host>:<port>/webtorrent-sample.torrent` 或 `file://...` | <= 10 MB 总 payload | torrent 完成且文件内容/hash 匹配 fixture | 使用合法小体积实验种子和正在做种的 peer。 |
 | `magnet-local-small` | Magnet | `magnet:?xt=urn:btih:<infohash>&dn=<name>&tr=<tracker>` | <= 10 MB 总 payload | torrent 完成且文件内容/hash 匹配 fixture | 与 `torrent-local-small` 使用同一份合法小种子。 |

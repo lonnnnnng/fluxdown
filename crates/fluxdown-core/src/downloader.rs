@@ -85,6 +85,8 @@ pub enum DownloadError {
     UnsupportedHlsKeyMethod(String),
     #[error("invalid HLS key: {0}")]
     InvalidHlsKey(String),
+    #[error("invalid HLS byte range: {0}")]
+    InvalidHlsByteRange(String),
     #[error("HLS segment decryption failed: {0}")]
     HlsDecrypt(String),
     #[error("HLS MP4 remux failed: {0}")]
@@ -929,6 +931,7 @@ impl DownloadEngine {
         let mut bytes_written = 0;
         let mut segments_written = 0;
         let mut current_hls_key = None;
+        let mut next_implicit_byte_range = None;
         emit_progress(&progress, bytes_written, None);
 
         let mut segment_specs = Vec::with_capacity(media_playlist.segments.len());
@@ -940,11 +943,17 @@ impl DownloadEngine {
             if let Some(key) = &segment.key {
                 current_hls_key = Some(key.clone());
             }
+            let byte_range = hls_byte_range_for_segment(
+                segment.byte_range.as_ref(),
+                &segment_url,
+                &mut next_implicit_byte_range,
+            )?;
             segment_specs.push(HlsSegmentSpec {
                 index,
                 url: segment_url,
                 media_sequence: segment_sequence,
                 key: current_hls_key.clone(),
+                byte_range,
             });
         }
 
@@ -965,6 +974,7 @@ impl DownloadEngine {
                     let bytes = engine
                         .fetch_hls_segment_with_retry(
                             segment.url,
+                            segment.byte_range,
                             limiter,
                             cancel.clone(),
                             HLS_SEGMENT_ATTEMPTS,
@@ -1040,6 +1050,7 @@ impl DownloadEngine {
     async fn fetch_hls_segment_with_retry(
         &self,
         url: Url,
+        byte_range: Option<HlsByteRange>,
         limiter: DownloadSpeedLimiter,
         cancel: Option<CancelToken>,
         attempts: usize,
@@ -1051,7 +1062,7 @@ impl DownloadEngine {
                 return Err(DownloadError::Paused);
             }
             match self
-                .fetch_hls_segment_bytes(url.clone(), limiter.clone(), cancel.clone())
+                .fetch_hls_segment_bytes(url.clone(), byte_range, limiter.clone(), cancel.clone())
                 .await
             {
                 Ok(bytes) => return Ok(bytes),
@@ -1072,10 +1083,101 @@ impl DownloadEngine {
     async fn fetch_hls_segment_bytes(
         &self,
         url: Url,
+        byte_range: Option<HlsByteRange>,
         limiter: DownloadSpeedLimiter,
         cancel: Option<CancelToken>,
     ) -> Result<Vec<u8>, DownloadError> {
-        let response = self.client.get(url).send().await?.error_for_status()?;
+        let mut request = self.client.get(url.clone());
+        if let Some(byte_range) = byte_range {
+            request = request.header(
+                RANGE,
+                format!(
+                    "bytes={}-{}",
+                    byte_range.offset,
+                    byte_range.end_inclusive()?
+                ),
+            );
+        }
+        let response = request.send().await?;
+        let status = response.status();
+        if byte_range.is_none() {
+            let response = response.error_for_status()?;
+            return self
+                .read_hls_response_bytes(response, limiter, cancel)
+                .await;
+        }
+        if status != StatusCode::PARTIAL_CONTENT && status != StatusCode::OK {
+            return match response.error_for_status() {
+                Ok(_) => Err(DownloadError::InvalidHlsByteRange(format!(
+                    "unexpected HTTP status {status} for {url}"
+                ))),
+                Err(error) => Err(DownloadError::Http(error)),
+            };
+        }
+        let mut stream = response.bytes_stream();
+        let mut bytes = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            if is_cancelled(&cancel) {
+                return Err(DownloadError::Paused);
+            }
+            let chunk = chunk?;
+            limiter.wait(chunk.len() as u64).await;
+            bytes.extend_from_slice(&chunk);
+        }
+        let byte_range = byte_range.expect("checked above");
+        if status == StatusCode::PARTIAL_CONTENT {
+            if bytes.len() as u64 != byte_range.length {
+                return Err(DownloadError::InvalidHlsByteRange(format!(
+                    "expected {} bytes from {}, got {}",
+                    byte_range.length,
+                    url,
+                    bytes.len()
+                )));
+            }
+            return Ok(bytes);
+        }
+
+        let offset = usize::try_from(byte_range.offset).map_err(|_| {
+            DownloadError::InvalidHlsByteRange(format!(
+                "offset {} is too large for {}",
+                byte_range.offset, url
+            ))
+        })?;
+        let range_end = byte_range
+            .offset
+            .checked_add(byte_range.length)
+            .ok_or_else(|| {
+                DownloadError::InvalidHlsByteRange(format!(
+                    "overflow for offset {} and length {} from {}",
+                    byte_range.offset, byte_range.length, url
+                ))
+            })?;
+        let end = usize::try_from(range_end).map_err(|_| {
+            DownloadError::InvalidHlsByteRange(format!(
+                "range {}+{} is too large for {}",
+                byte_range.offset, byte_range.length, url
+            ))
+        })?;
+        if bytes.len() < end {
+            return Err(DownloadError::InvalidHlsByteRange(format!(
+                "range {}-{} exceeds {} bytes from {}",
+                byte_range.offset,
+                byte_range.end_inclusive()?,
+                bytes.len(),
+                url
+            )));
+        }
+        // 作者: long
+        // 有些本地 fixture 或简单 WebDAV 服务会忽略 Range 并返回 200；保留本地裁剪，避免 BYTERANGE HLS 被误拼成整文件重复内容。
+        Ok(bytes[offset..end].to_vec())
+    }
+
+    async fn read_hls_response_bytes(
+        &self,
+        response: reqwest::Response,
+        limiter: DownloadSpeedLimiter,
+        cancel: Option<CancelToken>,
+    ) -> Result<Vec<u8>, DownloadError> {
         let mut stream = response.bytes_stream();
         let mut bytes = Vec::new();
         while let Some(chunk) = stream.next().await {
@@ -1263,6 +1365,77 @@ struct HlsSegmentSpec {
     url: Url,
     media_sequence: u64,
     key: Option<Key>,
+    byte_range: Option<HlsByteRange>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HlsByteRange {
+    offset: u64,
+    length: u64,
+}
+
+impl HlsByteRange {
+    fn end_inclusive(&self) -> Result<u64, DownloadError> {
+        self.offset
+            .checked_add(self.length)
+            .and_then(|end| end.checked_sub(1))
+            .ok_or_else(|| {
+                DownloadError::InvalidHlsByteRange(format!(
+                    "overflow for offset {} and length {}",
+                    self.offset, self.length
+                ))
+            })
+    }
+}
+
+fn hls_byte_range_for_segment(
+    byte_range: Option<&m3u8_rs::ByteRange>,
+    segment_url: &Url,
+    next_implicit_byte_range: &mut Option<(String, u64)>,
+) -> Result<Option<HlsByteRange>, DownloadError> {
+    let Some(byte_range) = byte_range else {
+        *next_implicit_byte_range = None;
+        return Ok(None);
+    };
+    if byte_range.length == 0 {
+        return Err(DownloadError::InvalidHlsByteRange(
+            "length must be greater than zero".to_string(),
+        ));
+    }
+    let segment_url_text = segment_url.to_string();
+    let offset = match byte_range.offset {
+        Some(offset) => offset,
+        None => {
+            let Some((previous_url, next_offset)) = next_implicit_byte_range.as_ref() else {
+                return Err(DownloadError::InvalidHlsByteRange(
+                    "missing offset for first byte-range segment".to_string(),
+                ));
+            };
+            if previous_url != &segment_url_text {
+                return Err(DownloadError::InvalidHlsByteRange(
+                    "implicit offset requires the same segment URI as the previous byte range"
+                        .to_string(),
+                ));
+            }
+            *next_offset
+        }
+    };
+    let range = HlsByteRange {
+        offset,
+        length: byte_range.length,
+    };
+    // 作者: long
+    // HLS 允许后续 BYTERANGE 省略 @offset，下一段只能从同一资源的上一段结尾继续，不能跨 URI 继承。
+    *next_implicit_byte_range = Some((
+        segment_url_text,
+        offset.checked_add(byte_range.length).ok_or_else(|| {
+            DownloadError::InvalidHlsByteRange(format!(
+                "overflow for offset {offset} and length {}",
+                byte_range.length
+            ))
+        })?,
+    ));
+    Ok(Some(range))
 }
 
 #[derive(Debug, Clone)]
@@ -2954,6 +3127,126 @@ fn main() {{
             fs::read(temp_dir.path().join("playlist.ts")).await.unwrap(),
             [first_plain, second_plain].concat(),
         );
+        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn downloads_hls_byte_range_segments() {
+        let first_segment = b"core hls byte range first".to_vec();
+        let second_segment = b"second range segment".to_vec();
+        let first_len = first_segment.len();
+        let second_len = second_segment.len();
+        let media = [first_segment.clone(), second_segment.clone()].concat();
+        let requested_ranges = Arc::new(AsyncMutex::new(Vec::new()));
+        let server_requested_ranges = Arc::clone(&requested_ranges);
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/playlist.m3u8", server.local_addr().unwrap());
+        let server_task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = server.accept().await else {
+                    return;
+                };
+                let media = media.clone();
+                let requested_ranges = Arc::clone(&server_requested_ranges);
+                tokio::spawn(async move {
+                    let mut buffer = [0; 2048];
+                    let Ok(read) = stream.read(&mut buffer).await else {
+                        return;
+                    };
+                    let request = String::from_utf8_lossy(&buffer[..read]);
+                    let path = request
+                        .lines()
+                        .next()
+                        .and_then(|line| line.split_whitespace().nth(1))
+                        .unwrap_or("/");
+                    let range = request.lines().find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        if name.eq_ignore_ascii_case("range") {
+                            Some(value.trim().to_string())
+                        } else {
+                            None
+                        }
+                    });
+                    let (status, content_type, headers, body): (&str, &str, String, Vec<u8>) =
+                        match path {
+                            "/playlist.m3u8" => (
+                                "200 OK",
+                                "application/vnd.apple.mpegurl",
+                                String::new(),
+                                format!(
+                                    "#EXTM3U\n#EXT-X-VERSION:4\n#EXTINF:1,\n#EXT-X-BYTERANGE:{}@0\nmedia.ts\n#EXTINF:1,\n#EXT-X-BYTERANGE:{}\nmedia.ts\n#EXT-X-ENDLIST\n",
+                                    first_len,
+                                    second_len
+                                )
+                                .into_bytes(),
+                            ),
+                            "/media.ts" => {
+                                requested_ranges
+                                    .lock()
+                                    .await
+                                    .push(range.clone().unwrap_or_default());
+                                let (start, end) = requested_range(
+                                    &format!(
+                                        "GET /media.ts HTTP/1.1\r\nRange: {}\r\n\r\n",
+                                        range.as_deref().unwrap_or_default()
+                                    ),
+                                )
+                                .unwrap();
+                                (
+                                    "206 Partial Content",
+                                    "video/mp2t",
+                                    format!(
+                                        "Content-Range: bytes {start}-{end}/{}\r\n",
+                                        media.len()
+                                    ),
+                                    media[start..=end].to_vec(),
+                                )
+                            }
+                            _ => (
+                                "404 Not Found",
+                                "text/plain",
+                                String::new(),
+                                b"not found".to_vec(),
+                            ),
+                        };
+                    let header = format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(header.as_bytes()).await;
+                    let _ = stream.write_all(&body).await;
+                    let _ = stream.shutdown().await;
+                });
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let summary = DownloadEngine::new()
+            .download(DownloadRequest::new(source, temp_dir.path()))
+            .await
+            .unwrap();
+
+        assert_eq!(summary.segments_written, Some(2));
+        assert_eq!(
+            summary.bytes_written,
+            (first_segment.len() + second_segment.len()) as u64
+        );
+        assert_eq!(
+            fs::read(temp_dir.path().join("playlist.ts")).await.unwrap(),
+            [first_segment.clone(), second_segment.clone()].concat(),
+        );
+        let mut ranges = requested_ranges.lock().await.clone();
+        ranges.sort();
+        let mut expected = vec![
+            format!("bytes=0-{}", first_segment.len() - 1),
+            format!(
+                "bytes={}-{}",
+                first_segment.len(),
+                first_segment.len() + second_segment.len() - 1
+            ),
+        ];
+        expected.sort();
+        assert_eq!(ranges, expected);
         server_task.abort();
     }
 

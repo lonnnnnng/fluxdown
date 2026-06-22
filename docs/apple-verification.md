@@ -6,8 +6,8 @@
 
 | 目标项 | 当前状态 | 已有证据 | 剩余缺口 |
 | --- | --- | --- | --- |
-| macOS CLI | 非前台验收已通过 | `npm run verify:apple` 已串联 `npm run verify:macos`；release CLI 覆盖 HTTP/HLS、FTP/FTPS、SFTP、SMB、Torrent/Magnet、队列控制和 artifact 校验。 | 真实公网边界资源仍可继续扩展，但当前本地可重复 fixture 已覆盖主要协议闭环。 |
-| macOS 桌面端 | 非前台 command/artifact 验收已通过，既有前台 GUI 最小闭环已记录 | `npm run verify:apple` 已串联桌面 Tauri command fixture、`.app`/DMG 构建、ad-hoc 签名和 checksum；历史前台 GUI 已覆盖 HTTP、HLS、Torrent、Magnet。 | 纯 GUI 前台的 FTP/FTPS、SFTP、SMB、IPFS、WebDAV 点击下载闭环仍按当前阶段暂缓。 |
+| macOS CLI | 非前台验收已通过 | `npm run verify:apple` 已串联 `npm run verify:macos`；release CLI 覆盖 HTTP/HLS、HLS BYTERANGE、FTP/FTPS、SFTP、SMB、Torrent/Magnet、队列控制和 artifact 校验。 | 真实公网边界资源仍可继续扩展，但当前本地可重复 fixture 已覆盖主要协议闭环。 |
+| macOS 桌面端 | 非前台 command/artifact 验收已通过，既有前台 GUI 最小闭环已记录 | `npm run verify:apple` 已串联桌面 Tauri command fixture、`.app`/DMG 构建、ad-hoc 签名和 checksum；桌面 command 已覆盖 HLS BYTERANGE；历史前台 GUI 已覆盖 HTTP、HLS、Torrent、Magnet。 | 纯 GUI 前台的 FTP/FTPS、SFTP、SMB、IPFS、WebDAV 点击下载闭环仍按当前阶段暂缓。 |
 | iOS 构建与静态验证 | 已通过 | `npm run verify:apple` 已串联 `flutter analyze`、`flutter test`、iOS framework build、simulator build、unsigned device build、artifact 校验和 URL scheme 校验。 | 签名 IPA 需要 Apple 证书和 provisioning profile。 |
 | iOS App 内下载 | simulator smoke 已通过 | `npm run verify:ios:integration` 已在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 上完成 App 内 HTTP、fMP4 HLS 和 fMP4 BYTERANGE HLS 下载；HTTP 输出 `29` bytes，两个 HLS 输出均为 `4815` bytes，文件头包含 `66747970`。脚本默认不自动启动模拟器，显式设置 `FLUXDOWN_IOS_BOOT_SIMULATOR=1` 时才会尝试通过 `simctl` 启动可用 iPhone simulator。 | iPhone 真机、签名 IPA、扫码/文件选择/分享打开等真机能力仍待证书和设备窗口补验；iOS 本地 TS HLS 转 MP4 仍需 FFmpeg 或更完整 TS muxer，本轮可重复 smoke 使用标准 fMP4 HLS。 |
 
@@ -22,6 +22,8 @@
 2026-06-23 04:16 CST 复跑 `npm run verify:macos` 通过：覆盖 Rust/desktop 基础测试、release CLI HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制 fixture、桌面 command FTPS/SFTP/SMB/Torrent/Magnet live fixture、`FluxDown.app`/`FluxDown_1.0.3_aarch64.dmg` artifact 校验、许可证检查和 CI 手动触发策略检查。
 
 2026-06-23 04:25 CST 新增并验证移动端 HLS BYTERANGE 支持：`flutter analyze` 通过，`flutter test` 通过 35 个测试；`npm run verify:ios:integration` 在同一 iOS simulator 上新增 `ios-hls-byterange-local`，输出 `ios-hls-byterange.mp4` 为 `4815` bytes，`outputHeadHex` 含 `66747970`。
+
+2026-06-23 04:38 CST 新增并验证 macOS core/CLI/桌面 command 的 HLS BYTERANGE 支持：`cargo test -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop` 通过，当前 core 68、CLI 单元 1、CLI 集成 33、desktop 非 ignored 32 / ignored 7；`cargo clippy -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop --all-targets -- -D warnings` 通过；`npm run verify:macos-cli-http-hls` 和 `npm run verify:macos-cli-release-http-hls` 均通过，新增 HLS BYTERANGE 输出 SHA-256 为 `df20d9dcdbecbf0dce43b2148bbc312626f8a384660bbdaf33cbcb46e985886e`。
 
 ## 推荐验收命令
 

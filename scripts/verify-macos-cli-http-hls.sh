@@ -131,8 +131,10 @@ wait_for_server_log() {
 FIXTURE_DIR="$TMP_DIR/fixtures"
 DOWNLOAD_DIR="$TMP_DIR/downloads"
 STORE="$TMP_DIR/queue.json"
-mkdir -p "$FIXTURE_DIR/hls" "$DOWNLOAD_DIR/direct-http" "$DOWNLOAD_DIR/queue-http" \
-  "$DOWNLOAD_DIR/direct-hls" "$DOWNLOAD_DIR/queue-hls" "$DOWNLOAD_DIR/start-hls"
+mkdir -p "$FIXTURE_DIR/hls" "$FIXTURE_DIR/hls-byte-range" \
+  "$DOWNLOAD_DIR/direct-http" "$DOWNLOAD_DIR/queue-http" \
+  "$DOWNLOAD_DIR/direct-hls" "$DOWNLOAD_DIR/queue-hls" "$DOWNLOAD_DIR/start-hls" \
+  "$DOWNLOAD_DIR/direct-hls-byte-range"
 
 python3 - "$FIXTURE_DIR" <<'PY'
 import pathlib
@@ -153,10 +155,26 @@ payload = bytes(index % 251 for index in range(256 * 1024))
     "#EXT-X-ENDLIST\n",
     encoding="utf-8",
 )
+first = b"cli script byte range hls segment one\n"
+second = b"cli script byte range hls segment two\n"
+(root / "hls-byte-range" / "media.ts").write_bytes(first + second)
+(root / "hls-byte-range" / "playlist.m3u8").write_text(
+    "#EXTM3U\n"
+    "#EXT-X-VERSION:4\n"
+    "#EXTINF:1,\n"
+    f"#EXT-X-BYTERANGE:{len(first)}@0\n"
+    "media.ts\n"
+    "#EXTINF:1,\n"
+    f"#EXT-X-BYTERANGE:{len(second)}\n"
+    "media.ts\n"
+    "#EXT-X-ENDLIST\n",
+    encoding="utf-8",
+)
 PY
 
 HTTP_SHA256="$(shasum -a 256 "$FIXTURE_DIR/range.bin" | awk '{print $1}')"
 HLS_SHA256="$(cat "$FIXTURE_DIR/hls/seg-1.ts" "$FIXTURE_DIR/hls/seg-2.ts" | shasum -a 256 | awk '{print $1}')"
+HLS_BYTE_RANGE_SHA256="$(cat "$FIXTURE_DIR/hls-byte-range/media.ts" | shasum -a 256 | awk '{print $1}')"
 
 SERVER_LOG="$TMP_DIR/http-server.log"
 python3 "$ROOT_DIR/scripts/range-http-server.py" \
@@ -182,6 +200,7 @@ echo "macOS CLI HTTP/HLS fixture"
 echo "  base:       $BASE_URL"
 echo "  http sha:   $HTTP_SHA256"
 echo "  hls sha:    $HLS_SHA256"
+echo "  hls range:  $HLS_BYTE_RANGE_SHA256"
 if [[ -n "$FLUXDOWN_BIN_PATH" ]]; then
   echo "  binary:     $FLUXDOWN_BIN_PATH"
 else
@@ -225,6 +244,15 @@ fluxdown download "$BASE_URL/hls/playlist.m3u8" \
 assert_json_value "$HLS_DIRECT" "display_name" "direct-hls.ts"
 assert_json_value "$HLS_DIRECT" "segments_written" "2"
 assert_sha256 "$DOWNLOAD_DIR/direct-hls/direct-hls.ts" "$HLS_SHA256"
+
+HLS_BYTE_RANGE_DIRECT="$TMP_DIR/hls-byte-range-direct.json"
+fluxdown download "$BASE_URL/hls-byte-range/playlist.m3u8" \
+  --output "$DOWNLOAD_DIR/direct-hls-byte-range" \
+  --name direct-hls-byte-range.m3u8 \
+  > "$HLS_BYTE_RANGE_DIRECT"
+assert_json_value "$HLS_BYTE_RANGE_DIRECT" "display_name" "direct-hls-byte-range.ts"
+assert_json_value "$HLS_BYTE_RANGE_DIRECT" "segments_written" "2"
+assert_sha256 "$DOWNLOAD_DIR/direct-hls-byte-range/direct-hls-byte-range.ts" "$HLS_BYTE_RANGE_SHA256"
 
 HLS_ADD="$TMP_DIR/hls-add.json"
 HLS_RUN="$TMP_DIR/hls-run.json"
