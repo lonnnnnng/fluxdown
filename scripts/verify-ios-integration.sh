@@ -30,10 +30,14 @@ select_ios_device() {
 const fs = require('node:fs');
 const devices = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const requested = process.env.FLUXDOWN_IOS_DEVICE_ID?.trim();
+const canBootSimulator = process.env.FLUXDOWN_IOS_BOOT_SIMULATOR === '1';
 let device;
 if (requested) {
   device = devices.find((item) => item.id === requested || item.name === requested);
   if (!device) {
+    if (canBootSimulator) {
+      process.exit(2);
+    }
     console.error(`Requested iOS device was not found: ${requested}`);
     process.exit(3);
   }
@@ -190,9 +194,11 @@ if command -v ffmpeg >/dev/null 2>&1; then
     -c:v libx264 \
     -pix_fmt yuv420p \
     -f hls \
+    -hls_segment_type fmp4 \
+    -hls_fmp4_init_filename init.mp4 \
     -hls_time 1 \
     -hls_playlist_type vod \
-    -hls_segment_filename "$TMP_DIR/hls/seg_%03d.ts" \
+    -hls_segment_filename "$TMP_DIR/hls/seg_%03d.m4s" \
     "$TMP_DIR/hls/index.m3u8"
   HLS_AVAILABLE=1
 else
@@ -250,11 +256,95 @@ NODE
 )"
 
 echo "  fixture: $BASE_URL"
-(
-  cd apps/mobile
-  flutter test integration_test/protocol_e2e_test.dart \
-    -d "$DEVICE_ID" \
-    --dart-define=FLUXDOWN_E2E_CASES_JSON="$CASES_JSON"
-)
+if [ "$DEVICE_KIND" = "simulator" ]; then
+  (
+    cd apps/mobile
+    flutter build ios --simulator \
+      --dart-define=FLUXDOWN_E2E_AUTO_RUN=true \
+      --dart-define=FLUXDOWN_E2E_CASES_JSON="$CASES_JSON"
+  )
+
+  STAGED_APP="$TMP_DIR/Runner.app"
+  xattr -cr apps/mobile/build/ios/iphonesimulator/Runner.app
+  ditto --noextattr --norsrc apps/mobile/build/ios/iphonesimulator/Runner.app "$STAGED_APP"
+
+  # 作者: long
+  # CoreSimulator 覆盖安装 Flutter app 时偶发不返回，simulator 验证改为 staged app 干净安装后用控制台输出收集结构化结果。
+  xcrun simctl uninstall "$DEVICE_ID" dev.fluxdown.mobile >/dev/null 2>&1 || true
+  xcrun simctl install "$DEVICE_ID" "$STAGED_APP"
+
+  APP_DATA_CONTAINER="$(xcrun simctl get_app_container "$DEVICE_ID" dev.fluxdown.mobile data)"
+  E2E_OUTPUT_LOG="$APP_DATA_CONTAINER/tmp/fluxdown-e2e-output.log"
+  rm -f "$E2E_OUTPUT_LOG"
+  LAUNCH_LOG="$TMP_DIR/ios-launch.log"
+  SIMCTL_CHILD_FLUXDOWN_E2E_OUTPUT_PATH="$E2E_OUTPUT_LOG" xcrun simctl launch \
+    --console \
+    --terminate-running-process \
+    "$DEVICE_ID" \
+    dev.fluxdown.mobile > "$LAUNCH_LOG" 2>&1 &
+  LAUNCH_PID=$!
+  LAUNCH_TIMED_OUT=0
+  E2E_DONE=0
+  for _ in {1..240}; do
+    if [ -f "$E2E_OUTPUT_LOG" ] && grep -q '^FLUXDOWN_E2E_STATUS ' "$E2E_OUTPUT_LOG"; then
+      E2E_DONE=1
+      break
+    fi
+    if ! kill -0 "$LAUNCH_PID" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  if kill -0 "$LAUNCH_PID" >/dev/null 2>&1; then
+    if [ "$E2E_DONE" -eq 1 ]; then
+      xcrun simctl terminate "$DEVICE_ID" dev.fluxdown.mobile >/dev/null 2>&1 || true
+    else
+      LAUNCH_TIMED_OUT=1
+      xcrun simctl terminate "$DEVICE_ID" dev.fluxdown.mobile >/dev/null 2>&1 || true
+    fi
+    kill "$LAUNCH_PID" >/dev/null 2>&1 || true
+  fi
+  set +e
+  wait "$LAUNCH_PID"
+  LAUNCH_STATUS=$?
+  set -e
+  if [ -s "$LAUNCH_LOG" ]; then
+    cat "$LAUNCH_LOG"
+  fi
+  if [ -f "$E2E_OUTPUT_LOG" ]; then
+    cat "$E2E_OUTPUT_LOG"
+    RESULT_LOG="$E2E_OUTPUT_LOG"
+  else
+    RESULT_LOG="$LAUNCH_LOG"
+  fi
+  if [ "$LAUNCH_TIMED_OUT" -eq 1 ]; then
+    echo "iOS simulator E2E app did not exit within 240 seconds." >&2
+    exit 1
+  fi
+  if [ "$E2E_DONE" -eq 1 ]; then
+    LAUNCH_STATUS=0
+  fi
+  if [ "$LAUNCH_STATUS" -ne 0 ]; then
+    exit "$LAUNCH_STATUS"
+  fi
+  if ! grep -q '^FLUXDOWN_E2E_SUMMARY ' "$RESULT_LOG"; then
+    echo "iOS simulator E2E app did not print FLUXDOWN_E2E_SUMMARY." >&2
+    exit 1
+  fi
+  if grep -q '^FLUXDOWN_E2E_FATAL ' "$RESULT_LOG"; then
+    exit 1
+  fi
+  if ! grep -q '^FLUXDOWN_E2E_STATUS .*"exitStatus":0' "$RESULT_LOG"; then
+    echo "iOS simulator E2E app reported a failed status." >&2
+    exit 1
+  fi
+else
+  (
+    cd apps/mobile
+    flutter test integration_test/protocol_e2e_test.dart \
+      -d "$DEVICE_ID" \
+      --dart-define=FLUXDOWN_E2E_CASES_JSON="$CASES_JSON"
+  )
+fi
 
 echo "iOS integration download verification passed"

@@ -568,7 +568,8 @@ class MobileDownloadRunner {
     final mediaText = mediaPlaylistUri == playlistUri
         ? playlistText
         : await _readText(mediaPlaylistUri);
-    final segments = _hlsSegments(mediaPlaylistUri, mediaText);
+    final hlsParts = _hlsSegments(mediaPlaylistUri, mediaText);
+    final segments = hlsParts.segments;
     if (segments.isEmpty) {
       throw const FormatException(
         'm3u8 playlist has no downloadable segments.',
@@ -664,6 +665,7 @@ class MobileDownloadRunner {
       }
     }
 
+    int? fragmentedOutputBytes;
     try {
       await Future.wait(
         List.generate(workerCount, (_) => worker()),
@@ -673,14 +675,28 @@ class MobileDownloadRunner {
         throw const DownloadCancelled();
       }
 
-      final sink = tempTsFile.openWrite(mode: FileMode.write);
-      try {
-        for (final segmentFile in segmentFiles) {
-          await sink.addStream(segmentFile.openRead());
+      if (hlsParts.initSegmentUri == null) {
+        final sink = tempTsFile.openWrite(mode: FileMode.write);
+        try {
+          for (final segmentFile in segmentFiles) {
+            await sink.addStream(segmentFile.openRead());
+          }
+        } finally {
+          await sink.flush();
+          await sink.close();
         }
-      } finally {
-        await sink.flush();
-        await sink.close();
+      } else {
+        fragmentedOutputBytes = await _writeFragmentedMp4Output(
+          initSegmentUri: hlsParts.initSegmentUri!,
+          segmentFiles: segmentFiles,
+          outputMp4: outputFile,
+          speedLimiter: speedLimiter,
+          taskId: task.id,
+          onInitBytes: (bytes) async {
+            downloaded += bytes;
+            await reportProgress(force: true);
+          },
+        );
       }
     } catch (_) {
       if (await tempTsFile.exists()) {
@@ -693,10 +709,13 @@ class MobileDownloadRunner {
       }
     }
 
-    final outputBytes = await _remuxHlsTransportStream(
-      sourceTs: tempTsFile,
-      outputMp4: outputFile,
-    );
+    final outputBytes =
+        fragmentedOutputBytes ??
+        await _remuxHlsTransportStream(
+          sourceTs: tempTsFile,
+          outputMp4: outputFile,
+          playlistUri: mediaPlaylistUri,
+        );
     try {
       if (await tempTsFile.exists()) {
         await tempTsFile.delete();
@@ -864,10 +883,11 @@ class MobileDownloadRunner {
     return playlistUri;
   }
 
-  List<HlsSegment> _hlsSegments(Uri playlistUri, String playlistText) {
+  HlsPlaylistParts _hlsSegments(Uri playlistUri, String playlistText) {
     final lines = _playlistLines(playlistText);
     final segments = <HlsSegment>[];
     HlsKey? currentKey;
+    Uri? initSegmentUri;
     var mediaSequence = 0;
     var segmentIndex = 0;
 
@@ -877,6 +897,13 @@ class MobileDownloadRunner {
             int.tryParse(line.substring('#EXT-X-MEDIA-SEQUENCE:'.length)) ?? 0;
       } else if (line.startsWith('#EXT-X-KEY:')) {
         currentKey = _parseHlsKey(playlistUri, line);
+      } else if (line.startsWith('#EXT-X-MAP:')) {
+        final attrs = _parseHlsAttributes(line.substring('#EXT-X-MAP:'.length));
+        final uri = attrs['URI'];
+        if (uri == null || uri.isEmpty) {
+          throw const FormatException('HLS map is missing URI.');
+        }
+        initSegmentUri = playlistUri.resolve(uri);
       } else if (!line.startsWith('#')) {
         segments.add(
           HlsSegment(
@@ -889,7 +916,7 @@ class MobileDownloadRunner {
       }
     }
 
-    return segments;
+    return HlsPlaylistParts(initSegmentUri: initSegmentUri, segments: segments);
   }
 
   List<String> _playlistLines(String playlistText) {
@@ -911,11 +938,13 @@ class MobileDownloadRunner {
   Future<int> _remuxHlsTransportStream({
     required File sourceTs,
     required File outputMp4,
+    required Uri playlistUri,
   }) async {
     final result = await _mediaChannel
         .invokeMapMethod<String, Object?>('remuxTsToMp4', {
           'sourcePath': sourceTs.path,
           'outputPath': outputMp4.path,
+          'playlistUrl': playlistUri.toString(),
         })
         .timeout(const Duration(minutes: 5));
     final outputBytes = _readPlatformInt(result?['outputBytes']);
@@ -925,6 +954,48 @@ class MobileDownloadRunner {
       throw StateError('HLS MP4 remux produced an empty output file.');
     }
     return size;
+  }
+
+  Future<int> _writeFragmentedMp4Output({
+    required Uri initSegmentUri,
+    required List<File> segmentFiles,
+    required File outputMp4,
+    required DownloadSpeedLimiter speedLimiter,
+    required String taskId,
+    required Future<void> Function(int bytes) onInitBytes,
+  }) async {
+    final response = await _client.send(http.Request('GET', initSegmentUri));
+    if (response.statusCode != HttpStatus.ok) {
+      throw HttpException('HTTP ${response.statusCode}', uri: initSegmentUri);
+    }
+    final initBytes = await _readResponseBytes(
+      response,
+      speedLimiter: speedLimiter,
+      taskId: taskId,
+    );
+    await onInitBytes(initBytes.length);
+    if (await outputMp4.exists()) {
+      await outputMp4.delete();
+    }
+
+    // 作者: long
+    // fMP4 HLS 的 init segment 已包含 ftyp/moov，后续 m4s 分片按播放列表顺序拼接即可形成可校验的 fragmented MP4。
+    final sink = outputMp4.openWrite(mode: FileMode.write);
+    try {
+      sink.add(initBytes);
+      for (final segmentFile in segmentFiles) {
+        await sink.addStream(segmentFile.openRead());
+      }
+    } finally {
+      await sink.flush();
+      await sink.close();
+    }
+
+    final outputBytes = await outputMp4.length();
+    if (outputBytes <= 0) {
+      throw StateError('HLS fragmented MP4 output was empty.');
+    }
+    return outputBytes;
   }
 
   int? _readPlatformInt(Object? value) {
@@ -1131,6 +1202,16 @@ class HlsSegment {
   final Uri uri;
   final int sequence;
   final HlsKey? key;
+}
+
+class HlsPlaylistParts {
+  const HlsPlaylistParts({
+    required this.initSegmentUri,
+    required this.segments,
+  });
+
+  final Uri? initSegmentUri;
+  final List<HlsSegment> segments;
 }
 
 class HlsKey {

@@ -285,8 +285,9 @@ ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt?ga
 
 移动端 integration test 通过 `FLUXDOWN_E2E_CASES_JSON` 接收 JSON 测试用例。
 
-iOS 可先使用仓库脚本跑本地 HTTP/HLS smoke。该脚本默认只选择已经连接或已经手动启动的
-iOS 目标，不会自动打开 Simulator：
+iOS 可先使用仓库脚本跑本地 HTTP/fMP4 HLS smoke。该脚本默认只选择已经连接或已经手动启动的
+iOS 目标，不会自动打开 Simulator；选择 simulator 时会构建隐藏自检 App、staged install，再通过
+`simctl launch --console` 收集 `FLUXDOWN_E2E_RESULT`，用于规避 Flutter 覆盖安装偶发卡死：
 
 ```sh
 npm run verify:ios:integration
@@ -325,7 +326,7 @@ flutter test integration_test/protocol_e2e_test.dart \
 ```
 
 每个完成用例会打印一行 `FLUXDOWN_E2E_RESULT`；整轮结束会打印
-`FLUXDOWN_E2E_SUMMARY`。
+`FLUXDOWN_E2E_SUMMARY` 和 `FLUXDOWN_E2E_STATUS`。
 
 对未安装 handler 的 ed2k 这类边界用例，传入 `expectedState` 和
 `expectedErrorContains`：

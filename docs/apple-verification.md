@@ -9,11 +9,13 @@
 | macOS CLI | 非前台验收已通过 | `npm run verify:apple` 已串联 `npm run verify:macos`；release CLI 覆盖 HTTP/HLS、FTP/FTPS、SFTP、SMB、Torrent/Magnet、队列控制和 artifact 校验。 | 真实公网边界资源仍可继续扩展，但当前本地可重复 fixture 已覆盖主要协议闭环。 |
 | macOS 桌面端 | 非前台 command/artifact 验收已通过，既有前台 GUI 最小闭环已记录 | `npm run verify:apple` 已串联桌面 Tauri command fixture、`.app`/DMG 构建、ad-hoc 签名和 checksum；历史前台 GUI 已覆盖 HTTP、HLS、Torrent、Magnet。 | 纯 GUI 前台的 FTP/FTPS、SFTP、SMB、IPFS、WebDAV 点击下载闭环仍按当前阶段暂缓。 |
 | iOS 构建与静态验证 | 已通过 | `npm run verify:apple` 已串联 `flutter analyze`、`flutter test`、iOS framework build、simulator build、unsigned device build、artifact 校验和 URL scheme 校验。 | 签名 IPA 需要 Apple 证书和 provisioning profile。 |
-| iOS App 内下载 | 入口已准备，真实运行未完成 | `npm run verify:ios:integration` 会生成本地 HTTP/HLS fixture，并在已有 iOS simulator 或 iPhone 目标时运行 `apps/mobile/integration_test/protocol_e2e_test.dart`；默认不会启动模拟器，显式设置 `FLUXDOWN_IOS_BOOT_SIMULATOR=1` 时才会尝试通过 `simctl` 启动可用 iPhone simulator。 | 当前没有已连接或已启动的 iOS 运行目标；后续需要手动启动 simulator、显式开启后台 simulator boot，或连接 iPhone 后执行该脚本。 |
+| iOS App 内下载 | simulator smoke 已通过 | `npm run verify:ios:integration` 已在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 上完成 App 内 HTTP 和 fMP4 HLS 下载；HTTP 输出 `29` bytes，HLS 输出 `ios-hls.mp4` 为 `4815` bytes，文件头包含 `66747970`。脚本默认不自动启动模拟器，显式设置 `FLUXDOWN_IOS_BOOT_SIMULATOR=1` 时才会尝试通过 `simctl` 启动可用 iPhone simulator。 | iPhone 真机、签名 IPA、扫码/文件选择/分享打开等真机能力仍待证书和设备窗口补验；iOS 本地 TS HLS 转 MP4 仍需 FFmpeg 或更完整 TS muxer，本轮可重复 smoke 使用标准 fMP4 HLS。 |
 
 ## 本轮复验记录
 
 2026-06-23 02:27 CST 已复跑 `npm run verify:apple`，macOS CLI、macOS 桌面 command/artifact、iOS framework、iOS simulator build、iOS unsigned device build 和 URL scheme 校验均通过。随后复跑 `npm run verify:ios:integration`，在没有 iOS 目标时按预期以 78 退出，且没有启动 simulator。
+
+2026-06-23 03:44 CST 复跑 `npm run verify:apple` 通过：macOS CLI release 多协议 fixture、macOS 桌面 command/artifact、许可证、CI 手动触发策略、iOS framework、iOS simulator build、iOS unsigned device build 和 URL scheme 均通过。随后在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 复跑 `npm run verify:ios:integration` 通过：`ios-http-local` 完成 `29` bytes，`ios-hls-local` 完成 fMP4 HLS 输出 `ios-hls.mp4`，`4815` bytes，`outputHeadHex` 含 `66747970`。
 
 ## 推荐验收命令
 
@@ -45,4 +47,4 @@ npm run verify:ios:integration
 
 ## 完成判定
 
-当前目标不能标记为完全完成，原因是 iOS App 内真实下载 E2E 还没有在 iOS simulator 或 iPhone 上跑通。若继续坚持不占用前台 GUI，macOS 桌面剩余纯 GUI 协议点击项应继续保持为“暂缓，不作为当前非前台验收阻塞项”；如果恢复前台 GUI 验证，则需要逐项记录点击、下载完成、落盘路径和 hash 证据。
+当前目标还不能标记为完全完成：iOS simulator 已补 HTTP/fMP4 HLS App 内下载 smoke，但 iPhone 真机、签名 IPA 和真机专属能力仍未验证；iOS 本地 TS HLS 转 MP4 仍需要后续专项实现。若继续坚持不占用前台 GUI，macOS 桌面剩余纯 GUI 协议点击项应继续保持为“暂缓，不作为当前非前台验收阻塞项”；如果恢复前台 GUI 验证，则需要逐项记录点击、下载完成、落盘路径和 hash 证据。

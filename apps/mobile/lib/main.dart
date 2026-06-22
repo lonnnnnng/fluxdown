@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -15,10 +16,59 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'src/download_controller.dart';
 import 'src/download_task.dart';
 import 'src/mobile_torrent.dart';
+import 'src/protocol_e2e_runner.dart';
 import 'src/protocol.dart';
 
+const _protocolE2eAutoRun = bool.fromEnvironment('FLUXDOWN_E2E_AUTO_RUN');
+
 void main() {
+  // 作者: long
+  // simulator 下载自检只在构建时显式打开，普通用户启动仍进入完整移动端界面。
+  if (_protocolE2eAutoRun) {
+    WidgetsFlutterBinding.ensureInitialized();
+    runApp(const SizedBox.shrink());
+    unawaited(_runProtocolE2eAndExit());
+    return;
+  }
+
   runApp(const FluxDownMobileApp());
+}
+
+Future<void> _runProtocolE2eAndExit() async {
+  var exitStatus = 0;
+  IOSink? outputSink;
+  void emitLine(String line) {
+    stdout.writeln(line);
+    outputSink?.writeln(line);
+  }
+
+  try {
+    final outputPath = Platform.environment['FLUXDOWN_E2E_OUTPUT_PATH']?.trim();
+    if (outputPath != null && outputPath.isNotEmpty) {
+      final outputFile = File(outputPath);
+      await outputFile.parent.create(recursive: true);
+      outputSink = outputFile.openWrite(mode: FileMode.write);
+    }
+
+    final result = await runProtocolE2e(emitLine: emitLine);
+    if (result.failures.isNotEmpty) {
+      exitStatus = 1;
+    }
+    emitLine(
+      'FLUXDOWN_E2E_STATUS ${jsonEncode({'exitStatus': exitStatus, 'failures': result.failures})}',
+    );
+  } catch (error, stackTrace) {
+    exitStatus = 1;
+    emitLine(
+      'FLUXDOWN_E2E_FATAL ${jsonEncode({'error': error.toString(), 'stack': stackTrace.toString()})}',
+    );
+  } finally {
+    await outputSink?.flush();
+    await outputSink?.close();
+    await stdout.flush();
+    await stderr.flush();
+    exit(exitStatus);
+  }
 }
 
 const _outputFolderPreferenceKey = 'fluxdown.outputFolder';
