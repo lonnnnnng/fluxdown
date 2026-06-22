@@ -145,7 +145,7 @@ Mobile ed2k handoff depends on platform URL handler visibility. The Android mani
 - `cd apps/mobile && flutter build apk --release` creates `apps/mobile/build/app/outputs/flutter-apk/app-release.apk`.
 - `cd apps/mobile/android && ./gradlew bundleRelease` creates `apps/mobile/build/app/outputs/bundle/release/app-release.aab` for Google Play upload.
 - `cd apps/mobile && flutter build ios --simulator` validates the iOS project without Apple signing when a matching iOS simulator runtime is installed.
-- `cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release` creates iOS debug frameworks when Apple signing materials are available. Flutter performs a signing identity check before this command on current macOS runners, so CI only runs it after iOS signing secrets are configured.
+- `cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release` creates local iOS debug frameworks for compile verification; the GitHub Actions release upload for those frameworks is still gated on the iOS signing secret set used by the Apple runner.
 - `cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ipa --export-options-plist=ios/ExportOptions.plist` creates an App Store IPA when Apple signing, team, and provisioning are configured.
 - `npm run mobile:ios:ipa:signed` imports base64-encoded Apple signing materials into a local temporary keychain, generates manual export options, builds a signed App Store IPA, and verifies `apps/mobile/build/ios/ipa/*.ipa`.
 - `cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign` validates a device build up to Apple signing. A deployable iPhone build still requires an Apple Development Team and provisioning profile in Xcode.
@@ -194,7 +194,7 @@ CI always builds simulator and unsigned device iOS artifacts as compile checks. 
 - `IOS_KEYCHAIN_PASSWORD`: temporary CI keychain password.
 - `APPLE_TEAM_ID`: Apple Developer Team ID that owns the provisioning profile.
 
-Without those secrets, CI skips the IPA step and still validates the Flutter iPhone project through simulator and unsigned device builds. The debug framework build is also gated on the iOS signing secret set because current macOS/Flutter runners perform signing identity checks before that command completes.
+Without those secrets, CI skips the IPA step and still validates the Flutter iPhone project through simulator and unsigned device builds. Local `npm run verify:ios` also builds and verifies debug `App.xcframework` and `Flutter.xcframework`; CI only uploads the debug framework artifact when the iOS signing secret set is configured.
 
 ## CI artifacts
 
