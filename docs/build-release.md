@@ -35,6 +35,7 @@ cargo test -p fluxdown-core -p fluxdown-cli
 npm --workspace apps/desktop run build
 cd apps/mobile && flutter analyze
 cd apps/mobile && flutter test
+npm run verify:apple
 npm run verify:macos
 npm run verify:ci-config
 npm run verify:mobile-url-schemes
@@ -49,6 +50,8 @@ npm test
 `npm test` 会运行 Rust 测试、桌面前端构建和 Flutter 测试。它需要本机已配置 Flutter。
 
 `npm run verify:macos` 是当前 macOS 非 GUI 总验收入口，会覆盖格式检查、严格 Clippy、core/CLI/desktop 测试、release CLI 全协议 fixture、桌面端 Tauri command fixture、macOS 产物校验和 CI 手动触发策略校验；它不会启动前台 GUI。
+
+`npm run verify:apple` 会串联 `npm run verify:macos` 和 `npm run verify:ios`，用于当前 macOS 桌面/CLI 与 iOS 构建产物的非前台总验收。它不会启动前台桌面 GUI，也不会自动启动 iOS simulator；iOS App 内下载 smoke 仍需在已有 iOS 目标时单独执行 `npm run verify:ios:integration`。
 
 ## CLI 构建
 
