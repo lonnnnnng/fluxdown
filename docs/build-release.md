@@ -53,6 +53,14 @@ npm test
 
 `npm run verify:apple` 会串联 `npm run verify:macos` 和 `npm run verify:ios`，用于当前 macOS 桌面/CLI 与 iOS 构建产物的非前台总验收。它不会启动前台桌面 GUI，也不会自动启动 iOS simulator；iOS App 内下载 smoke 仍需在已有 iOS 目标时单独执行 `npm run verify:ios:integration`。
 
+如果需要补充 iOS 运行态下载证据，执行：
+
+```sh
+npm run verify:apple:runtime
+```
+
+该入口默认后台启动可用 iOS simulator、启用 TS HLS 探针，并把真机/签名 readiness 的 `78` 结果归类为外部条件未就绪。
+
 ## CLI 构建
 
 ```sh

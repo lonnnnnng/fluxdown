@@ -49,7 +49,9 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-06-23 05:56 CST 增强签名 IPA 前置验证：`npm run verify:ios:signing-readiness` 不再只检查签名环境变量是否存在，变量齐全时还会验证 base64 可解码、`.mobileprovision` CMS payload 可读取、bundle id/team 匹配且 profile 未过期、`.p12` 可用给定密码导入临时 keychain 并包含 codesigning identity。本机缺真实材料仍返回 `78`；使用假 p12/profile 环境变量复跑也返回 `78`，并输出 `env-invalid`，可以在 `flutter build ipa` 前拦截错误签名输入。
 
-2026-06-23 06:02 CST 将 iOS 真机下载验收入口和签名预检纳入 `npm run audit:release`：新增审计项均通过，包括 `verify:ios:physical-integration`、`verify:ios:signing-readiness`、profile/p12 预检和真机入口不回退 simulator。当前未执行发版/打包，所以完整审计仍按预期返回 `1`，结果为 `10 failed, 1 warning`，失败项是 Linux/Windows/Android release 产物、release manifest 和签名 IPA 缺失，不作为当前 Apple 非前台目标的代码失败。
+2026-06-23 06:02 CST 将 iOS 真机下载验收入口和签名预检纳入 `npm run audit:release`：新增审计项均通过，包括 `verify:ios:physical-integration`、`verify:ios:signing-readiness`、profile/p12 预检和真机入口不回退 simulator。2026-06-23 06:05 CST 继续把 `verify:apple:runtime` 纳入同一审计，确认 Apple runtime 入口会串联 simulator smoke 与真机/签名 readiness。当前未执行发版/打包，所以完整审计仍按预期返回 `1`，结果为 `10 failed, 1 warning`，失败项是 Linux/Windows/Android release 产物、release manifest 和签名 IPA 缺失，不作为当前 Apple 非前台目标的代码失败。
+
+2026-06-23 06:05 CST 新增 Apple 运行态补充验收入口 `npm run verify:apple:runtime` 并复跑通过：脚本默认后台启动可用 iOS simulator、启用 TS HLS 探针，先执行 `npm run verify:ios:integration`，再汇总 `verify:ios:device-readiness` 和 `verify:ios:signing-readiness`；真机/签名返回 `78` 时按外部条件未就绪记录，不让 simulator 下载 smoke 被误判失败。本轮 simulator `FluxDownTemp2-iPhone16` 上 HTTP 输出 `29` bytes，fMP4 HLS 和 BYTERANGE HLS 均输出 `4815` bytes，TS HLS 输出 `19884` bytes，全部状态为 `finished`。
 
 ## 分端结论
 
@@ -107,6 +109,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 检查项 | 结果 |
 | --- | --- |
 | `npm run verify:apple` | 通过：串联 `npm run verify:macos` 和 `npm run verify:ios`，完成当前 macOS 桌面/CLI 与 iOS 构建产物的非前台总验收；不会启动前台桌面 GUI，也不会自动启动 iOS simulator。 |
+| `npm run verify:apple:runtime` | 通过：用于补充运行态证据，默认后台 boot simulator 并启用 TS HLS，完成 iOS App 内 HTTP/fMP4 HLS/BYTERANGE HLS/TS HLS 下载 smoke；真机和签名 readiness 当前返回 `78`，按外部条件未就绪记录。 |
 | `npm run verify:ios` | 通过：该脚本汇总 `flutter --version`、`xcodebuild -version`、`mobile:analyze`、`mobile:test`、iOS framework build/artifact 校验、iOS simulator build/artifact 校验、无签名 device build/artifact 校验和移动端 URL scheme 校验；用于日常非前台 iOS 构建验证。 |
 | `npm run verify:ios:integration` | 通过：在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 上生成本地 HTTP/fMP4 HLS/BYTERANGE HLS fixture，构建隐藏自检 App，staged install 后通过 `simctl launch --console` 收集结果；`ios-http-local` 输出 `29` bytes，`ios-hls-local` 和 `ios-hls-byterange-local` 均输出 `4815` bytes，`outputHeadHex` 包含 `66747970`。显式设置 `FLUXDOWN_IOS_INCLUDE_TS_HLS=1` 可额外启用 TS HLS 专项探针，当前 `ios-hls-ts-local` 也已通过，输出 `19884` bytes。 |
 | `npm run verify:macos` | 通过：覆盖 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、release CLI HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制真实 fixture、CLI-only artifact 校验、desktop command FTPS/SFTP/SMB/Torrent/Magnet fixture、完整 macOS artifact 校验、许可证和 CI 手动触发策略检查；04:38 单独复跑 Rust 测试后当前计数为 core 68、CLI 单元 1、CLI 集成 33、desktop 非 ignored 32 / ignored 7。 |

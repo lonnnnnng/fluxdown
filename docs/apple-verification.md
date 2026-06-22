@@ -39,12 +39,20 @@
 
 2026-06-23 05:56 CST 增强 `npm run verify:ios:signing-readiness`：签名环境变量齐全时会在临时目录中验证 provisioning profile 可解码、未过期且匹配 `dev.fluxdown.mobile`，并用临时 keychain 验证 p12 密码和 codesigning identity；本地 IPA 构建脚本同步改为用 `printf` 和 macOS/GNU 兼容 base64 解码。当前缺少真实签名材料时仍按预期返回 `78`；使用假 base64 材料复跑会输出 `env-invalid` 并在构建 IPA 前失败。
 
+2026-06-23 06:05 CST 新增并复跑 `npm run verify:apple:runtime` 通过：该入口默认后台使用 iOS simulator，启用 TS HLS 探针，串联 iOS App 内 HTTP/fMP4 HLS/BYTERANGE HLS/TS HLS 下载 smoke，并汇总 iPhone 真机和签名 readiness。当前 simulator `FluxDownTemp2-iPhone16` 上 4 个用例均为 `finished`：HTTP `29` bytes，fMP4 HLS `4815` bytes，BYTERANGE HLS `4815` bytes，TS HLS `19884` bytes；物理 iPhone 和签名输入仍按预期报告 `78` 外部条件未就绪。
+
 ## 推荐验收命令
 
 日常非前台总验收：
 
 ```sh
 npm run verify:apple
+```
+
+iOS 运行态补充验收：
+
+```sh
+npm run verify:apple:runtime
 ```
 
 iOS App 内下载 smoke：

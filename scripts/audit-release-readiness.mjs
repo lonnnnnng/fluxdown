@@ -282,6 +282,12 @@ const checks = [
     values: ['verify:ios:physical-integration', 'verify-ios-physical-integration.sh'],
   },
   {
+    label: 'Apple runtime verification entry exists',
+    kind: 'source-contains',
+    file: 'package.json',
+    values: ['verify:apple:runtime', 'verify-apple-runtime.sh'],
+  },
+  {
     label: 'iPhone signing readiness verification entry exists',
     kind: 'source-contains',
     file: 'package.json',
@@ -327,6 +333,12 @@ const checks = [
     kind: 'source-contains',
     file: 'scripts/verify-ios-physical-integration.sh',
     values: ['!device.emulator', 'FLUXDOWN_E2E_HOST', 'verify:ios:integration'],
+  },
+  {
+    label: 'Apple runtime verification includes simulator smoke and readiness',
+    kind: 'source-contains',
+    file: 'scripts/verify-apple-runtime.sh',
+    values: ['verify:ios:integration', 'verify:ios:device-readiness', 'verify:ios:signing-readiness', 'FLUXDOWN_IOS_INCLUDE_TS_HLS'],
   },
   {
     label: 'Signed iPhone IPA exists locally',
