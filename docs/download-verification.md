@@ -66,10 +66,11 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 ### 环境
 
 - 平台：macOS 本机，仓库分支 `main`。
+- 当前提交：`a7ad01e`。
 - 构建版本：`1.0.3`。
 - Flutter：`3.41.9`。
 - Xcode：`16.2`。
-- 验证边界：本轮不启动前台 GUI，不构建签名 IPA，不宣称 iPhone 真机 App 内真实下载闭环完成。
+- 验证边界：本轮不启动前台 GUI，不构建签名 IPA，不宣称 iPhone 真机 App 内真实下载闭环完成；当前 `flutter devices` 只发现 macOS 和 Chrome，没有可直接运行 integration test 的 iOS 目标。
 
 ### 结果
 
@@ -77,13 +78,14 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | --- | --- |
 | `npm run verify:macos` | 通过：覆盖 `cargo fmt --check`、严格 Clippy、core 67、CLI 单元 1、CLI 集成 33、desktop 非 ignored 31 / ignored 7、release CLI HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制真实 fixture、CLI-only artifact 校验、desktop command FTPS/SFTP/SMB/Torrent/Magnet fixture、完整 macOS artifact 校验、许可证和 CI 手动触发策略检查。 |
 | `npm run verify:macos-cli-artifact` | 通过：校验 `target/release/fluxdown` 存在且非空，大小 `14689536` bytes；`--version` 输出 `fluxdown 1.0.3`，`detect/support/doctor` 均通过。 |
-| `npm run desktop:dmg` | 通过：生成 `target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.3_aarch64.dmg`；DMG 大小 `8731861` bytes，`hdiutil verify` checksum 通过；`.app` ad-hoc 签名校验通过。 |
+| `npm run desktop:dmg` | 通过：生成 `target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.3_aarch64.dmg`；本轮 DMG 大小 `8731877` bytes，`hdiutil verify` checksum 通过；`.app` ad-hoc 签名校验通过。 |
 | macOS 验证脚本修复 | 已修复：`verify:macos-cli-release` 不再在 CLI 阶段要求桌面 DMG 存在，改为调用 `verify:macos-cli-artifact`；完整桌面 artifact 校验仍由 `verify:macos-desktop-command` 在 DMG 构建后执行。 |
 | `flutter analyze` | 通过：`No issues found!`。 |
 | `flutter test` | 通过：33 个移动端测试全部通过，覆盖协议识别、队列状态、并发、重试、限速、线程数、HTTP/WebDAV/IPFS/HLS/FTP 下载和续传。 |
 | `npm run mobile:ios:simulator` + `npm run mobile:ios:simulator:verify` | 通过：Xcode 构建 `build/ios/iphonesimulator/Runner.app` 成功，artifact 目录存在；目录大小约 `195M`。 |
 | `npm run mobile:ios` + `npm run mobile:ios:verify` | 通过：无代码签名 device 构建 `build/ios/iphoneos/Runner.app` 成功，Flutter 输出大小 `34.6MB`，artifact 目录存在；目录大小约 `33M`。 |
 | `npm run verify:mobile-url-schemes` | 通过：Android 和 iOS 均声明 `ed2k` URL 查询能力。 |
+| iOS integration test | 未执行：当前没有已连接或已启动的 iOS 运行目标，且本轮按约定不启动前台模拟器；后续需要在 iPhone 真机或 simulator 运行 `apps/mobile/integration_test/protocol_e2e_test.dart`，再记录 App 内真实下载结果。 |
 
 ## 2026-06-19 Windows CLI/GUI 验证记录
 
