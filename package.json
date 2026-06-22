@@ -18,6 +18,7 @@
     "mobile:android:aab": "cd apps/mobile/android && ./gradlew bundleRelease",
     "mobile:ios:simulator": "cd apps/mobile && flutter build ios --simulator",
     "mobile:ios:framework": "cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release",
+    "mobile:ios:framework:verify": "node scripts/verify-artifacts.mjs ios-framework",
     "mobile:ios:ipa": "cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ipa --export-options-plist=ios/ExportOptions.plist",
     "mobile:ios:ipa:signed": "bash scripts/build-ios-ipa-local.sh",
     "mobile:ios": "cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign",

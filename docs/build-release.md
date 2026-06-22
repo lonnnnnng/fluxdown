@@ -151,6 +151,12 @@ cd apps/mobile
 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release
 ```
 
+或使用顶层脚本同时构建并校验 framework、simulator app、unsigned device app：
+
+```sh
+npm run verify:ios
+```
+
 签名 IPA：
 
 ```sh
@@ -181,7 +187,7 @@ CI secrets：
 - `IOS_KEYCHAIN_PASSWORD`
 - `APPLE_TEAM_ID`
 
-没有这些 secrets 时，CI 会跳过签名 IPA，但仍构建 simulator 和 unsigned device 验证产物。当前 workflow 中 iOS debug frameworks 也只在签名 secrets 齐全时构建，以避开当前 macOS/Flutter 签名检查限制。
+没有这些 secrets 时，CI 会跳过签名 IPA，但仍构建 simulator 和 unsigned device 验证产物。本地 `npm run verify:ios` 会额外构建并校验 debug `App.xcframework` 和 `Flutter.xcframework`，用于补充 iOS framework 编译证据。
 
 ## Release staging
 

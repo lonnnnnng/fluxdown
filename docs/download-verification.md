@@ -76,7 +76,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 
 | 检查项 | 结果 |
 | --- | --- |
-| `npm run verify:ios` | 通过：该脚本汇总 `flutter --version`、`xcodebuild -version`、`mobile:analyze`、`mobile:test`、iOS simulator build/artifact 校验、无签名 device build/artifact 校验和移动端 URL scheme 校验；用于日常非前台 iOS 构建验证。 |
+| `npm run verify:ios` | 通过：该脚本汇总 `flutter --version`、`xcodebuild -version`、`mobile:analyze`、`mobile:test`、iOS framework build/artifact 校验、iOS simulator build/artifact 校验、无签名 device build/artifact 校验和移动端 URL scheme 校验；用于日常非前台 iOS 构建验证。 |
 | `npm run verify:ios:integration` | 已新增入口：生成本地 HTTP/HLS fixture 后运行 `apps/mobile/integration_test/protocol_e2e_test.dart`，用于 iOS App 内下载 smoke；本轮无已连接或已启动的 iOS 目标，脚本保护逻辑已验证，会以 78 退出并提示手动启动 simulator 或连接 iPhone。 |
 | `npm run verify:macos` | 通过：覆盖 `cargo fmt --check`、严格 Clippy、core 67、CLI 单元 1、CLI 集成 33、desktop 非 ignored 31 / ignored 7、release CLI HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制真实 fixture、CLI-only artifact 校验、desktop command FTPS/SFTP/SMB/Torrent/Magnet fixture、完整 macOS artifact 校验、许可证和 CI 手动触发策略检查。 |
 | `npm run verify:macos-cli-artifact` | 通过：校验 `target/release/fluxdown` 存在且非空，大小 `14689536` bytes；`--version` 输出 `fluxdown 1.0.3`，`detect/support/doctor` 均通过。 |
@@ -84,8 +84,9 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | macOS 验证脚本修复 | 已修复：`verify:macos-cli-release` 不再在 CLI 阶段要求桌面 DMG 存在，改为调用 `verify:macos-cli-artifact`；完整桌面 artifact 校验仍由 `verify:macos-desktop-command` 在 DMG 构建后执行。 |
 | `flutter analyze` | 通过：`No issues found!`。 |
 | `flutter test` | 通过：33 个移动端测试全部通过，覆盖协议识别、队列状态、并发、重试、限速、线程数、HTTP/WebDAV/IPFS/HLS/FTP 下载和续传。 |
+| `npm run mobile:ios:framework` + `npm run mobile:ios:framework:verify` | 通过：生成并校验 `apps/mobile/build/ios/framework/Debug/App.xcframework` 和 `apps/mobile/build/ios/framework/Debug/Flutter.xcframework`。 |
 | `npm run mobile:ios:simulator` + `npm run mobile:ios:simulator:verify` | 通过：Xcode 构建 `build/ios/iphonesimulator/Runner.app` 成功，artifact 目录存在；目录大小约 `195M`。 |
-| `npm run mobile:ios` + `npm run mobile:ios:verify` | 通过：无代码签名 device 构建 `build/ios/iphoneos/Runner.app` 成功，Flutter 输出大小 `34.6MB`，artifact 目录存在；目录大小约 `33M`。 |
+| `npm run mobile:ios` + `npm run mobile:ios:verify` | 通过：无代码签名 device 构建 `build/ios/iphoneos/Runner.app` 成功，Flutter 输出大小 `34.8MB`，artifact 目录存在。 |
 | `npm run verify:mobile-url-schemes` | 通过：Android 和 iOS 均声明 `ed2k` URL 查询能力。 |
 | iOS integration test | 未完成：当前没有已连接或已启动的 iOS 运行目标，且本轮按约定不启动前台模拟器；后续需要在 iPhone 真机或 simulator 运行 `npm run verify:ios:integration` 或直接运行 `apps/mobile/integration_test/protocol_e2e_test.dart`，再记录 App 内真实下载结果。 |
 
@@ -151,7 +152,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm --workspace apps/desktop run build` | 通过：桌面前端新建任务协议/后端状态预览、SHA-256 输入、属性弹框、任务错误和 toast 错误脱敏改动完成 TypeScript 编译和 Vite 构建。 |
 | `npm run verify:licenses` | 通过：检查 Rust workspace、桌面运行时依赖和 Flutter 移动端运行时依赖均已列入第三方许可证清单，并确认 `libtorrent_flutter` GPL 风险提示仍保留。 |
 | `npm run verify:macos` | 通过：已在提交 `dc1ed64` 复跑当前 macOS 非 GUI 总验收入口，串起 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、`npm run verify:macos-cli-release`、`npm run verify:macos-desktop-command`、`npm run verify:licenses` 和 `npm run verify:ci-config`。 |
-| `npm run audit:release` | 已执行：代码覆盖类检查已通过，包括 CLI 直连下载、桌面 command 任务启动、前端进度轮询、协议模型、移动端队列和 CI 配置；本轮未进入发版/打包阶段，因此 Linux/Windows 桌面产物、iOS simulator/framework 产物、Release staging manifest 尚不存在，审计结果为 `11 failed, 1 warning`，这些产物缺口不作为本阶段阻塞。 |
+| `npm run audit:release` | 已执行：代码覆盖类检查已通过，包括 CLI 直连下载、桌面 command 任务启动、前端进度轮询、协议模型、移动端队列和 CI 配置；iOS framework、simulator 和 unsigned device 产物均已存在。当前未进入发版/打包阶段，因此 Linux/Windows 本地产物和 Release staging manifest 仍不存在，审计结果为 `8 failed, 1 warning`，这些产物缺口不作为本阶段阻塞。 |
 | `cargo clippy -p fluxdown-cli --all-targets -- -D warnings` | 通过：修复 release CLI 不支持 `--version` 的基础可用性问题后，CLI 专项 Clippy 通过。 |
 | `cargo test -p fluxdown-cli` | 通过：CLI 单元 1、CLI 集成 33。 |
 | `npm run verify:macos-cli-release` | 通过：一键重新构建 `target/release/fluxdown`，依次运行 release CLI 的 HTTP/HLS、FTP/FTPS、SFTP、SMB、Torrent/Magnet、队列控制真实下载脚本，并执行 `npm run verify:macos-cli-artifact` 校验 CLI 产物。 |

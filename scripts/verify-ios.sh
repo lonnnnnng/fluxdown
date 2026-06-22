@@ -13,6 +13,8 @@ xcodebuild -version
 # iOS 日常验证先收拢为无签名、非前台流程，确保不依赖真机证书也能稳定证明代码可分析、可测试、可构建。
 npm run mobile:analyze
 npm run mobile:test
+npm run mobile:ios:framework
+npm run mobile:ios:framework:verify
 npm run mobile:ios:simulator
 npm run mobile:ios:simulator:verify
 npm run mobile:ios
