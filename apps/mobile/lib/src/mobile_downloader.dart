@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:pointycastle/export.dart';
 
 import 'download_task.dart';
+import 'hls_ts_remuxer.dart';
 import 'mobile_ed2k.dart';
 import 'mobile_ftp.dart';
 import 'mobile_sftp.dart';
@@ -1032,6 +1033,19 @@ class MobileDownloadRunner {
     required File outputMp4,
     required Uri playlistUri,
   }) async {
+    try {
+      // 作者: long
+      // iOS 对本地 TS 使用 AVFoundation 转 MP4 会稳定触发 -11838，先走 Dart 内置 remuxer，失败时再保留平台通道兜底。
+      return await remuxTsFileToFragmentedMp4(
+        sourceTs: sourceTs,
+        outputMp4: outputMp4,
+      );
+    } catch (_) {
+      if (await outputMp4.exists()) {
+        await outputMp4.delete();
+      }
+    }
+
     final result = await _mediaChannel
         .invokeMapMethod<String, Object?>('remuxTsToMp4', {
           'sourcePath': sourceTs.path,

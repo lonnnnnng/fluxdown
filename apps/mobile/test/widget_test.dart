@@ -1231,6 +1231,102 @@ media.mp4
     }
   });
 
+  test('downloads MPEG-TS m3u8 playlists into fragmented mp4', () async {
+    if (!await commandExists('ffmpeg')) {
+      return;
+    }
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_hls_ts_test_',
+    );
+    final fixtureDir = Directory(p.join(tempDir.path, 'hls-ts'));
+    await fixtureDir.create(recursive: true);
+    final ffmpeg = await Process.run('ffmpeg', [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc=size=160x90:rate=15',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=1000:sample_rate=44100',
+      '-t',
+      '1',
+      '-shortest',
+      '-c:v',
+      'libx264',
+      '-x264-params',
+      'bframes=0',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '64k',
+      '-f',
+      'hls',
+      '-hls_segment_type',
+      'mpegts',
+      '-hls_time',
+      '1',
+      '-hls_playlist_type',
+      'vod',
+      '-hls_segment_filename',
+      p.join(fixtureDir.path, 'seg_%03d.ts'),
+      p.join(fixtureDir.path, 'playlist.m3u8'),
+    ]);
+    expect(ffmpeg.exitCode, 0, reason: '${ffmpeg.stderr}');
+
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final serverDone = server.listen((request) async {
+      final relative = request.uri.pathSegments.join('/');
+      final file = File(p.join(fixtureDir.path, relative));
+      if (await file.exists()) {
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..add(await file.readAsBytes());
+      } else {
+        request.response.statusCode = HttpStatus.notFound;
+      }
+      await request.response.close();
+    });
+
+    try {
+      final source =
+          'http://${server.address.host}:${server.port}/playlist.m3u8';
+      final task = DownloadTask.create(
+        source: source,
+        outputFolder: tempDir.path,
+      );
+      final runner = MobileDownloadRunner();
+
+      final finished = await runner.download(task, onProgress: (_) {});
+      final output = File(p.join(tempDir.path, 'playlist.mp4'));
+      final outputBytes = await output.readAsBytes();
+      expect(finished.state, DownloadState.finished);
+      expect(finished.fileName, 'playlist.mp4');
+      expect(outputBytes.length, greaterThan(8));
+      expect(String.fromCharCodes(outputBytes.sublist(4, 8)), 'ftyp');
+
+      if (await commandExists('ffprobe')) {
+        final ffprobe = await Process.run('ffprobe', [
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-show_format',
+          output.path,
+        ]);
+        expect(ffprobe.exitCode, 0, reason: '${ffprobe.stderr}');
+      }
+    } finally {
+      await server.close(force: true);
+      await serverDone.cancel();
+      await tempDir.delete(recursive: true);
+    }
+  });
+
   test('downloads m3u8 segments concurrently and preserves order', () async {
     final tempDir = await Directory.systemTemp.createTemp(
       'fluxdown_mobile_hls_parallel_test_',
@@ -1685,6 +1781,11 @@ class _PauseThenFinishMobileDownloadRunner extends MobileDownloadRunner {
 }
 
 List<int> utf8Bytes(String value) => value.codeUnits;
+
+Future<bool> commandExists(String command) async {
+  final result = await Process.run('/usr/bin/env', ['which', command]);
+  return result.exitCode == 0;
+}
 
 Uint8List _encryptAes128Cbc(Uint8List plaintext, Uint8List key, Uint8List iv) {
   final cipher = PaddedBlockCipher('AES/CBC/PKCS7')
