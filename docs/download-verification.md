@@ -27,6 +27,10 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-06-23 03:44 CST 复跑 `npm run verify:apple` 通过；同轮在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 复跑 `npm run verify:ios:integration` 通过。脚本改为 simulator 下构建隐藏自检 App、staged install 后用 `simctl launch --console` 收集结构化结果，避免 Flutter 覆盖安装偶发卡死。结果：`ios-http-local` 下载完成 `29` bytes；`ios-hls-local` 使用标准 fMP4 HLS fixture，输出 `ios-hls.mp4` 为 `4815` bytes，`outputHeadHex` 包含 `66747970`，状态 `finished`。
 
+2026-06-23 04:11 CST 复跑 `npm run verify:ios:integration` 通过：脚本选中 iOS 18.3 simulator `FluxDownTemp2-iPhone16`，本地 fixture `http://127.0.0.1:51158`；`ios-http-local` 下载完成 `29` bytes，`ios-hls-local` 输出 `ios-hls.mp4` 为 `4815` bytes，文件头包含 `ftyp`。同轮 `npm run verify:ios:device-readiness` 返回 `78`，物理 iPhone `LMY 18.6.2 (00008030-001905801E50802E)` 仍是 Xcode Offline 状态，暂不能做 iPhone 真机部署验证。
+
+2026-06-23 04:16 CST 复跑 `npm run verify:macos` 通过：覆盖基础 Rust/desktop 测试、release CLI HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制真实 fixture、桌面 command FTPS/SFTP/SMB/Torrent/Magnet live fixture、`FluxDown.app`/`FluxDown_1.0.3_aarch64.dmg` artifact 校验、许可证检查和 CI 手动触发策略检查。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
@@ -76,7 +80,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 - 构建版本：`1.0.3`。
 - Flutter：`3.41.9`。
 - Xcode：`16.2`。
-- 验证边界：本轮不启动前台 GUI，不构建签名 IPA，不宣称 iPhone 真机 App 内真实下载闭环完成；当前 `flutter devices` 只发现 macOS 和 Chrome，没有可直接运行 integration test 的 iOS 目标。`verify:ios:integration` 默认不会启动模拟器，只有显式设置 `FLUXDOWN_IOS_BOOT_SIMULATOR=1` 时才会通过 `simctl` 尝试后台启动可用 iPhone simulator。
+- 验证边界：本轮不启动前台 GUI，不构建签名 IPA，不宣称 iPhone 真机 App 内真实下载闭环完成；当前可用 iOS 目标是 simulator `FluxDownTemp2-iPhone16`，物理 iPhone `LMY` 仍为 Xcode Offline。`verify:ios:integration` 默认不会启动模拟器，只有显式设置 `FLUXDOWN_IOS_BOOT_SIMULATOR=1` 时才会通过 `simctl` 尝试后台启动可用 iPhone simulator。
 
 ### 结果
 
@@ -87,7 +91,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run verify:ios:integration` | 通过：在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 上生成本地 HTTP/fMP4 HLS fixture，构建隐藏自检 App，staged install 后通过 `simctl launch --console` 收集结果；`ios-http-local` 输出 `29` bytes，`ios-hls-local` 输出 `ios-hls.mp4` 为 `4815` bytes，`outputHeadHex` 包含 `66747970`。 |
 | `npm run verify:macos` | 通过：覆盖 `cargo fmt --check`、严格 Clippy、core 67、CLI 单元 1、CLI 集成 33、desktop 非 ignored 31 / ignored 7、release CLI HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制真实 fixture、CLI-only artifact 校验、desktop command FTPS/SFTP/SMB/Torrent/Magnet fixture、完整 macOS artifact 校验、许可证和 CI 手动触发策略检查。 |
 | `npm run verify:macos-cli-artifact` | 通过：校验 `target/release/fluxdown` 存在且非空，大小 `14689536` bytes；`--version` 输出 `fluxdown 1.0.3`，`detect/support/doctor` 均通过。 |
-| `npm run desktop:dmg` | 通过：生成 `target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.3_aarch64.dmg`；本轮 DMG 大小 `8731882` bytes，`hdiutil verify` checksum 通过；`.app` ad-hoc 签名校验通过。 |
+| `npm run desktop:dmg` | 通过：生成 `target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.3_aarch64.dmg`；本轮 04:16 复验 DMG 大小 `8731864` bytes，`hdiutil verify` checksum 通过；`.app` ad-hoc 签名校验通过。 |
 | macOS 验证脚本修复 | 已修复：`verify:macos-cli-release` 不再在 CLI 阶段要求桌面 DMG 存在，改为调用 `verify:macos-cli-artifact`；完整桌面 artifact 校验仍由 `verify:macos-desktop-command` 在 DMG 构建后执行。 |
 | `flutter analyze` | 通过：`No issues found!`。 |
 | `flutter test` | 通过：34 个移动端测试全部通过，覆盖协议识别、队列状态、并发、重试、限速、线程数、HTTP/WebDAV/IPFS/TS HLS/fMP4 HLS/FTP 下载和续传。 |
@@ -96,7 +100,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run mobile:ios` + `npm run mobile:ios:verify` | 通过：无代码签名 device 构建 `build/ios/iphoneos/Runner.app` 成功，Flutter 输出大小 `34.6MB`，artifact 目录存在。 |
 | `npm run verify:mobile-url-schemes` | 通过：Android 和 iOS 均声明 `ed2k` URL 查询能力。 |
 | iOS integration test | 通过 simulator smoke：`ios-http-local` 和 `ios-hls-local` 均为 `finished`，HLS 使用 fMP4 fixture 产出真实 `.mp4`；iPhone 真机和 iOS TS HLS 转 MP4 仍留作后续专项验证。 |
-| `npm run verify:ios:device-readiness` | 本轮新增真机就绪检查入口：只读 `flutter devices --machine` 和 `xcrun xctrace list devices`；当前本机可见 iPhone `LMY` 但状态为 Offline，需解锁、信任 Mac、确认 Developer Mode 或 USB/无线连接后再跑真机下载验证。 |
+| `npm run verify:ios:device-readiness` | 通过边界判定：该入口只读 `flutter devices --machine` 和 `xcrun xctrace list devices`；当前本机可见 iPhone `LMY 18.6.2 (00008030-001905801E50802E)` 但状态为 Offline，命令按预期以 `78` 退出，需解锁、信任 Mac、确认 Developer Mode 或 USB/无线连接后再跑真机下载验证。 |
 
 ## 2026-06-19 Windows CLI/GUI 验证记录
 

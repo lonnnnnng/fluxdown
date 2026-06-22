@@ -17,6 +17,10 @@
 
 2026-06-23 03:44 CST 复跑 `npm run verify:apple` 通过：macOS CLI release 多协议 fixture、macOS 桌面 command/artifact、许可证、CI 手动触发策略、iOS framework、iOS simulator build、iOS unsigned device build 和 URL scheme 均通过。随后在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 复跑 `npm run verify:ios:integration` 通过：`ios-http-local` 完成 `29` bytes，`ios-hls-local` 完成 fMP4 HLS 输出 `ios-hls.mp4`，`4815` bytes，`outputHeadHex` 含 `66747970`。
 
+2026-06-23 04:11 CST 再次复跑 `npm run verify:ios:integration` 通过：脚本选中 iOS 18.3 simulator `FluxDownTemp2-iPhone16`，本地 fixture `http://127.0.0.1:51158`；`ios-http-local` 完成 `29` bytes，`ios-hls-local` 完成 fMP4 HLS 输出 `ios-hls.mp4`，`4815` bytes，`outputHeadHex` 含 `66747970`。同轮 `npm run verify:ios:device-readiness` 按预期返回 `78`：物理 iPhone `LMY 18.6.2 (00008030-001905801E50802E)` 仍处于 Offline，不能进行真机部署验证。
+
+2026-06-23 04:16 CST 复跑 `npm run verify:macos` 通过：覆盖 Rust/desktop 基础测试、release CLI HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制 fixture、桌面 command FTPS/SFTP/SMB/Torrent/Magnet live fixture、`FluxDown.app`/`FluxDown_1.0.3_aarch64.dmg` artifact 校验、许可证检查和 CI 手动触发策略检查。
+
 ## 推荐验收命令
 
 日常非前台总验收：
