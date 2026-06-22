@@ -47,6 +47,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-06-23 05:55 CST 增加 iOS 真机专用下载验收入口 `npm run verify:ios:physical-integration`：脚本只接受 Flutter 已就绪的物理 iPhone，不会回退到 simulator；会自动推断 Mac 局域网地址并传入本地 fixture，默认启用 TS HLS 探针，真机可用后会复用现有 `verify:ios:integration` 跑 HTTP/fMP4 HLS/BYTERANGE HLS/TS HLS。当前复跑该入口返回 `78`，并输出 `LMY iPhone 11 18.6.2 (22G100)` 仍为 `xcdevice-unavailable`，所以真机下载闭环仍未完成。
 
+2026-06-23 05:56 CST 增强签名 IPA 前置验证：`npm run verify:ios:signing-readiness` 不再只检查签名环境变量是否存在，变量齐全时还会验证 base64 可解码、`.mobileprovision` CMS payload 可读取、bundle id/team 匹配且 profile 未过期、`.p12` 可用给定密码导入临时 keychain 并包含 codesigning identity。本机缺真实材料仍返回 `78`；使用假 p12/profile 环境变量复跑也返回 `78`，并输出 `env-invalid`，可以在 `flutter build ipa` 前拦截错误签名输入。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
@@ -118,7 +120,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | iOS integration test | 通过 simulator smoke：`ios-http-local`、`ios-hls-local`、`ios-hls-byterange-local` 和启用专项探针后的 `ios-hls-ts-local` 均为 `finished`；iPhone 真机仍留作后续专项验证。 |
 | `npm run verify:ios:device-readiness` | 通过边界判定：该入口只读 `flutter devices --machine`、`xcrun xctrace list devices` 和 `xcrun xcdevice list --timeout 10`；当前本机可见 iPhone `LMY 18.6.2 (00008030-001905801E50802E)` 但状态为 Offline/unavailable，命令按预期以 `78` 退出，`xcdevice` 原因为 `Browsing on the local area network for LMY`。 |
 | `npm run verify:ios:physical-integration` | 通过边界判定：新增真机专用入口不会回退到 simulator，会自动推断 Mac 局域网 IP 并调用 `verify:ios:integration`；当前因 Flutter 没有可部署物理 iPhone，命令按预期以 `78` 退出，并继续输出 `LMY` 的 `xcdevice-unavailable` 原因。 |
-| `npm run verify:ios:signing-readiness` | 通过边界判定：新增入口只检查签名自动化输入和本机签名资产，不读取或打印密钥内容；当前按预期以 `78` 退出，缺少 `IOS_CERTIFICATE_BASE64`、`IOS_CERTIFICATE_PASSWORD`、`IOS_PROVISIONING_PROFILE_BASE64`、`IOS_KEYCHAIN_PASSWORD`、`APPLE_TEAM_ID`，且没有 codesigning identity 和匹配 `dev.fluxdown.mobile` 的 provisioning profile。 |
+| `npm run verify:ios:signing-readiness` | 通过边界判定：入口只输出签名状态和错误原因，不打印密钥内容；当前缺真实签名材料时按预期以 `78` 退出，使用假 p12/profile 环境变量时也会以 `env-invalid` 拦截，覆盖 base64 解码、profile bundle/team/有效期、p12 密码和 codesigning identity 预检。 |
 
 ## 2026-06-19 Windows CLI/GUI 验证记录
 

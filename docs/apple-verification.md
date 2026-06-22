@@ -37,6 +37,8 @@
 
 2026-06-23 05:55 CST 新增 `npm run verify:ios:physical-integration` 真机专用入口：该入口只选择物理 iPhone，不会回退到 simulator；会自动推断 Mac 局域网地址并传给 `verify:ios:integration`，默认打开 TS HLS 探针。当前本机复跑按预期返回 `78`，因为 Flutter 没有可部署的物理 iPhone，脚本已串起 `npm run verify:ios:device-readiness` 并输出 `LMY` 的 `xcdevice-unavailable` 状态。
 
+2026-06-23 05:56 CST 增强 `npm run verify:ios:signing-readiness`：签名环境变量齐全时会在临时目录中验证 provisioning profile 可解码、未过期且匹配 `dev.fluxdown.mobile`，并用临时 keychain 验证 p12 密码和 codesigning identity；本地 IPA 构建脚本同步改为用 `printf` 和 macOS/GNU 兼容 base64 解码。当前缺少真实签名材料时仍按预期返回 `78`；使用假 base64 材料复跑会输出 `env-invalid` 并在构建 IPA 前失败。
+
 ## 推荐验收命令
 
 日常非前台总验收：

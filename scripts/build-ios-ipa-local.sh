@@ -27,8 +27,18 @@ require_env APPLE_TEAM_ID
 mkdir -p "$APP_DIR/ios/signing" "$PROFILE_DIR"
 chmod 700 "$APP_DIR/ios/signing"
 
-echo "$IOS_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
-echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+decode_base64_env() {
+  local name="$1"
+  local output="$2"
+  if ! printf '%s' "${!name}" | base64 --decode > "$output" 2>/dev/null; then
+    printf '%s' "${!name}" | base64 -D > "$output"
+  fi
+}
+
+# 作者: long
+# 签名材料来自环境变量，使用 printf 避免 echo 处理特殊前缀，并兼容 macOS/BSD 与 GNU base64 参数。
+decode_base64_env IOS_CERTIFICATE_BASE64 "$CERTIFICATE_PATH"
+decode_base64_env IOS_PROVISIONING_PROFILE_BASE64 "$PROFILE_PATH"
 chmod 600 "$CERTIFICATE_PATH" "$PROFILE_PATH"
 
 security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" 2>/dev/null || true

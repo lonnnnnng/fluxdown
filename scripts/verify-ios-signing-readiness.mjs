@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -20,7 +26,7 @@ const requiredEnv = [
 const bundleId = "dev.fluxdown.mobile";
 
 // 作者: long
-// 签名检查只判断自动化构建是否具备输入，不解码证书内容，避免在普通验证日志里暴露敏感材料。
+// 签名检查只输出就绪状态和错误原因，不打印证书、profile 或 keychain 密码等敏感材料。
 function runOptional(command, args, options = {}) {
   try {
     return {
@@ -41,19 +47,41 @@ function runOptional(command, args, options = {}) {
   }
 }
 
-function codeSigningIdentities() {
-  const result = runOptional("security", ["find-identity", "-v", "-p", "codesigning"]);
-  if (!result.ok) {
-    return { ok: false, identities: [], error: result.stderr.trim() };
-  }
+function parseCodeSigningIdentities(text) {
   const identities = [];
-  for (const line of result.stdout.split(/\r?\n/)) {
+  for (const line of text.split(/\r?\n/)) {
     const match = line.match(/^\s*\d+\)\s+[0-9A-F]+\s+"([^"]+)"/);
     if (match) {
       identities.push(match[1]);
     }
   }
-  return { ok: true, identities, error: "" };
+  return identities;
+}
+
+function decodeBase64Env(name) {
+  const raw = process.env[name] ?? "";
+  const normalized = raw.replace(/\s+/g, "");
+  if (!normalized) {
+    return { ok: false, error: "empty value", bytes: null };
+  }
+  if (/[^A-Za-z0-9+/=]/.test(normalized) || normalized.length % 4 === 1) {
+    return { ok: false, error: "not standard base64 text", bytes: null };
+  }
+  const bytes = Buffer.from(normalized, "base64");
+  const canonical = normalized.replace(/=+$/, "");
+  const encoded = bytes.toString("base64").replace(/=+$/, "");
+  if (bytes.length === 0 || encoded !== canonical) {
+    return { ok: false, error: "base64 decode check failed", bytes: null };
+  }
+  return { ok: true, error: "", bytes };
+}
+
+function codeSigningIdentities() {
+  const result = runOptional("security", ["find-identity", "-v", "-p", "codesigning"]);
+  if (!result.ok) {
+    return { ok: false, identities: [], error: result.stderr.trim() };
+  }
+  return { ok: true, identities: parseCodeSigningIdentities(result.stdout), error: "" };
 }
 
 function provisioningProfiles() {
@@ -101,12 +129,131 @@ function readProvisioningProfile(path) {
   }
 }
 
+function validateEnvProvisioningProfile(tempDir) {
+  const decoded = decodeBase64Env("IOS_PROVISIONING_PROFILE_BASE64");
+  if (!decoded.ok) {
+    return [`IOS_PROVISIONING_PROFILE_BASE64: ${decoded.error}`];
+  }
+
+  const profilePath = join(tempDir, "env-profile.mobileprovision");
+  writeFileSync(profilePath, decoded.bytes);
+  const profile = readProvisioningProfile(profilePath);
+  if (!profile) {
+    return ["IOS_PROVISIONING_PROFILE_BASE64: unable to decode mobileprovision CMS payload"];
+  }
+
+  const errors = [];
+  if (!profile.matchesBundle) {
+    errors.push(
+      `IOS_PROVISIONING_PROFILE_BASE64: application identifier does not match ${bundleId}`,
+    );
+  }
+  if (!profile.teamIdentifier) {
+    errors.push("IOS_PROVISIONING_PROFILE_BASE64: missing TeamIdentifier");
+  } else if (profile.teamIdentifier !== process.env.APPLE_TEAM_ID) {
+    errors.push(
+      `IOS_PROVISIONING_PROFILE_BASE64: team ${profile.teamIdentifier} does not match APPLE_TEAM_ID`,
+    );
+  }
+  if (profile.expirationDate) {
+    const expiresAt = Date.parse(profile.expirationDate);
+    if (!Number.isNaN(expiresAt) && expiresAt <= Date.now()) {
+      errors.push("IOS_PROVISIONING_PROFILE_BASE64: provisioning profile is expired");
+    }
+  }
+  return errors;
+}
+
+function validateEnvCertificate(tempDir) {
+  const decoded = decodeBase64Env("IOS_CERTIFICATE_BASE64");
+  if (!decoded.ok) {
+    return [`IOS_CERTIFICATE_BASE64: ${decoded.error}`];
+  }
+
+  const certPath = join(tempDir, "env-signing.p12");
+  const keychainPath = join(tempDir, "readiness.keychain-db");
+  writeFileSync(certPath, decoded.bytes);
+
+  const keychainPassword = process.env.IOS_KEYCHAIN_PASSWORD ?? "";
+  const certificatePassword = process.env.IOS_CERTIFICATE_PASSWORD ?? "";
+  const errors = [];
+
+  // 作者: long
+  // 签名预检用临时 keychain 验证 p12 密码和代码签名 identity，避免把错误推迟到耗时的 flutter build ipa 阶段。
+  const created = runOptional("security", ["create-keychain", "-p", keychainPassword, keychainPath]);
+  if (!created.ok) {
+    return [`IOS_CERTIFICATE_BASE64: unable to create temporary keychain (${created.stderr.trim()})`];
+  }
+  try {
+    const unlocked = runOptional("security", [
+      "unlock-keychain",
+      "-p",
+      keychainPassword,
+      keychainPath,
+    ]);
+    if (!unlocked.ok) {
+      errors.push("IOS_KEYCHAIN_PASSWORD: unable to unlock temporary keychain");
+    }
+
+    const imported = runOptional("security", [
+      "import",
+      certPath,
+      "-P",
+      certificatePassword,
+      "-A",
+      "-t",
+      "cert",
+      "-f",
+      "pkcs12",
+      "-k",
+      keychainPath,
+    ]);
+    if (!imported.ok) {
+      errors.push("IOS_CERTIFICATE_BASE64: p12 import failed; check certificate password");
+    } else {
+      const identities = runOptional("security", [
+        "find-identity",
+        "-v",
+        "-p",
+        "codesigning",
+        keychainPath,
+      ]);
+      const parsed = identities.ok ? parseCodeSigningIdentities(identities.stdout) : [];
+      if (parsed.length === 0) {
+        errors.push("IOS_CERTIFICATE_BASE64: no codesigning identity found in p12");
+      }
+    }
+  } finally {
+    runOptional("security", ["delete-keychain", keychainPath]);
+  }
+
+  return errors;
+}
+
 console.log("iOS signing readiness");
 console.log(`  root: ${rootDir}`);
 
 const missingEnv = requiredEnv.filter((name) => !process.env[name]);
+let envValidationErrors = [];
 if (missingEnv.length === 0) {
-  console.log("  env: ready for npm run mobile:ios:ipa:signed");
+  const tempDir = mkdtempSync(join(tmpdir(), "fluxdown-ios-signing-readiness-"));
+  try {
+    envValidationErrors = [
+      ...validateEnvProvisioningProfile(tempDir),
+      ...validateEnvCertificate(tempDir),
+    ];
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+
+  if (envValidationErrors.length === 0) {
+    console.log("  env: ready for npm run mobile:ios:ipa:signed");
+  } else {
+    console.log("  env-invalid:");
+    for (const error of envValidationErrors) {
+      console.log(`    ${error}`);
+    }
+  }
 } else {
   console.log("  env-missing:");
   for (const name of missingEnv) {
@@ -137,7 +284,7 @@ if (matchingProfiles.length > 0) {
   console.log(`  matching-profiles for ${bundleId}: none`);
 }
 
-if (missingEnv.length === 0) {
+if (missingEnv.length === 0 && envValidationErrors.length === 0) {
   console.log("");
   console.log("  status: signed IPA automation inputs are present");
   process.exit(0);
