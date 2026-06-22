@@ -49,6 +49,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-06-23 05:56 CST 增强签名 IPA 前置验证：`npm run verify:ios:signing-readiness` 不再只检查签名环境变量是否存在，变量齐全时还会验证 base64 可解码、`.mobileprovision` CMS payload 可读取、bundle id/team 匹配且 profile 未过期、`.p12` 可用给定密码导入临时 keychain 并包含 codesigning identity。本机缺真实材料仍返回 `78`；使用假 p12/profile 环境变量复跑也返回 `78`，并输出 `env-invalid`，可以在 `flutter build ipa` 前拦截错误签名输入。
 
+2026-06-23 06:02 CST 将 iOS 真机下载验收入口和签名预检纳入 `npm run audit:release`：新增审计项均通过，包括 `verify:ios:physical-integration`、`verify:ios:signing-readiness`、profile/p12 预检和真机入口不回退 simulator。当前未执行发版/打包，所以完整审计仍按预期返回 `1`，结果为 `10 failed, 1 warning`，失败项是 Linux/Windows/Android release 产物、release manifest 和签名 IPA 缺失，不作为当前 Apple 非前台目标的代码失败。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
@@ -184,7 +186,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm --workspace apps/desktop run build` | 通过：桌面前端新建任务协议/后端状态预览、SHA-256 输入、属性弹框、任务错误和 toast 错误脱敏改动完成 TypeScript 编译和 Vite 构建。 |
 | `npm run verify:licenses` | 通过：检查 Rust workspace、桌面运行时依赖和 Flutter 移动端运行时依赖均已列入第三方许可证清单，并确认 `libtorrent_flutter` GPL 风险提示仍保留。 |
 | `npm run verify:macos` | 通过：已在提交 `dc1ed64` 复跑当前 macOS 非 GUI 总验收入口，串起 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、`npm run verify:macos-cli-release`、`npm run verify:macos-desktop-command`、`npm run verify:licenses` 和 `npm run verify:ci-config`。 |
-| `npm run audit:release` | 已执行：代码覆盖类检查已通过，包括 CLI 直连下载、桌面 command 任务启动、前端进度轮询、协议模型、移动端队列和 CI 配置；iOS framework、simulator 和 unsigned device 产物均已存在。当前未进入发版/打包阶段，因此 Linux/Windows 本地产物和 Release staging manifest 仍不存在，审计结果为 `8 failed, 1 warning`，这些产物缺口不作为本阶段阻塞。 |
+| `npm run audit:release` | 已执行：代码覆盖类检查已通过，包括 CLI 直连下载、桌面 command 任务启动、前端进度轮询、协议模型、移动端队列、CI 配置、iOS 真机专用验收入口和签名预检；iOS framework、simulator 和 unsigned device 产物均已存在。当前未进入发版/打包阶段，因此 Linux/Windows/Android release 产物和 Release staging manifest 仍不存在，审计结果为 `10 failed, 1 warning`，这些产物缺口不作为本阶段阻塞。 |
 | `cargo clippy -p fluxdown-cli --all-targets -- -D warnings` | 通过：修复 release CLI 不支持 `--version` 的基础可用性问题后，CLI 专项 Clippy 通过。 |
 | `cargo test -p fluxdown-cli` | 通过：CLI 单元 1、CLI 集成 33。 |
 | `npm run verify:macos-cli-release` | 通过：一键重新构建 `target/release/fluxdown`，依次运行 release CLI 的 HTTP/HLS、FTP/FTPS、SFTP、SMB、Torrent/Magnet、队列控制真实下载脚本，并执行 `npm run verify:macos-cli-artifact` 校验 CLI 产物。 |

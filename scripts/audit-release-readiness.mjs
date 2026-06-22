@@ -276,6 +276,18 @@ const checks = [
     values: ['mobile:ios:ipa:signed', 'build-ios-ipa-local.sh'],
   },
   {
+    label: 'iPhone physical-device download verification entry exists',
+    kind: 'source-contains',
+    file: 'package.json',
+    values: ['verify:ios:physical-integration', 'verify-ios-physical-integration.sh'],
+  },
+  {
+    label: 'iPhone signing readiness verification entry exists',
+    kind: 'source-contains',
+    file: 'package.json',
+    values: ['verify:ios:signing-readiness', 'verify-ios-signing-readiness.mjs'],
+  },
+  {
     label: 'Release manifest tooling exists',
     kind: 'source-contains',
     file: 'package.json',
@@ -303,6 +315,18 @@ const checks = [
     kind: 'source-contains',
     file: 'scripts/build-ios-ipa-local.sh',
     values: ['IOS_CERTIFICATE_BASE64', 'IOS_PROVISIONING_PROFILE_BASE64', 'APPLE_TEAM_ID', 'flutter build ipa'],
+  },
+  {
+    label: 'iOS signing readiness validates decoded profile and certificate',
+    kind: 'source-contains',
+    file: 'scripts/verify-ios-signing-readiness.mjs',
+    values: ['decodeBase64Env', 'validateEnvProvisioningProfile', 'validateEnvCertificate', 'codesigning'],
+  },
+  {
+    label: 'iOS physical-device verification avoids simulator fallback',
+    kind: 'source-contains',
+    file: 'scripts/verify-ios-physical-integration.sh',
+    values: ['!device.emulator', 'FLUXDOWN_E2E_HOST', 'verify:ios:integration'],
   },
   {
     label: 'Signed iPhone IPA exists locally',

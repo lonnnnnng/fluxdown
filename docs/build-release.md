@@ -163,6 +163,7 @@ npm run verify:ios
 签名 IPA：
 
 ```sh
+npm run verify:ios:signing-readiness
 npm run mobile:ios:ipa:signed
 ```
 
@@ -191,6 +192,14 @@ CI secrets：
 - `APPLE_TEAM_ID`
 
 没有这些 secrets 时，CI 会跳过签名 IPA，但仍构建 simulator 和 unsigned device 验证产物。本地 `npm run verify:ios` 会额外构建并校验 debug `App.xcframework` 和 `Flutter.xcframework`，用于补充 iOS framework 编译证据。
+
+真机下载验收独立于 IPA 签名。iPhone 已能被 Flutter 部署后，运行：
+
+```sh
+npm run verify:ios:physical-integration
+```
+
+该入口只选择物理 iPhone，不会回退到 simulator；如果自动推断的 Mac 局域网地址不对，可以显式设置 `FLUXDOWN_E2E_HOST=<mac-lan-ip>`。
 
 ## Release staging
 
