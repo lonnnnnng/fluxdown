@@ -49,6 +49,7 @@
     "verify:macos-desktop-p2p": "bash scripts/verify-macos-desktop-p2p.sh",
     "verify:macos-desktop-smb": "bash scripts/verify-macos-desktop-smb.sh",
     "verify:macos-desktop-sftp": "bash scripts/verify-macos-desktop-sftp.sh",
+    "verify:ios": "bash scripts/verify-ios.sh",
     "verify:release": "node scripts/verify-artifacts.mjs release",
     "verify:ci-config": "node scripts/verify-artifacts.mjs ci-config",
     "verify:licenses": "node scripts/verify-licenses.mjs",
