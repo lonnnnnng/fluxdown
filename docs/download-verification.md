@@ -55,6 +55,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-06-23 06:21 CST 新增 Apple 当前阶段总验收入口 `npm run verify:apple:current` 并首跑通过：脚本顺序串联 `npm run verify:apple` 和 `npm run verify:apple:runtime`，一键覆盖 macOS CLI/桌面 command/iOS 构建产物门禁，以及 iOS simulator 运行态下载 smoke。首跑中 macOS CLI release 多协议 fixture、macOS 桌面 command/artifact、iOS 静态构建均通过；iOS simulator HTTP 输出 `29` bytes，fMP4 HLS 和 BYTERANGE HLS 均输出 `4815` bytes，TS HLS 输出 `19884` bytes；真机和签名 readiness 的 `78` 仍按外部条件未就绪记录。
 
+2026-06-23 06:33 CST 在同步 Windows 端远端代码后复跑 `npm run verify:apple:current` 通过：macOS CLI release 多协议 fixture、macOS 桌面 command/artifact、iOS 静态构建和 iOS simulator 运行态下载 smoke 均通过。macOS release CLI 继续覆盖 HTTP/HLS/HLS BYTERANGE、FTP/FTPS、SFTP、SMB、Torrent/Magnet 和队列控制；桌面 command 继续覆盖 FTPS、SFTP、SMB、单文件 Torrent、单文件 Magnet、多文件 Torrent 选择和多文件 Magnet 选择，并完成 `.app` ad-hoc 签名、DMG checksum 和 artifact 校验；iOS simulator `FluxDownTemp2-iPhone16` 的 App 内 HTTP/fMP4 HLS/BYTERANGE HLS/TS HLS 下载均为 `finished`，输出分别为 `29`、`4815`、`4815`、`19884` bytes。`verify:ios:device-readiness` 与 `verify:ios:signing-readiness` 仍按预期报告外部条件未就绪：物理 iPhone `LMY` 为 `xcdevice-unavailable`，签名环境变量、codesigning identity 和匹配 provisioning profile 仍缺失。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
