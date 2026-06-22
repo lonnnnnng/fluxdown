@@ -38,7 +38,7 @@ FluxDown is a multi-protocol downloader for desktop and mobile, with a CLI, desk
 - CLI and desktop task creation support optional SHA-256 verification; mismatches fail direct downloads or mark queued tasks as failed.
 - Windows, macOS, Android, and iOS now have current screenshots and verification notes. Windows has passed CLI direct/queued HTTP downloads plus a foreground GUI HTTP download loop.
 - macOS has passed scripted release CLI protocol downloads, desktop Tauri-command protocol downloads, and foreground GUI HTTP/HLS/Torrent/Magnet download loops.
-- Android real-device verification covers local protocol fixtures plus media-sized HLS, torrent, and magnet foreground app flows. iOS currently has simulator UI and build-artifact verification; signed IPA and real-device download validation remain pending.
+- Android real-device verification covers local protocol fixtures plus media-sized HLS, torrent, and magnet foreground app flows. iOS simulator verification now covers screenshots, build artifacts, and in-app HTTP/HLS download smoke; signed IPA and physical-iPhone capabilities remain pending.
 - Linux currently has CLI/GUI build-artifact existence checks only; real GUI download validation on a Linux desktop is still pending.
 
 ## Screenshots
@@ -75,7 +75,7 @@ FluxDown is a multi-protocol downloader for desktop and mobile, with a CLI, desk
 | macOS Desktop | Release CLI covers HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet plus queue controls. Foreground GUI covers HTTP/HLS/Torrent/Magnet. Tauri commands cover HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet. | Foreground GUI FTP/FTPS/SFTP/SMB/IPFS/WebDAV loops are still planned separately. |
 | Linux Desktop | Linux CLI, GUI executable, `.deb`, and `.rpm` build artifacts have existence/non-empty checks. | Installing or launching the GUI on a Linux desktop and completing a real download has not been verified yet. |
 | Android Real Device | Redmi Note 8 Pro foreground app verification covers local HTTP/HTTPS/FTP/FTPS/SFTP/SMB/IPFS, small HLS, small torrent, small magnet, media-sized HLS, and single/multi-file torrent and magnet cases. | Store distribution still needs signing, license, and background-behavior validation. |
-| iOS Simulator | Simulator screenshots, Flutter simulator/unsigned-device build artifacts, and URL-scheme configuration checks are in place. | Signed IPA, iPhone installation, and in-app real-download validation are still pending. |
+| iOS Simulator | Simulator screenshots, Flutter simulator/unsigned-device build artifacts, URL-scheme configuration checks, and in-app HTTP, fMP4 HLS, BYTERANGE HLS, and TS HLS download smoke are in place. | Signed IPA, iPhone installation, QR scanning, file picking, share/open flows, and other physical-device capabilities are still pending. |
 
 See [Download verification status](docs/download-verification.md) for detailed evidence, commands, and remaining gaps.
 
