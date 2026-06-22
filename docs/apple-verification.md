@@ -9,7 +9,11 @@
 | macOS CLI | 非前台验收已通过 | `npm run verify:apple` 已串联 `npm run verify:macos`；release CLI 覆盖 HTTP/HLS、FTP/FTPS、SFTP、SMB、Torrent/Magnet、队列控制和 artifact 校验。 | 真实公网边界资源仍可继续扩展，但当前本地可重复 fixture 已覆盖主要协议闭环。 |
 | macOS 桌面端 | 非前台 command/artifact 验收已通过，既有前台 GUI 最小闭环已记录 | `npm run verify:apple` 已串联桌面 Tauri command fixture、`.app`/DMG 构建、ad-hoc 签名和 checksum；历史前台 GUI 已覆盖 HTTP、HLS、Torrent、Magnet。 | 纯 GUI 前台的 FTP/FTPS、SFTP、SMB、IPFS、WebDAV 点击下载闭环仍按当前阶段暂缓。 |
 | iOS 构建与静态验证 | 已通过 | `npm run verify:apple` 已串联 `flutter analyze`、`flutter test`、iOS framework build、simulator build、unsigned device build、artifact 校验和 URL scheme 校验。 | 签名 IPA 需要 Apple 证书和 provisioning profile。 |
-| iOS App 内下载 | 入口已准备，真实运行未完成 | `npm run verify:ios:integration` 会生成本地 HTTP/HLS fixture，并在已有 iOS simulator 或 iPhone 目标时运行 `apps/mobile/integration_test/protocol_e2e_test.dart`。 | 当前没有已连接或已启动的 iOS 运行目标；后续需要手动启动 simulator 或连接 iPhone 后执行该脚本。 |
+| iOS App 内下载 | 入口已准备，真实运行未完成 | `npm run verify:ios:integration` 会生成本地 HTTP/HLS fixture，并在已有 iOS simulator 或 iPhone 目标时运行 `apps/mobile/integration_test/protocol_e2e_test.dart`；默认不会启动模拟器，显式设置 `FLUXDOWN_IOS_BOOT_SIMULATOR=1` 时才会尝试通过 `simctl` 启动可用 iPhone simulator。 | 当前没有已连接或已启动的 iOS 运行目标；后续需要手动启动 simulator、显式开启后台 simulator boot，或连接 iPhone 后执行该脚本。 |
+
+## 本轮复验记录
+
+2026-06-23 02:27 CST 已复跑 `npm run verify:apple`，macOS CLI、macOS 桌面 command/artifact、iOS framework、iOS simulator build、iOS unsigned device build 和 URL scheme 校验均通过。随后复跑 `npm run verify:ios:integration`，在没有 iOS 目标时按预期以 78 退出，且没有启动 simulator。
 
 ## 推荐验收命令
 
@@ -23,6 +27,12 @@ iOS App 内下载 smoke：
 
 ```sh
 npm run verify:ios:integration
+```
+
+如果允许脚本在后台启动一个可用 iPhone simulator，可显式开启：
+
+```sh
+FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration
 ```
 
 连接真机时，如果 iPhone 需要访问 Mac 上的本地 fixture，显式传入 Mac 局域网地址：

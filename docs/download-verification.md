@@ -23,6 +23,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-06-23 复验发现并修复了 macOS 验证脚本顺序问题：`verify:macos-cli-release` 原本会在桌面 DMG 构建前执行完整 `verify:macos-artifacts`，导致 1.0.3 环境下缺少 `FluxDown_1.0.3_aarch64.dmg` 时失败；现在 release CLI 阶段改为 `verify:macos-cli-artifact`，只校验刚构建出的 CLI，完整 `.app`/DMG 校验仍在 `verify:macos-desktop-command` 生成桌面产物后执行。
 
+2026-06-23 02:27 CST 复跑 `npm run verify:apple` 通过：覆盖 macOS CLI release 协议 fixture、macOS 桌面 Tauri command fixture、`.app`/DMG artifact、许可证、CI 手动触发策略、iOS framework、iOS simulator build、iOS unsigned device build 和移动端 URL scheme。随后复跑 `npm run verify:ios:integration`，当前没有 iOS 目标时按预期以 78 退出，且默认不会启动 simulator；需要真实 App 内下载 smoke 时，可手动启动 simulator、连接 iPhone，或显式设置 `FLUXDOWN_IOS_BOOT_SIMULATOR=1`。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
@@ -72,7 +74,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 - 构建版本：`1.0.3`。
 - Flutter：`3.41.9`。
 - Xcode：`16.2`。
-- 验证边界：本轮不启动前台 GUI，不构建签名 IPA，不宣称 iPhone 真机 App 内真实下载闭环完成；当前 `flutter devices` 只发现 macOS 和 Chrome，没有可直接运行 integration test 的 iOS 目标。
+- 验证边界：本轮不启动前台 GUI，不构建签名 IPA，不宣称 iPhone 真机 App 内真实下载闭环完成；当前 `flutter devices` 只发现 macOS 和 Chrome，没有可直接运行 integration test 的 iOS 目标。`verify:ios:integration` 默认不会启动模拟器，只有显式设置 `FLUXDOWN_IOS_BOOT_SIMULATOR=1` 时才会通过 `simctl` 尝试后台启动可用 iPhone simulator。
 
 ### 结果
 
@@ -80,7 +82,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | --- | --- |
 | `npm run verify:apple` | 通过：串联 `npm run verify:macos` 和 `npm run verify:ios`，完成当前 macOS 桌面/CLI 与 iOS 构建产物的非前台总验收；不会启动前台桌面 GUI，也不会自动启动 iOS simulator。 |
 | `npm run verify:ios` | 通过：该脚本汇总 `flutter --version`、`xcodebuild -version`、`mobile:analyze`、`mobile:test`、iOS framework build/artifact 校验、iOS simulator build/artifact 校验、无签名 device build/artifact 校验和移动端 URL scheme 校验；用于日常非前台 iOS 构建验证。 |
-| `npm run verify:ios:integration` | 已新增入口：生成本地 HTTP/HLS fixture 后运行 `apps/mobile/integration_test/protocol_e2e_test.dart`，用于 iOS App 内下载 smoke；本轮无已连接或已启动的 iOS 目标，脚本保护逻辑已验证，会以 78 退出并提示手动启动 simulator 或连接 iPhone。 |
+| `npm run verify:ios:integration` | 已新增入口：生成本地 HTTP/HLS fixture 后运行 `apps/mobile/integration_test/protocol_e2e_test.dart`，用于 iOS App 内下载 smoke；本轮无已连接或已启动的 iOS 目标，脚本默认保护逻辑已验证，会以 78 退出并提示手动启动 simulator、显式设置 `FLUXDOWN_IOS_BOOT_SIMULATOR=1` 或连接 iPhone。 |
 | `npm run verify:macos` | 通过：覆盖 `cargo fmt --check`、严格 Clippy、core 67、CLI 单元 1、CLI 集成 33、desktop 非 ignored 31 / ignored 7、release CLI HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制真实 fixture、CLI-only artifact 校验、desktop command FTPS/SFTP/SMB/Torrent/Magnet fixture、完整 macOS artifact 校验、许可证和 CI 手动触发策略检查。 |
 | `npm run verify:macos-cli-artifact` | 通过：校验 `target/release/fluxdown` 存在且非空，大小 `14689536` bytes；`--version` 输出 `fluxdown 1.0.3`，`detect/support/doctor` 均通过。 |
 | `npm run desktop:dmg` | 通过：生成 `target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.3_aarch64.dmg`；本轮 DMG 大小 `8731880` bytes，`hdiutil verify` checksum 通过；`.app` ad-hoc 签名校验通过。 |

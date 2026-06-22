@@ -285,11 +285,17 @@ ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt?ga
 
 移动端 integration test 通过 `FLUXDOWN_E2E_CASES_JSON` 接收 JSON 测试用例。
 
-iOS 可先使用仓库脚本跑本地 HTTP/HLS smoke。该脚本只选择已经连接或已经手动启动的
+iOS 可先使用仓库脚本跑本地 HTTP/HLS smoke。该脚本默认只选择已经连接或已经手动启动的
 iOS 目标，不会自动打开 Simulator：
 
 ```sh
 npm run verify:ios:integration
+```
+
+如果当前没有 iOS 目标，且允许脚本在后台 boot 一个可用 iPhone simulator，可以显式开启：
+
+```sh
+FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration
 ```
 
 连接真机时，如果 iPhone 不能通过 `127.0.0.1` 访问 Mac 上的本地 fixture，需要显式指定

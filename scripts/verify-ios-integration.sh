@@ -25,8 +25,8 @@ DEVICES_JSON="$TMP_DIR/flutter-devices.json"
   flutter devices --machine > "$DEVICES_JSON"
 )
 
-set +e
-DEVICE_LINE="$(node - "$DEVICES_JSON" <<'NODE'
+select_ios_device() {
+  node - "$DEVICES_JSON" <<'NODE'
 const fs = require('node:fs');
 const devices = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const requested = process.env.FLUXDOWN_IOS_DEVICE_ID?.trim();
@@ -57,9 +57,82 @@ process.stdout.write([
   device.name,
 ].join('\t'));
 NODE
-)"
+}
+
+set +e
+DEVICE_LINE="$(select_ios_device)"
 DEVICE_STATUS=$?
 set -e
+
+if [ "$DEVICE_STATUS" -eq 2 ] && [ "${FLUXDOWN_IOS_BOOT_SIMULATOR:-0}" = "1" ]; then
+  SIMCTL_DEVICES_JSON="$TMP_DIR/simctl-devices.json"
+  xcrun simctl list devices available --json > "$SIMCTL_DEVICES_JSON"
+  set +e
+  BOOT_LINE="$(node - "$SIMCTL_DEVICES_JSON" <<'NODE'
+const fs = require('node:fs');
+const data = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const requested = process.env.FLUXDOWN_IOS_DEVICE_ID?.trim();
+
+const candidates = [];
+for (const [runtime, devices] of Object.entries(data.devices ?? {})) {
+  if (!runtime.includes('iOS')) {
+    continue;
+  }
+  for (const device of devices) {
+    if (device.isAvailable === false) {
+      continue;
+    }
+    candidates.push({ ...device, runtime });
+  }
+}
+
+let device;
+if (requested) {
+  device = candidates.find((item) => item.udid === requested || item.name === requested);
+  if (!device) {
+    console.error(`Requested iOS simulator was not found: ${requested}`);
+    process.exit(3);
+  }
+} else {
+  device =
+    candidates.find((item) => item.state === 'Booted' && item.name.startsWith('iPhone')) ??
+    candidates.find((item) => item.name === 'iPhone 16 Pro') ??
+    candidates.find((item) => item.name.startsWith('iPhone')) ??
+    candidates[0];
+}
+
+if (!device) {
+  process.exit(2);
+}
+
+process.stdout.write([device.udid, device.name, device.state].join('\t'));
+NODE
+)"
+  BOOT_STATUS=$?
+  set -e
+  if [ "$BOOT_STATUS" -eq 2 ]; then
+    DEVICE_STATUS=2
+  elif [ "$BOOT_STATUS" -ne 0 ]; then
+    exit "$BOOT_STATUS"
+  else
+    IFS=$'\t' read -r BOOT_UDID BOOT_NAME BOOT_STATE <<< "$BOOT_LINE"
+    echo "  boot simulator: $BOOT_NAME ($BOOT_UDID, $BOOT_STATE)"
+    if [ "$BOOT_STATE" != "Booted" ]; then
+      # 作者: long
+      # 只有显式开启 FLUXDOWN_IOS_BOOT_SIMULATOR 时才通过 simctl 启动模拟器，默认路径不会抢占用户前台。
+      xcrun simctl boot "$BOOT_UDID"
+      xcrun simctl bootstatus "$BOOT_UDID" -b
+    fi
+    (
+      cd apps/mobile
+      flutter devices --machine > "$DEVICES_JSON"
+    )
+    set +e
+    DEVICE_LINE="$(select_ios_device)"
+    DEVICE_STATUS=$?
+    set -e
+  fi
+fi
 
 if [ "$DEVICE_STATUS" -eq 2 ]; then
   cat >&2 <<'EOF'
@@ -71,8 +144,10 @@ Start an iOS simulator manually or connect an iPhone, then rerun:
 Optional environment:
   FLUXDOWN_IOS_DEVICE_ID=<device-id-or-name>
   FLUXDOWN_E2E_HOST=<mac-lan-ip-for-physical-iphone>
+  FLUXDOWN_IOS_BOOT_SIMULATOR=1
 
-This script intentionally does not boot Simulator.app, so it will not steal the foreground UI.
+By default this script does not boot Simulator.app, so it will not steal the foreground UI.
+Set FLUXDOWN_IOS_BOOT_SIMULATOR=1 only when a background simulator boot is acceptable.
 EOF
   exit 78
 fi
