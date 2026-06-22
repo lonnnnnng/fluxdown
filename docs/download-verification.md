@@ -7,6 +7,8 @@
 - 构建、测试、CI 和 Release artifact 校验：确认代码能编译、测试能跑、产物存在且非空。
 - 真实下载端到端验证：在目标平台安装或启动对应 CLI/GUI/App，添加下载任务，并确认文件真实写入完成。
 
+macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收清单](apple-verification.md)。
+
 当前可以确认的是构建和自动化测试覆盖较多，Android 真机覆盖了一批真实下载场景，macOS CLI/GUI 覆盖了更多协议的下载闭环，Windows CLI/GUI 已完成 HTTP 最小闭环；但仍不能表述为“所有端、所有协议都下载验证通过”。
 
 ## 当前进度
