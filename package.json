@@ -52,6 +52,7 @@
     "verify:macos-desktop-sftp": "bash scripts/verify-macos-desktop-sftp.sh",
     "verify:apple": "bash scripts/verify-apple.sh",
     "verify:ios": "bash scripts/verify-ios.sh",
+    "verify:ios:device-readiness": "node scripts/verify-ios-device-readiness.mjs",
     "verify:ios:integration": "bash scripts/verify-ios-integration.sh",
     "verify:release": "node scripts/verify-artifacts.mjs release",
     "verify:ci-config": "node scripts/verify-artifacts.mjs ci-config",

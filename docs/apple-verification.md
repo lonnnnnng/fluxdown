@@ -37,7 +37,13 @@ npm run verify:ios:integration
 FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration
 ```
 
-连接真机时，如果 iPhone 需要访问 Mac 上的本地 fixture，显式传入 Mac 局域网地址：
+先确认真机是否已经能被 Flutter 部署：
+
+```sh
+npm run verify:ios:device-readiness
+```
+
+连接真机下载验证时，如果 iPhone 需要访问 Mac 上的本地 fixture，显式传入 Mac 局域网地址：
 
 ```sh
 FLUXDOWN_IOS_DEVICE_ID=<device-id-or-name> \

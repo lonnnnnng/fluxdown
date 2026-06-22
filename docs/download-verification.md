@@ -96,6 +96,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run mobile:ios` + `npm run mobile:ios:verify` | 通过：无代码签名 device 构建 `build/ios/iphoneos/Runner.app` 成功，Flutter 输出大小 `34.6MB`，artifact 目录存在。 |
 | `npm run verify:mobile-url-schemes` | 通过：Android 和 iOS 均声明 `ed2k` URL 查询能力。 |
 | iOS integration test | 通过 simulator smoke：`ios-http-local` 和 `ios-hls-local` 均为 `finished`，HLS 使用 fMP4 fixture 产出真实 `.mp4`；iPhone 真机和 iOS TS HLS 转 MP4 仍留作后续专项验证。 |
+| `npm run verify:ios:device-readiness` | 本轮新增真机就绪检查入口：只读 `flutter devices --machine` 和 `xcrun xctrace list devices`；当前本机可见 iPhone `LMY` 但状态为 Offline，需解锁、信任 Mac、确认 Developer Mode 或 USB/无线连接后再跑真机下载验证。 |
 
 ## 2026-06-19 Windows CLI/GUI 验证记录
 

@@ -299,6 +299,14 @@ npm run verify:ios:integration
 FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration
 ```
 
+连接 iPhone 真机前，先确认 Flutter 是否已经能部署到这台设备：
+
+```sh
+npm run verify:ios:device-readiness
+```
+
+如果该命令返回 `78`，表示 Xcode 能看到设备但 Flutter 暂时不能部署，通常需要先解锁手机、信任这台 Mac 或确认 Developer Mode。
+
 连接真机时，如果 iPhone 不能通过 `127.0.0.1` 访问 Mac 上的本地 fixture，需要显式指定
 Mac 的局域网地址：
 
