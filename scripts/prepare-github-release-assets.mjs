@@ -278,19 +278,17 @@ function writeReleaseNotes() {
 
 ## 本次重点
 
-- 移动端队列页重新整理为更紧凑的状态 tab 和任务列表，任务卡片显示开始时间、结束时间、总耗时、已下载/总大小、实时速度和平均速度。
-- 新建任务改为队列页右下角入口，支持粘贴、扫码、另存文件名和保存位置选择。
-- 设置页改为更紧凑的中文默认文档风格，并提供并发下载数、下载线程数、自动重试数、最大下载网速和下载保存位置配置。
-- Android 下载执行支持并发排队、线程数配置、失败重试和可选限速；HTTP Range 服务可用于验证多线程吞吐。
-- Torrent 和 Magnet 在拿到 metadata 后会把任务名更新为真实文件名；Android 支持多文件列表选择，桌面 CLI/Tauri command 支持按文件编号只下载选中的内容。
-- HLS 在 Android 端会生成最终 .mp4 文件，并已用本地媒体级 HLS、单文件种子、单文件 Magnet、多文件种子和多文件 Magnet 做真机前台 App 验证。
-- 文档默认入口改为中文，并补充协议测试用例、Android 真机协议报告和下载验证边界说明。
+- macOS CLI 发布二进制补充可重复多协议真实下载验收，覆盖 HTTP/HLS/HLS BYTERANGE、FTP/FTPS、SFTP、SMB、Torrent/Magnet 和队列控制。
+- macOS 桌面端补充 Tauri command 级真实下载验收和产物校验，覆盖 FTPS、SFTP、SMB、单/多文件 Torrent、单/多文件 Magnet、.app ad-hoc 签名和 DMG checksum。
+- iOS 补充当前阶段总验收入口，已在 simulator 中完成 App 内 HTTP、fMP4 HLS、BYTERANGE HLS 和 TS HLS 下载 smoke。
+- iOS 真机下载验收与签名 IPA 入口已补齐前置检查；当前 release 若没有 Apple signing secrets，会继续只包含 simulator 和 unsigned device 产物。
+- README 和验证文档已同步当前 macOS/CLI/iOS 进度，并明确仍未完成 iPhone 真机、签名 IPA 和剩余前台 GUI 协议点击验证。
 
 ## Assets
 
 ${assetList}
 
-签名 iOS IPA 和 debug framework 产物仅在 Apple signing secrets 配置完成后包含。
+签名 iOS IPA 和 iOS debug framework CI 产物仅在 Apple signing secrets 配置完成后包含；无签名 iPhone device app 和 iOS simulator app 仍会作为编译验证产物发布。
 `
   writeFileSync(resolve(outputRoot, 'RELEASE_NOTES.md'), notes)
 }

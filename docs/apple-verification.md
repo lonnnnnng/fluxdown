@@ -45,6 +45,8 @@
 
 2026-06-23 06:33 CST 在同步 Windows 端远端代码后复跑 `npm run verify:apple:current` 通过：macOS CLI release 继续覆盖 HTTP/HLS/HLS BYTERANGE、FTP/FTPS、SFTP、SMB、Torrent/Magnet 和队列控制 fixture；macOS 桌面 command/artifact 继续覆盖 FTPS、SFTP、SMB、单文件 Torrent、单文件 Magnet、多文件 Torrent 选择和多文件 Magnet 选择，`.app` ad-hoc 签名与 `FluxDown_1.0.3_aarch64.dmg` checksum 均通过；iOS 静态验证覆盖 `flutter analyze`、36 个 Flutter 测试、framework、simulator app、unsigned device app 和 URL scheme。iOS simulator `FluxDownTemp2-iPhone16` 上 App 内下载 smoke 全部 `finished`：HTTP `29` bytes，fMP4 HLS `4815` bytes，BYTERANGE HLS `4815` bytes，TS HLS `19884` bytes；物理 iPhone `LMY` 仍为 `xcdevice-unavailable`，签名输入仍缺 5 个环境变量、codesigning identity 和匹配 provisioning profile。
 
+2026-06-23 08:39 CST 为发布 `1.0.4` 复跑 `npm run verify:apple:current` 通过：macOS release CLI 继续通过 HTTP/HLS/HLS BYTERANGE、FTP/FTPS、SFTP、SMB、Torrent/Magnet 和队列控制 fixture；桌面 command/artifact 继续通过 FTPS、SFTP、SMB、单文件 Torrent、单文件 Magnet、多文件 Torrent 选择和多文件 Magnet 选择，并生成 `FluxDown_1.0.4_aarch64.dmg`，DMG checksum 与 `.app` ad-hoc 签名均通过；iOS 静态验证覆盖 `flutter analyze`、36 个 Flutter 测试、debug framework、simulator app、unsigned device app 和 URL scheme。iOS simulator `FluxDownTemp2-iPhone16` 上 App 内下载 smoke 全部 `finished`：HTTP `29` bytes，fMP4 HLS `4815` bytes，BYTERANGE HLS `4815` bytes，TS HLS `19884` bytes；物理 iPhone `LMY` 和签名输入继续按外部条件未就绪报告 `78`。
+
 ## 推荐验收命令
 
 日常非前台总验收：

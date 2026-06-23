@@ -57,6 +57,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-06-23 06:33 CST 在同步 Windows 端远端代码后复跑 `npm run verify:apple:current` 通过：macOS CLI release 多协议 fixture、macOS 桌面 command/artifact、iOS 静态构建和 iOS simulator 运行态下载 smoke 均通过。macOS release CLI 继续覆盖 HTTP/HLS/HLS BYTERANGE、FTP/FTPS、SFTP、SMB、Torrent/Magnet 和队列控制；桌面 command 继续覆盖 FTPS、SFTP、SMB、单文件 Torrent、单文件 Magnet、多文件 Torrent 选择和多文件 Magnet 选择，并完成 `.app` ad-hoc 签名、DMG checksum 和 artifact 校验；iOS simulator `FluxDownTemp2-iPhone16` 的 App 内 HTTP/fMP4 HLS/BYTERANGE HLS/TS HLS 下载均为 `finished`，输出分别为 `29`、`4815`、`4815`、`19884` bytes。`verify:ios:device-readiness` 与 `verify:ios:signing-readiness` 仍按预期报告外部条件未就绪：物理 iPhone `LMY` 为 `xcdevice-unavailable`，签名环境变量、codesigning identity 和匹配 provisioning profile 仍缺失。
 
+2026-06-23 08:39 CST 为发布 `1.0.4` 复跑 `npm run verify:apple:current` 通过：版本号已同步到 `package.json`、`apps/desktop/package.json`、Rust workspace、Tauri 配置和 Flutter `1.0.4+5`；macOS release CLI 多协议 fixture、macOS 桌面 command/artifact、iOS 静态构建和 iOS simulator 运行态下载 smoke 均通过。本轮生成并校验 `FluxDown_1.0.4_aarch64.dmg`，release CLI artifact `target/release/fluxdown` 输出 `fluxdown 1.0.4`；iOS simulator `FluxDownTemp2-iPhone16` 的 App 内 HTTP/fMP4 HLS/BYTERANGE HLS/TS HLS 下载均为 `finished`，输出分别为 `29`、`4815`、`4815`、`19884` bytes。`verify:ios:device-readiness` 与 `verify:ios:signing-readiness` 仍按预期报告外部条件未就绪：物理 iPhone `LMY` 为 `xcdevice-unavailable`，签名环境变量、codesigning identity 和匹配 provisioning profile 仍缺失。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
