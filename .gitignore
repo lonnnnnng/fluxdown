@@ -12,3 +12,5 @@
 /apps/mobile/ios/ExportOptions.local.plist
 *.log
 .DS_Store
+__pycache__/
+*.pyc

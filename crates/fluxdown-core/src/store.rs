@@ -212,7 +212,7 @@ fn now_ms() -> u128 {
 pub fn default_store_path() -> PathBuf {
     default_store_path_from_env(
         env_path("XDG_DATA_HOME"),
-        env_path("HOME"),
+        env_home_path(),
         env_path("APPDATA"),
     )
 }
@@ -281,11 +281,27 @@ fn legacy_default_store_path_for(path: &Path) -> Option<PathBuf> {
 }
 
 fn legacy_unix_default_store_path() -> Option<PathBuf> {
-    env_path("HOME").map(|home| {
+    env_home_path().map(|home| {
         home.join(".local/share")
             .join("fluxdown")
             .join("queue.json")
     })
+}
+
+fn env_home_path() -> Option<PathBuf> {
+    env_path("HOME")
+        .or_else(|| env_path("USERPROFILE"))
+        .or_else(env_windows_home_path)
+}
+
+fn env_windows_home_path() -> Option<PathBuf> {
+    let drive = std::env::var_os("HOMEDRIVE")?;
+    let path = std::env::var_os("HOMEPATH")?;
+    Some(PathBuf::from(format!(
+        "{}{}",
+        drive.to_string_lossy(),
+        path.to_string_lossy()
+    )))
 }
 
 fn env_path(key: &str) -> Option<PathBuf> {
@@ -301,20 +317,20 @@ fn non_empty_path(path: Option<PathBuf>) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     use std::ffi::OsString;
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     static STORE_ENV_LOCK: LazyLock<tokio::sync::Mutex<()>> =
         LazyLock::new(|| tokio::sync::Mutex::new(()));
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     struct EnvVarGuard {
         key: &'static str,
         old_value: Option<OsString>,
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     impl EnvVarGuard {
         fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
             let old_value = std::env::var_os(key);
@@ -337,7 +353,7 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             // 作者: long
@@ -527,6 +543,54 @@ mod tests {
             .enqueue(DownloadRequest::new(
                 "https://example.com/native.bin",
                 "/tmp",
+            ))
+            .await
+            .unwrap();
+
+        assert!(native_path.exists());
+        assert_eq!(default_store.list().await.unwrap().len(), 2);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn windows_default_store_reads_legacy_unix_queue_from_userprofile() {
+        let _guard = STORE_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home = temp_dir.path().join("home");
+        let appdata = home.join("AppData").join("Roaming");
+        let _home_guard = EnvVarGuard::remove("HOME");
+        let _userprofile_guard = EnvVarGuard::set("USERPROFILE", &home);
+        let _xdg_guard = EnvVarGuard::remove("XDG_DATA_HOME");
+        let _appdata_guard = EnvVarGuard::remove("APPDATA");
+
+        let legacy_path = home
+            .join(".local/share")
+            .join("fluxdown")
+            .join("queue.json");
+        let native_path = appdata.join("FluxDown").join("queue.json");
+        let legacy_store = TaskStore::new(&legacy_path);
+        let legacy_task = legacy_store
+            .enqueue(DownloadRequest::new(
+                "https://example.com/windows-legacy.bin",
+                "downloads",
+            ))
+            .await
+            .unwrap();
+
+        let default_store = TaskStore::new(default_store_path());
+
+        let tasks = default_store.list().await.unwrap();
+        assert_eq!(default_store.path(), native_path.as_path());
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, legacy_task.id);
+        assert!(!native_path.exists());
+
+        // 作者: long
+        // Windows 升级后首次写入要把旧队列一起带到原生目录，否则用户会以为历史任务被清空。
+        default_store
+            .enqueue(DownloadRequest::new(
+                "https://example.com/windows-native.bin",
+                "downloads",
             ))
             .await
             .unwrap();

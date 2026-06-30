@@ -12,6 +12,8 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+#[cfg(target_os = "windows")]
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MIN_CONCURRENCY: usize = 1;
@@ -510,6 +512,11 @@ fn home_dir() -> Option<PathBuf> {
 
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            #[cfg(target_os = "windows")]
+            setup_e2e_webview(app)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             detect,
             support,
@@ -529,6 +536,38 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running FluxDown desktop app");
+}
+
+#[cfg(target_os = "windows")]
+fn setup_e2e_webview(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let Ok(browser_args) = env::var("FLUXDOWN_E2E_WEBVIEW2_ARGS") else {
+        return Ok(());
+    };
+    let data_dir = env::var_os("FLUXDOWN_E2E_WEBVIEW2_DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| env::temp_dir().join("fluxdown-e2e-webview2"));
+    let url = env::var("FLUXDOWN_E2E_DEV_URL")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .map(WebviewUrl::External)
+        .unwrap_or_else(|| WebviewUrl::App("index.html".into()));
+
+    // 作者: long
+    // Windows GUI E2E 需要连接真实 WebView2 的 CDP 端口；额外窗口使用独立 data directory，
+    // 避免已打开的日常窗口复用浏览器进程后吞掉 remote-debugging 参数。
+    let e2e_window = WebviewWindowBuilder::new(app, "e2e", url)
+        .title("FluxDown")
+        .inner_size(1280.0, 820.0)
+        .min_inner_size(980.0, 680.0)
+        .additional_browser_args(&browser_args)
+        .data_directory(data_dir)
+        .build()?;
+    e2e_window.set_focus()?;
+
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window.close();
+    }
+    Ok(())
 }
 
 #[cfg(test)]

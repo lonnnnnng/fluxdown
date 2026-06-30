@@ -1,0 +1,298 @@
+{
+  "generated_at": "2026-06-30T01:21:02.573549+00:00",
+  "platform": "win32",
+  "desktop_app": "D:\\downloader\\fluxdown\\target\\e2e-gui\\debug\\fluxdown-desktop.exe",
+  "dev_url": "http://localhost:5173/",
+  "debug_port": 50170,
+  "work_dir": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs",
+  "page_identity": {
+    "title": "FluxDown",
+    "url": "http://localhost:5173/",
+    "readyState": "complete",
+    "bodyTextLength": 299
+  },
+  "settings_validation": {
+    "status": "passed",
+    "sections": {
+      "general": {
+        "rows": [
+          "outputDir",
+          "autoStart",
+          "refreshIntervalMs"
+        ]
+      },
+      "download": {
+        "rows": [
+          "concurrency",
+          "threadCount",
+          "retryAttempts",
+          "speedLimitMbps"
+        ]
+      },
+      "protocol": {
+        "rows": [],
+        "notice": "后端自检已更新",
+        "backends": [
+          "built-in",
+          "amule",
+          "system-handoff",
+          "planned"
+        ],
+        "protocols": [
+          {
+            "protocol": "http",
+            "executable": true
+          },
+          {
+            "protocol": "https",
+            "executable": true
+          },
+          {
+            "protocol": "webdav",
+            "executable": true
+          },
+          {
+            "protocol": "webdavs",
+            "executable": true
+          },
+          {
+            "protocol": "ftp",
+            "executable": true
+          },
+          {
+            "protocol": "ftps",
+            "executable": true
+          },
+          {
+            "protocol": "torrent",
+            "executable": true
+          },
+          {
+            "protocol": "magnet",
+            "executable": true
+          },
+          {
+            "protocol": "ed2k",
+            "executable": true
+          },
+          {
+            "protocol": "m3u8",
+            "executable": true
+          },
+          {
+            "protocol": "sftp",
+            "executable": true
+          },
+          {
+            "protocol": "smb",
+            "executable": true
+          },
+          {
+            "protocol": "ipfs",
+            "executable": true
+          }
+        ]
+      },
+      "storage": {
+        "rows": [
+          "fileNaming",
+          "sha256",
+          "torrentFileSelection",
+          "openWhenFinished"
+        ]
+      },
+      "security": {
+        "rows": [
+          "redactUrl",
+          "redactError",
+          "externalBackendNotice"
+        ]
+      },
+      "diagnostics": {
+        "rows": [],
+        "health_score": 50,
+        "backends": [
+          "built-in",
+          "amule",
+          "system-handoff",
+          "planned"
+        ]
+      }
+    }
+  },
+  "screenshots": {
+    "settings": "D:\\downloader\\fluxdown\\docs\\artifacts\\windows-desktop-gui-settings-20260630.png",
+    "queue": "D:\\downloader\\fluxdown\\docs\\artifacts\\windows-desktop-gui-queue-20260630.png"
+  },
+  "results": [
+    {
+      "id": "win-gui-http-local",
+      "protocol": "http",
+      "source": "http://127.0.0.1:50171/http.txt",
+      "status": "passed",
+      "gui_state": "finished",
+      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\downloads\\win-gui-http-local\\windows-gui-http.txt",
+      "bytes_written": 29,
+      "sha256": "4b21578d7e688e10e3022a5d0cb630e8e69c0aaabded4b85193f124dc3332367",
+      "expectation": "原生 Tauri GUI 新建 HTTP 任务，点击开始队列后真实落盘并校验 SHA-256",
+      "detail": "windows-gui-http.txt",
+      "duration_ms": 1243
+    },
+    {
+      "id": "win-gui-https-local-self-signed",
+      "protocol": "https",
+      "source": "https://127.0.0.1:50172/https.txt?allowBadCertificate=true",
+      "status": "passed",
+      "gui_state": "finished",
+      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\downloads\\win-gui-https-local-self-signed\\windows-gui-https.txt",
+      "bytes_written": 30,
+      "sha256": "cc3ebe482bc02e3a2a620cecf7af4494127a601d97c1118022b9240a8bdbd348",
+      "expectation": "原生 Tauri GUI 通过 HTTPS 自签证书 opt-in 真实落盘",
+      "detail": "windows-gui-https.txt",
+      "duration_ms": 1177
+    },
+    {
+      "id": "win-gui-webdav-local-transport",
+      "protocol": "webdav",
+      "source": "webdav://127.0.0.1:50171/webdav.txt",
+      "status": "passed",
+      "gui_state": "finished",
+      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\downloads\\win-gui-webdav-local-transport\\windows-gui-webdav.txt",
+      "bytes_written": 31,
+      "sha256": "a10150697e18cfa7514b650d6c0a177f8e843df0cda2a7b24d2f4023b851db97",
+      "expectation": "原生 Tauri GUI WebDAV transport 映射 HTTP 后真实落盘",
+      "detail": "windows-gui-webdav.txt",
+      "duration_ms": 1190
+    },
+    {
+      "id": "win-gui-webdavs-local-transport",
+      "protocol": "webdavs",
+      "source": "webdavs://127.0.0.1:50172/webdavs.txt?allowBadCertificate=true",
+      "status": "passed",
+      "gui_state": "finished",
+      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\downloads\\win-gui-webdavs-local-transport\\windows-gui-webdavs.txt",
+      "bytes_written": 32,
+      "sha256": "554627841a921f67b3b1f22cab53d908f78f25cc2b74591f21da8f082d8ea1c1",
+      "expectation": "原生 Tauri GUI WebDAVS transport 映射 HTTPS 后真实落盘",
+      "detail": "windows-gui-webdavs.txt",
+      "duration_ms": 1190
+    },
+    {
+      "id": "win-gui-ftp-local",
+      "protocol": "ftp",
+      "source": "ftp://flux:fluxpass@127.0.0.1:50173/ftp-sample.txt",
+      "status": "passed",
+      "gui_state": "finished",
+      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\downloads\\win-gui-ftp-local\\windows-gui-ftp.txt",
+      "bytes_written": 28,
+      "sha256": "51e3ec3c46ae4903d6acc26ceff6d42ce29402966850f0fdf76d54c03ae7f19f",
+      "expectation": "原生 Tauri GUI FTP EPSV/RETR 数据连接真实落盘",
+      "detail": "windows-gui-ftp.txt",
+      "duration_ms": 1213
+    },
+    {
+      "id": "win-gui-ftps-local-explicit",
+      "protocol": "ftps",
+      "source": "ftps://flux:fluxpass@127.0.0.1:50174/ftps-sample.txt?allowBadCertificate=true",
+      "status": "passed",
+      "gui_state": "finished",
+      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\downloads\\win-gui-ftps-local-explicit\\windows-gui-ftps.txt",
+      "bytes_written": 29,
+      "sha256": "a449606cbe0666e54c511bdaae62ef4ba22bf8793d0ab203803abf54099090d2",
+      "expectation": "原生 Tauri GUI 显式 FTPS 控制和数据连接 TLS 真实落盘",
+      "detail": "windows-gui-ftps.txt",
+      "duration_ms": 1209
+    },
+    {
+      "id": "win-gui-m3u8-local-vod",
+      "protocol": "m3u8",
+      "source": "http://127.0.0.1:50171/playlist.m3u8",
+      "status": "passed",
+      "gui_state": "finished",
+      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\downloads\\win-gui-m3u8-local-vod\\windows-gui-hls.ts",
+      "bytes_written": 48,
+      "sha256": "7ecf9fe1bba3dd832ea1a76fdf837034bb91028068a3e6d954f37a58d49d46f1",
+      "expectation": "原生 Tauri GUI VOD m3u8 两个分片按顺序合并落盘",
+      "detail": "windows-gui-hls.ts",
+      "duration_ms": 1219
+    },
+    {
+      "id": "win-gui-ipfs-local-gateway",
+      "protocol": "ipfs",
+      "source": "ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt?gateway=http%3A%2F%2F127.0.0.1%3A50171",
+      "status": "passed",
+      "gui_state": "finished",
+      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\downloads\\win-gui-ipfs-local-gateway\\windows-gui-ipfs.txt",
+      "bytes_written": 10,
+      "sha256": "206f158bef5fbaeddee314d74b90d9259c5e2abee372bbac8f3c6e65fbb0d87b",
+      "expectation": "原生 Tauri GUI IPFS gateway= 本地兼容网关真实落盘",
+      "detail": "windows-gui-ipfs.txt",
+      "duration_ms": 1244
+    },
+    {
+      "id": "win-gui-sftp-local-docker",
+      "protocol": "sftp",
+      "source": "sftp://flux:fluxpass@127.0.0.1:50213/upload/windows-gui-sftp-sample.txt",
+      "status": "passed",
+      "gui_state": "finished",
+      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\downloads\\win-gui-sftp-local-docker\\windows-gui-sftp.txt",
+      "bytes_written": 33,
+      "sha256": "299fe7a22946acc8b8c6c3c6c0c2dae1c097a1c1dcc682fefdf129dd3102085d",
+      "expectation": "原生 Tauri GUI Docker SFTP 密码认证读取远端文件并落盘",
+      "detail": "windows-gui-sftp.txt",
+      "duration_ms": 2241
+    },
+    {
+      "id": "win-gui-smb-local-docker",
+      "protocol": "smb",
+      "source": "smb://flux:fluxpass@127.0.0.1:51620/flux/windows-gui-smb-sample.txt",
+      "status": "passed",
+      "gui_state": "finished",
+      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\downloads\\win-gui-smb-local-docker\\windows-gui-smb.txt",
+      "bytes_written": 32,
+      "sha256": "96275ee381ea27cc8edd212f60ba558071fe48b46146dd59a5241ab4cff129a6",
+      "expectation": "原生 Tauri GUI Docker Samba SMB2/3 共享读取文件并落盘",
+      "detail": "windows-gui-smb.txt",
+      "duration_ms": 1263
+    },
+    {
+      "id": "win-gui-torrent-local-docker-seed",
+      "protocol": "torrent",
+      "source": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\p2p\\windows-gui-p2p-sample.torrent",
+      "status": "passed",
+      "gui_state": "finished",
+      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\downloads\\win-gui-torrent-local-docker-seed\\windows-gui-p2p-sample.txt",
+      "bytes_written": 36,
+      "sha256": "b0d8d3dae051f1f073fcc1bd6c95c8f017679a54900cae02cace594b68d16821",
+      "expectation": "原生 Tauri GUI 本地 .torrent + Docker Transmission 做种后真实文件落盘",
+      "detail": "windows-gui-p2p-sample.txt",
+      "duration_ms": 8792
+    },
+    {
+      "id": "win-gui-magnet-local-docker-seed",
+      "protocol": "magnet",
+      "source": "magnet:?xt=urn:btih:1dfba1d3b59e5fc497e90c5fb092812ce8444260&dn=windows-gui-p2p-sample.txt&tr=http%3A%2F%2Fhost.docker.internal%3A51625%2Fannounce",
+      "status": "passed",
+      "gui_state": "finished",
+      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\downloads\\win-gui-magnet-local-docker-seed\\windows-gui-p2p-sample.txt",
+      "bytes_written": 36,
+      "sha256": "b0d8d3dae051f1f073fcc1bd6c95c8f017679a54900cae02cace594b68d16821",
+      "expectation": "原生 Tauri GUI 同一 Docker seeder 通过 magnet 获取 metadata 后真实文件落盘",
+      "detail": "windows-gui-p2p-sample.txt",
+      "duration_ms": 9807
+    },
+    {
+      "id": "win-gui-ed2k-system-handoff",
+      "protocol": "ed2k",
+      "source": "ed2k://|file|windows-gui-ed2k-sample.bin|12|0123456789ABCDEF0123456789ABCDEF|/",
+      "status": "passed",
+      "gui_state": "finished",
+      "output_path": null,
+      "bytes_written": null,
+      "sha256": null,
+      "expectation": "原生 Tauri GUI 创建并启动 ed2k 任务；验证系统/aMule 移交成功或清晰失败，不冒充内建下载",
+      "detail": "windows-gui-ed2k-sample.bin | ED2K · ed2k://|file|windows-gui-ed2k-sample.bin|12|0123456789ABCDEF0123456789ABCDEF|/ | 已完成 | 100% · 0 B | 完成",
+      "duration_ms": 1742
+    }
+  ]
+}

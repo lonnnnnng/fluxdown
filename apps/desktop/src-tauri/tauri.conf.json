@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "FluxDown",
-        "width": 1180,
-        "height": 760,
-        "minWidth": 900,
-        "minHeight": 620
+        "width": 1280,
+        "height": 820,
+        "minWidth": 980,
+        "minHeight": 680
       }
     ],
     "security": {

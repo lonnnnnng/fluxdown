@@ -29,6 +29,8 @@
     "verify:linux-gui": "node scripts/verify-artifacts.mjs linux-gui",
     "verify:windows-cli": "node scripts/verify-artifacts.mjs windows-cli",
     "verify:windows-gui": "node scripts/verify-artifacts.mjs windows-gui",
+    "verify:windows-cli-protocols": "python scripts/verify-windows-cli-protocols.py",
+    "verify:windows-desktop-gui-protocols": "cargo build -p fluxdown-desktop --target-dir target/e2e-gui && python scripts/verify-windows-desktop-gui-protocols.py --app target/e2e-gui/debug/fluxdown-desktop.exe",
     "verify:macos": "bash scripts/verify-macos.sh",
     "verify:macos-artifacts": "node scripts/verify-macos-artifacts.mjs",
     "verify:macos-cli-artifact": "node scripts/verify-macos-artifacts.mjs cli",
