@@ -86,7 +86,9 @@ const _storageChannel = MethodChannel('dev.fluxdown.mobile/storage');
 
 enum AppLanguage { zh, en }
 
-enum QueueFilter { all, queued, running, finished, failed }
+enum QueueFilter { all, running, queued, paused, finished, failed }
+
+enum MobileHomeTab { tasks, settings }
 
 class StorageStats {
   const StorageStats({required this.totalBytes, required this.freeBytes});
@@ -137,14 +139,15 @@ class AppStrings {
   String get english => 'English';
   String get planned => language == AppLanguage.zh ? '规划中' : 'Planned';
   String get tabNew => language == AppLanguage.zh ? '新建' : 'New';
-  String get tabQueue => language == AppLanguage.zh ? '队列' : 'Queue';
+  String get tabQueue => language == AppLanguage.zh ? '任务' : 'Tasks';
   String get tabProtocols => language == AppLanguage.zh ? '协议' : 'Protocols';
   String get tabSettings => language == AppLanguage.zh ? '设置' : 'Settings';
   String get overview => language == AppLanguage.zh ? '概览' : 'Overview';
   String get newDownload =>
       language == AppLanguage.zh ? '新建下载' : 'New download';
   String get newTask => language == AppLanguage.zh ? '新建任务' : 'New task';
-  String get createTask => language == AppLanguage.zh ? '创建任务' : 'Create task';
+  String get createTask => language == AppLanguage.zh ? '开始下载' : 'Start download';
+  String get startDownload => language == AppLanguage.zh ? '开始下载' : 'Start download';
   String get createFromClipboard =>
       language == AppLanguage.zh ? '从剪切板新建' : 'Create from clipboard';
   String get clipboardEmpty => language == AppLanguage.zh
@@ -157,8 +160,7 @@ class AppStrings {
       language == AppLanguage.zh ? '将二维码放入取景框' : 'Place the QR code in frame';
   String get close => language == AppLanguage.zh ? '关闭' : 'Close';
   String get source => language == AppLanguage.zh ? '下载源' : 'Source';
-  String get outputFolder =>
-      language == AppLanguage.zh ? '下载保存位置' : 'Download location';
+  String get outputFolder => language == AppLanguage.zh ? '保存位置' : 'Save location';
   String get fileName => language == AppLanguage.zh ? '文件名' : 'File name';
   String get fileNameOptional =>
       language == AppLanguage.zh ? '文件名（可选）' : 'File name (optional)';
@@ -231,15 +233,15 @@ class AppStrings {
       ? '无法选择这个目录。'
       : 'Could not select that folder.';
   String get concurrencySetting =>
-      language == AppLanguage.zh ? '并发下载数' : 'Concurrent downloads';
+      language == AppLanguage.zh ? '最大并发' : 'Max concurrency';
   String get concurrencySettingHint => language == AppLanguage.zh
-      ? '同时下载 1-30，默认 1，超出排队'
-      : '1-30 active tasks, default 1; extras wait';
+      ? '同时运行任务数'
+      : 'Active tasks at the same time';
   String get downloadThreadsSetting =>
-      language == AppLanguage.zh ? '下载线程数' : 'Download threads';
+      language == AppLanguage.zh ? '最大下载线程' : 'Max download threads';
   String get downloadThreadsHint => language == AppLanguage.zh
-      ? '单任务线程 1-32，默认 8'
-      : '1-32 threads per task, default 8';
+      ? '单任务线程数'
+      : 'Threads per task';
   String get retryAttemptsSetting =>
       language == AppLanguage.zh ? '自动重试数' : 'Automatic retries';
   String get retryAttemptsHint => language == AppLanguage.zh
@@ -282,6 +284,7 @@ class AppStrings {
   String get queueCompleted => language == AppLanguage.zh ? '已完成' : 'Done';
   String get queueDownloading =>
       language == AppLanguage.zh ? '下载中' : 'Downloading';
+  String get queuePaused => language == AppLanguage.zh ? '暂停' : 'Paused';
   String get queueFailed => language == AppLanguage.zh ? '失败' : 'Failed';
   String get noQueuedTasks =>
       language == AppLanguage.zh ? '等待添加任务' : 'Waiting for tasks';
@@ -312,7 +315,7 @@ class AppStrings {
   String get copiedDownloadLink =>
       language == AppLanguage.zh ? '已复制下载链接。' : 'Download link copied.';
   String get properties => language == AppLanguage.zh ? '属性' : 'Properties';
-  String get openFile => language == AppLanguage.zh ? '打开' : 'Open';
+  String get openFile => language == AppLanguage.zh ? '显示文件' : 'Show file';
   String get shareFile => language == AppLanguage.zh ? '分享' : 'Share';
   String get redownload => language == AppLanguage.zh ? '重新下载' : 'Redownload';
   String get fileNotFound =>
@@ -410,7 +413,7 @@ class AppStrings {
   String stateLabel(DownloadState state) {
     return switch (state) {
       DownloadState.queued => language == AppLanguage.zh ? '排队中' : 'queued',
-      DownloadState.running => language == AppLanguage.zh ? '运行中' : 'running',
+      DownloadState.running => language == AppLanguage.zh ? '下载中' : 'running',
       DownloadState.paused => language == AppLanguage.zh ? '已暂停' : 'paused',
       DownloadState.finished => language == AppLanguage.zh ? '已完成' : 'finished',
       DownloadState.failed => language == AppLanguage.zh ? '失败' : 'failed',
@@ -542,10 +545,10 @@ class _FluxDownMobileAppState extends State<FluxDownMobileApp> {
           primary: const Color(0xff147c7f),
           secondary: const Color(0xffc46332),
           tertiary: const Color(0xff4068a7),
-          surface: const Color(0xfff7f5ef),
+          surface: const Color(0xfff3f8f7),
         ),
         useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xfff7f5ef),
+        scaffoldBackgroundColor: const Color(0xfff3f8f7),
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.transparent,
           elevation: 0,
@@ -555,10 +558,10 @@ class _FluxDownMobileAppState extends State<FluxDownMobileApp> {
         cardTheme: CardThemeData(
           elevation: 0,
           margin: EdgeInsets.zero,
-          color: const Color(0xfffffcf7),
+          color: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: Color(0x1f1c2b2a)),
+            side: const BorderSide(color: Color(0x1f1c9d8d)),
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
@@ -582,14 +585,20 @@ class _FluxDownMobileAppState extends State<FluxDownMobileApp> {
         ),
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xff169f93),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
             textStyle: const TextStyle(fontWeight: FontWeight.w800),
           ),
         ),
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: Color(0xff169f93),
+          foregroundColor: Colors.white,
+          shape: CircleBorder(),
+        ),
         navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: const Color(0xfffffcf7),
+          backgroundColor: Colors.white,
           elevation: 0,
           indicatorShape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
@@ -641,6 +650,7 @@ class _DownloadHomeState extends State<DownloadHome> {
   var retryAttempts = _defaultRetryAttempts;
   var speedLimitKbps = 0;
   var queueFilter = QueueFilter.all;
+  var currentTab = MobileHomeTab.tasks;
 
   AppStrings get strings => widget.strings;
 
@@ -961,32 +971,6 @@ class _DownloadHomeState extends State<DownloadHome> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void openSettings() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => SettingsPage(
-          strings: strings,
-          settings: SettingsView(
-            strings: strings,
-            language: widget.language,
-            queueConcurrency: queueConcurrency,
-            downloadThreadCount: downloadThreadCount,
-            retryAttempts: retryAttempts,
-            speedLimitKbps: speedLimitKbps,
-            outputFolderListenable: outputController,
-            onLanguageChanged: widget.onLanguageChanged,
-            onConcurrencyChanged: setQueueConcurrency,
-            onDownloadThreadCountChanged: setDownloadThreadCount,
-            onRetryAttemptsChanged: setRetryAttempts,
-            onSpeedLimitChanged: setSpeedLimitKbps,
-            onPickOutputFolder: pickOutputFolder,
-            onOpenProtocols: openProtocols,
-          ),
-        ),
-      ),
-    );
-  }
-
   void openProtocols() {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -1003,35 +987,78 @@ class _DownloadHomeState extends State<DownloadHome> {
   @override
   Widget build(BuildContext context) {
     final tasks = controller.tasks;
+    final settingsView = SettingsView(
+      strings: strings,
+      language: widget.language,
+      queueConcurrency: queueConcurrency,
+      downloadThreadCount: downloadThreadCount,
+      retryAttempts: retryAttempts,
+      speedLimitKbps: speedLimitKbps,
+      outputFolderListenable: outputController,
+      onLanguageChanged: widget.onLanguageChanged,
+      onConcurrencyChanged: setQueueConcurrency,
+      onDownloadThreadCountChanged: setDownloadThreadCount,
+      onRetryAttemptsChanged: setRetryAttempts,
+      onSpeedLimitChanged: setSpeedLimitKbps,
+      onPickOutputFolder: pickOutputFolder,
+      onOpenProtocols: openProtocols,
+    );
 
     return Scaffold(
       body: SafeArea(
         child: loading
             ? const Center(child: CircularProgressIndicator())
-            : QueueView(
-                strings: strings,
-                tasks: tasks,
-                filter: queueFilter,
-                onFilterChanged: (value) => setState(() {
-                  queueFilter = value;
-                }),
-                onOpenSettings: openSettings,
-                onStartTask: startTask,
-                onPauseTask: pauseTask,
-                onRemoveTask: removeTask,
-                onCopySource: copyTaskSource,
-                onShowProperties: showTaskProperties,
-                onOpenFile: openTaskFile,
-                onShareFile: shareTaskFile,
-                onRedownloadTask: redownloadTask,
+            : IndexedStack(
+                index: currentTab.index,
+                children: [
+                  QueueView(
+                    strings: strings,
+                    tasks: tasks,
+                    filter: queueFilter,
+                    onFilterChanged: (value) => setState(() {
+                      queueFilter = value;
+                    }),
+                    onStartTask: startTask,
+                    onPauseTask: pauseTask,
+                    onRemoveTask: removeTask,
+                    onCopySource: copyTaskSource,
+                    onShowProperties: showTaskProperties,
+                    onOpenFile: openTaskFile,
+                    onShareFile: shareTaskFile,
+                    onRedownloadTask: redownloadTask,
+                  ),
+                  settingsView,
+                ],
               ),
       ),
-      floatingActionButton: loading
+      floatingActionButton: loading || currentTab != MobileHomeTab.tasks
           ? null
           : FloatingActionButton(
               onPressed: showNewTaskDialog,
               tooltip: strings.newTask,
-              child: const Icon(Icons.add_link),
+              child: const Icon(Icons.add),
+            ),
+      bottomNavigationBar: loading
+          ? null
+          : NavigationBar(
+              selectedIndex: currentTab.index,
+              onDestinationSelected: (index) {
+                setState(() {
+                  currentTab = MobileHomeTab.values[index];
+                });
+              },
+              destinations: [
+                NavigationDestination(
+                  icon: const Icon(Icons.download_outlined),
+                  selectedIcon: const Icon(Icons.download),
+                  label: strings.tabQueue,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.settings_outlined),
+                  selectedIcon: const Icon(Icons.settings),
+                  label: strings.tabSettings,
+                ),
+              ],
             ),
     );
   }
@@ -1043,7 +1070,6 @@ class QueueView extends StatelessWidget {
     required this.tasks,
     required this.filter,
     required this.onFilterChanged,
-    required this.onOpenSettings,
     required this.onStartTask,
     required this.onPauseTask,
     required this.onRemoveTask,
@@ -1059,7 +1085,6 @@ class QueueView extends StatelessWidget {
   final List<DownloadTask> tasks;
   final QueueFilter filter;
   final ValueChanged<QueueFilter> onFilterChanged;
-  final VoidCallback onOpenSettings;
   final ValueChanged<String> onStartTask;
   final ValueChanged<String> onPauseTask;
   final ValueChanged<String> onRemoveTask;
@@ -1081,25 +1106,15 @@ class QueueView extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
           child: Column(
             children: [
-              SectionHeader(
-                icon: Icons.format_list_bulleted,
-                title: strings.queue,
-                trailingWidget: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(strings.taskCount(tasks.length)),
-                    const SizedBox(width: 6),
-                    IconButton(
-                      tooltip: strings.settings,
-                      onPressed: onOpenSettings,
-                      icon: const Icon(Icons.tune, size: 20),
-                      constraints: const BoxConstraints.tightFor(
-                        width: 40,
-                        height: 40,
-                      ),
-                      padding: EdgeInsets.zero,
-                    ),
-                  ],
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  strings.tabQueue,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontSize: 22,
+                    height: 1.1,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               const SizedBox(height: 10),
@@ -1153,8 +1168,9 @@ class QueueView extends StatelessWidget {
   bool _matchesFilter(DownloadTask task, QueueFilter filter) {
     return switch (filter) {
       QueueFilter.all => true,
-      QueueFilter.queued => task.state == DownloadState.queued,
       QueueFilter.running => task.state == DownloadState.running,
+      QueueFilter.queued => task.state == DownloadState.queued,
+      QueueFilter.paused => task.state == DownloadState.paused,
       QueueFilter.finished => task.state == DownloadState.finished,
       QueueFilter.failed => task.state == DownloadState.failed,
     };
@@ -1194,11 +1210,6 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
   var busy = false;
   String? errorText;
   var fileNameEdited = false;
-  StorageStats? storageStats;
-  var loadingStorageStats = false;
-  var storageStatsUnavailable = false;
-  Timer? storageStatsDebounce;
-  var storageStatsToken = 0;
 
   AppStrings get strings => widget.strings;
 
@@ -1206,16 +1217,10 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
   void initState() {
     super.initState();
     outputFolderController.text = widget.defaultOutputFolder;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        unawaited(refreshStorageStats());
-      }
-    });
   }
 
   @override
   void dispose() {
-    storageStatsDebounce?.cancel();
     sourceController.dispose();
     fileNameController.dispose();
     outputFolderController.dispose();
@@ -1226,43 +1231,12 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
     await createFromSource(sourceController.text);
   }
 
-  Future<void> pasteSourceFromClipboard() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = data?.text?.trim() ?? '';
-    if (text.isEmpty) {
-      setState(() {
-        errorText = strings.clipboardEmpty;
-      });
-      return;
-    }
-    sourceController.text = text;
-    syncSuggestedFileName(text);
-    setState(() {
-      errorText = null;
-    });
-  }
-
-  Future<void> scanSourceFromQr() async {
-    final scanned = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => QrScannerPage(strings: strings)),
-    );
-    if (!mounted || scanned == null) return;
-    final text = scanned.trim();
-    if (text.isEmpty) return;
-    sourceController.text = text;
-    syncSuggestedFileName(text);
-    setState(() {
-      errorText = null;
-    });
-  }
-
   Future<void> pickOutputFolder() async {
     final selected = await widget.onPickOutputFolder();
     if (!mounted || selected == null || selected.trim().isEmpty) return;
     setState(() {
       outputFolderController.text = selected.trim();
     });
-    unawaited(refreshStorageStats());
   }
 
   Future<void> createFromSource(String source) async {
@@ -1362,39 +1336,6 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
         : suggestedFileName(normalized);
   }
 
-  void scheduleStorageStatsRefresh() {
-    storageStatsDebounce?.cancel();
-    storageStatsDebounce = Timer(const Duration(milliseconds: 420), () {
-      unawaited(refreshStorageStats());
-    });
-  }
-
-  Future<void> refreshStorageStats() async {
-    final path = outputFolderController.text.trim();
-    final token = ++storageStatsToken;
-    if (path.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        storageStats = null;
-        loadingStorageStats = false;
-        storageStatsUnavailable = true;
-      });
-      return;
-    }
-
-    setState(() {
-      loadingStorageStats = true;
-      storageStatsUnavailable = false;
-    });
-    final stats = await loadStorageStats(path);
-    if (!mounted || token != storageStatsToken) return;
-    setState(() {
-      storageStats = stats;
-      loadingStorageStats = false;
-      storageStatsUnavailable = stats == null;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -1406,63 +1347,45 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
       ).copyWith(textScaler: const TextScaler.linear(0.86)),
       child: Dialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560, minHeight: 390),
+          constraints: const BoxConstraints(maxWidth: 348),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 26,
-                      height: 26,
-                      decoration: BoxDecoration(
-                        color: colorScheme.primaryContainer.withValues(
-                          alpha: 0.72,
-                        ),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        Icons.add_link,
-                        size: 15,
-                        color: colorScheme.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        strings.newTask,
-                        style: textTheme.titleMedium?.copyWith(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w900,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            strings.newDownload,
+                            style: textTheme.titleMedium?.copyWith(
+                              fontSize: 17,
+                              height: 1.1,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            strings.language == AppLanguage.zh
+                                ? '粘贴链接后自动识别类型，确认保存位置即可开始。'
+                                : 'Paste a link, confirm the folder, and start.',
+                            style: textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                              fontSize: 11,
+                              height: 1.25,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    IconButton(
-                      tooltip: strings.createFromClipboard,
-                      onPressed: busy ? null : pasteSourceFromClipboard,
-                      icon: const Icon(Icons.content_paste_go, size: 17),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 32,
-                        height: 32,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: strings.scanQr,
-                      onPressed: busy ? null : scanSourceFromQr,
-                      icon: const Icon(Icons.qr_code_scanner, size: 17),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 32,
-                        height: 32,
-                      ),
-                    ),
-                    const SizedBox(width: 2),
                     IconButton(
                       tooltip: strings.close,
                       onPressed: busy
@@ -1471,8 +1394,8 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                       icon: const Icon(Icons.close, size: 18),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints.tightFor(
-                        width: 36,
-                        height: 36,
+                        width: 34,
+                        height: 34,
                       ),
                     ),
                   ],
@@ -1480,21 +1403,24 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                 const SizedBox(height: 8),
                 TextField(
                   controller: sourceController,
-                  minLines: 4,
-                  maxLines: 6,
+                  minLines: 3,
+                  maxLines: 5,
                   enabled: !busy,
                   textInputAction: TextInputAction.done,
-                  style: const TextStyle(fontSize: 12, height: 1.12),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.16,
+                    fontWeight: FontWeight.w800,
+                  ),
                   decoration: InputDecoration(
-                    labelText: strings.source,
+                    labelText: strings.sourceLink,
                     alignLabelWithHint: true,
                     labelStyle: const TextStyle(fontSize: 12),
                     errorText: errorText,
                     errorStyle: const TextStyle(fontSize: 11.5),
-                    prefixIcon: const Icon(Icons.link, size: 18),
                     contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
+                      horizontal: 12,
+                      vertical: 10,
                     ),
                   ),
                   onChanged: (value) {
@@ -1507,6 +1433,64 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                   },
                   onSubmitted: (_) => busy ? null : createFromInput(),
                 ),
+                const SizedBox(height: 6),
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: sourceController,
+                  builder: (context, value, _) {
+                    final protocol = detectProtocol(value.text.trim());
+                    final detectedText = protocol == 'unknown'
+                        ? (strings.language == AppLanguage.zh
+                              ? '等待识别链接类型'
+                              : 'Waiting for a supported link')
+                        : '${protocolLabel(protocol)} · ${strings.backendLabel(protocol)}';
+
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 9,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xffedf6f3),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: colorScheme.primary.withValues(alpha: 0.16),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            strings.language == AppLanguage.zh
+                                ? '自动识别'
+                                : 'Auto',
+                            style: textTheme.labelSmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              detectedText,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.labelMedium?.copyWith(
+                                color: colorScheme.primary,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.check,
+                            size: 15,
+                            color: colorScheme.primary,
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
                 const SizedBox(height: 8),
                 TextField(
                   controller: fileNameController,
@@ -1514,12 +1498,8 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                   textInputAction: TextInputAction.next,
                   style: const TextStyle(fontSize: 12, height: 1.12),
                   decoration: InputDecoration(
-                    labelText: strings.saveAsFileName,
+                    labelText: strings.fileName,
                     labelStyle: const TextStyle(fontSize: 12),
-                    prefixIcon: const Icon(
-                      Icons.description_outlined,
-                      size: 18,
-                    ),
                     contentPadding: const EdgeInsets.symmetric(
                       horizontal: 10,
                       vertical: 8,
@@ -1536,9 +1516,8 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                   textInputAction: TextInputAction.done,
                   style: const TextStyle(fontSize: 12, height: 1.12),
                   decoration: InputDecoration(
-                    labelText: strings.savePath,
+                    labelText: strings.outputFolder,
                     labelStyle: const TextStyle(fontSize: 12),
-                    prefixIcon: const Icon(Icons.folder_outlined, size: 18),
                     suffixIcon: IconButton(
                       tooltip: strings.chooseFolder,
                       onPressed: busy ? null : pickOutputFolder,
@@ -1552,56 +1531,31 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                       vertical: 8,
                     ),
                   ),
-                  onChanged: (_) => scheduleStorageStatsRefresh(),
-                ),
-                const SizedBox(height: 8),
-                StorageStatsPanel(
-                  strings: strings,
-                  stats: storageStats,
-                  loading: loadingStorageStats,
-                  unavailable: storageStatsUnavailable,
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        onPressed: busy
-                            ? null
-                            : () => Navigator.of(context).pop(),
-                        child: Text(strings.close),
-                      ),
+                FilledButton.icon(
+                  onPressed: busy ? null : createFromInput,
+                  icon: busy
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download_outlined, size: 17),
+                  label: Text(
+                    strings.startDownload,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  style: FilledButton.styleFrom(
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: busy ? null : createFromInput,
-                        icon: busy
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.add, size: 17),
-                        label: Text(
-                          strings.createTask,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        style: FilledButton.styleFrom(
-                          textStyle: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                          ),
-                          minimumSize: const Size.fromHeight(44),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                      ),
+                    minimumSize: const Size.fromHeight(44),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -2226,8 +2180,9 @@ class QueueFilterTabs extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final counts = <QueueFilter, int>{
       QueueFilter.all: tasks.length,
-      QueueFilter.queued: _count(DownloadState.queued),
       QueueFilter.running: _count(DownloadState.running),
+      QueueFilter.queued: _count(DownloadState.queued),
+      QueueFilter.paused: _count(DownloadState.paused),
       QueueFilter.finished: _count(DownloadState.finished),
       QueueFilter.failed: _count(DownloadState.failed),
     };
@@ -2266,8 +2221,9 @@ class QueueFilterTabs extends StatelessWidget {
   String _label(QueueFilter filter) {
     return switch (filter) {
       QueueFilter.all => strings.queueAll,
-      QueueFilter.queued => strings.queueQueued,
       QueueFilter.running => strings.queueDownloading,
+      QueueFilter.queued => strings.queueQueued,
+      QueueFilter.paused => strings.queuePaused,
       QueueFilter.finished => strings.queueCompleted,
       QueueFilter.failed => strings.queueFailed,
     };
@@ -2396,21 +2352,22 @@ class SettingsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
     return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 14),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
       children: [
+        Text(
+          strings.settings,
+          style: textTheme.titleLarge?.copyWith(
+            fontSize: 22,
+            height: 1.1,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 12),
         SettingsGroupCard(
           children: [
-            SettingsCompactRow(
-              icon: Icons.language,
-              title: strings.languageLabel,
-              subtitle: language == AppLanguage.zh ? '应用界面' : 'App interface',
-              trailing: LanguageMenu(
-                strings: strings,
-                language: language,
-                onLanguageChanged: onLanguageChanged,
-              ),
-            ),
             ValueListenableBuilder<TextEditingValue>(
               valueListenable: outputFolderListenable,
               builder: (context, value, _) {
@@ -2435,7 +2392,7 @@ class SettingsView extends StatelessWidget {
               },
             ),
             SettingsNumberInput(
-              icon: Icons.speed,
+              icon: Icons.download_outlined,
               title: strings.concurrencySetting,
               subtitle: strings.concurrencySettingHint,
               valueText: '$queueConcurrency',
@@ -2451,7 +2408,7 @@ class SettingsView extends StatelessWidget {
               },
             ),
             SettingsNumberInput(
-              icon: Icons.account_tree_outlined,
+              icon: Icons.settings_outlined,
               title: strings.downloadThreadsSetting,
               subtitle: strings.downloadThreadsHint,
               valueText: '$downloadThreadCount',
@@ -2465,53 +2422,6 @@ class SettingsView extends StatelessWidget {
                 );
                 if (parsed != null) onDownloadThreadCountChanged(parsed);
               },
-            ),
-            SettingsNumberInput(
-              icon: Icons.refresh,
-              title: strings.retryAttemptsSetting,
-              subtitle: strings.retryAttemptsHint,
-              valueText: '$retryAttempts',
-              hintText: '$_defaultRetryAttempts',
-              suffixText: language == AppLanguage.zh ? '次' : '',
-              onSubmitted: (value) {
-                final parsed = parseBoundedInteger(
-                  value,
-                  min: 0,
-                  max: _maxRetryAttempts,
-                );
-                if (parsed != null) onRetryAttemptsChanged(parsed);
-              },
-            ),
-            SettingsNumberInput(
-              icon: Icons.speed_outlined,
-              title: strings.speedLimitSetting,
-              subtitle: strings.speedLimitHint,
-              valueText: speedLimitInputValue(speedLimitKbps),
-              hintText: language == AppLanguage.zh ? '不限速' : 'Unlimited',
-              suffixText: 'MB/s',
-              allowDecimal: true,
-              allowEmpty: true,
-              onSubmitted: (value) {
-                final parsed = parseSpeedLimitInputKbps(value);
-                if (parsed != null) onSpeedLimitChanged(parsed);
-              },
-            ),
-            SettingsCompactRow(
-              icon: Icons.hub_outlined,
-              title: strings.protocolSupport,
-              subtitle: language == AppLanguage.zh
-                  ? '查看支持协议'
-                  : 'View supported protocols',
-              trailing: IconButton(
-                tooltip: strings.protocolSupport,
-                onPressed: onOpenProtocols,
-                icon: const Icon(Icons.chevron_right, size: 18),
-                constraints: const BoxConstraints.tightFor(
-                  width: 38,
-                  height: 38,
-                ),
-                padding: EdgeInsets.zero,
-              ),
             ),
           ],
         ),
@@ -3239,6 +3149,8 @@ class ProtocolChip extends StatelessWidget {
   }
 }
 
+enum _TaskMenuAction { primary, openFile, copySource, redownload, remove }
+
 class DownloadTaskCard extends StatelessWidget {
   const DownloadTaskCard({
     required this.strings,
@@ -3271,157 +3183,353 @@ class DownloadTaskCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final progress = task.state == DownloadState.running
-        ? (task.progress ?? 0).clamp(0.0, 1.0).toDouble()
-        : 0.0;
+    final progress = _taskProgressValue(task);
     final visualState = _taskVisualState(task);
     final accentColor = _taskStateAccent(visualState, colorScheme);
-    final detailStyle = textTheme.labelSmall?.copyWith(
-      fontSize: 10.5,
-      color: colorScheme.onSurfaceVariant,
-      fontWeight: FontWeight.w700,
-      height: 1.16,
-    );
+    final primaryIcon = task.canPause
+        ? Icons.pause
+        : task.state == DownloadState.failed
+        ? Icons.refresh
+        : Icons.play_arrow;
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      color: _taskStateBackground(visualState, colorScheme),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: _taskStateBorder(visualState, colorScheme)),
-      ),
-      child: InkWell(
-        onTap: task.canPause || task.canRun ? onToggle : null,
-        onLongPress: () => _showActions(context),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return Stack(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        color: const Color(0xfffffefd),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: _taskStateBorder(visualState, colorScheme)),
+        ),
+        child: InkWell(
+          onTap: task.canPause || task.canRun ? onToggle : null,
+          onLongPress: () => _showActions(context),
+          child: Padding(
+            padding: const EdgeInsets.all(9),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                if (progress > 0)
-                  Positioned(
-                    left: 0,
-                    top: 0,
-                    bottom: 0,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 220),
-                      curve: Curves.easeOutCubic,
-                      width: constraints.maxWidth * progress,
-                      color: _taskProgressFill(colorScheme),
-                    ),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 0, 10),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _taskOutputFileName(task),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: textTheme.titleSmall?.copyWith(
-                                fontSize: 13,
-                                color: colorScheme.onSurface,
-                                fontWeight: FontWeight.w900,
-                                height: 1.1,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 12,
-                              runSpacing: 4,
-                              children: [
-                                TaskDetailChip(
-                                  icon: Icons.play_circle_outline,
-                                  iconColor: accentColor,
-                                  text: _formatDateTime(task.startedAt),
-                                  tooltip: strings.startTime,
-                                  style: detailStyle,
-                                ),
-                                TaskDetailChip(
-                                  icon: Icons.flag_outlined,
-                                  iconColor: accentColor,
-                                  text: _formatDateTime(task.finishedAt),
-                                  tooltip: strings.endTime,
-                                  style: detailStyle,
-                                ),
-                                TaskDetailChip(
-                                  icon: Icons.timer_outlined,
-                                  iconColor: accentColor,
-                                  text: _formatDuration(task.elapsed),
-                                  tooltip: strings.totalElapsed,
-                                  style: detailStyle,
-                                ),
-                                TaskDetailChip(
-                                  icon: Icons.data_usage,
-                                  iconColor: accentColor,
-                                  text: _formatBytePair(task),
-                                  tooltip: strings.fileSize,
-                                  style: detailStyle,
-                                ),
-                                TaskDetailChip(
-                                  icon: Icons.speed,
-                                  iconColor: accentColor,
-                                  text: _formatSpeed(
-                                    _visibleSpeedBytesPerSecond(task),
-                                  ),
-                                  tooltip: _speedTooltip(strings, task),
-                                  style: detailStyle,
-                                ),
-                              ],
-                            ),
-                          ],
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: _taskStateBackground(
+                          visualState,
+                          colorScheme,
                         ),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      const SizedBox(width: 2),
-                      IconButton(
-                        tooltip: strings.taskActions,
-                        onPressed: () => _showActions(context),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints.tightFor(
-                          width: 44,
-                          height: 48,
-                        ),
+                      child: Icon(
+                        _taskStateIcon(visualState),
+                        size: 16,
                         color: accentColor,
-                        icon: const Icon(Icons.more_vert),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _taskOutputFileName(task),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: textTheme.titleSmall?.copyWith(
+                              fontSize: 13,
+                              height: 1.1,
+                              color: colorScheme.onSurface,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${protocolLabel(task.protocol)} · ${_compactTaskSource(task.source)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: textTheme.labelSmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                              fontSize: 9.5,
+                              height: 1.1,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _TaskIconButton(
+                          icon: primaryIcon,
+                          color: accentColor,
+                          onPressed: task.canPause || task.canRun
+                              ? onToggle
+                              : onRedownload,
+                        ),
+                        const SizedBox(width: 4),
+                        _TaskIconButton(
+                          icon: Icons.folder_outlined,
+                          color: colorScheme.primary,
+                          filled: true,
+                          onPressed: onOpenFile,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 7),
+                Row(
+                  children: [
+                    _TaskStatePill(
+                      label: strings.stateLabel(task.state),
+                      color: accentColor,
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        _formatBytePair(task),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.labelSmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      _formatSpeed(_visibleSpeedBytesPerSecond(task)),
+                      maxLines: 1,
+                      style: textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurface,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          minHeight: 4,
+                          color: accentColor,
+                          backgroundColor: colorScheme.surfaceContainerHighest,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Text(
+                      '${(progress * 100).round()}%',
+                      style: textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
                 ),
               ],
-            );
-          },
+            ),
+          ),
         ),
       ),
     );
   }
 
-  void _showActions(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        void closeAndRun(VoidCallback action) {
-          Navigator.of(sheetContext).pop();
-          action();
-        }
+  Future<void> _showActions(BuildContext context) async {
+    final overlay = Navigator.of(context).overlay?.context.findRenderObject();
+    final cardBox = context.findRenderObject();
+    if (overlay is! RenderBox || cardBox is! RenderBox) {
+      return;
+    }
 
-        return TaskActionsSheet(
-          strings: strings,
-          task: task,
-          onCopySource: () => closeAndRun(onCopySource),
-          onShowProperties: () => closeAndRun(onShowProperties),
-          onOpenFile: () => closeAndRun(onOpenFile),
-          onShareFile: () => closeAndRun(onShareFile),
-          onRedownload: () => closeAndRun(onRedownload),
-          onPause: () => closeAndRun(onPause),
-          onStart: () => closeAndRun(onStart),
-          onRemove: () => closeAndRun(onRemove),
-        );
-      },
+    final cardOffset = cardBox.localToGlobal(Offset.zero, ancestor: overlay);
+    final cardSize = cardBox.size;
+    // 作者: long
+    // 任务快捷菜单跟随被长按的任务卡片，下边缘作为锚点，避免打断用户对当前任务的上下文判断。
+    final position = RelativeRect.fromLTRB(
+      cardOffset.dx + cardSize.width - 220,
+      cardOffset.dy + cardSize.height + 4,
+      overlay.size.width - cardOffset.dx - cardSize.width + 8,
+      overlay.size.height - cardOffset.dy,
+    );
+
+    PopupMenuItem<_TaskMenuAction> item({
+      required _TaskMenuAction value,
+      required IconData icon,
+      required String label,
+      bool destructive = false,
+    }) {
+      final foreground = destructive
+          ? Theme.of(context).colorScheme.error
+          : Theme.of(context).colorScheme.onSurface;
+
+      return PopupMenuItem<_TaskMenuAction>(
+        value: value,
+        height: 34,
+        child: Row(
+          children: [
+            Icon(icon, size: 15, color: foreground),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: foreground,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final primaryLabel = task.canPause
+        ? strings.pause
+        : task.state == DownloadState.paused
+        ? strings.resume
+        : task.state == DownloadState.failed
+        ? strings.redownload
+        : strings.start;
+    final primaryIcon = task.canPause
+        ? Icons.pause
+        : task.state == DownloadState.failed
+        ? Icons.refresh
+        : Icons.play_arrow;
+
+    final action = await showMenu<_TaskMenuAction>(
+      context: context,
+      position: position,
+      color: Colors.white,
+      constraints: const BoxConstraints(minWidth: 196, maxWidth: 220),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      items: [
+        item(value: _TaskMenuAction.primary, icon: primaryIcon, label: primaryLabel),
+        item(
+          value: _TaskMenuAction.openFile,
+          icon: Icons.folder_outlined,
+          label: strings.openFile,
+        ),
+        item(
+          value: _TaskMenuAction.copySource,
+          icon: Icons.copy,
+          label: strings.copyDownloadLink,
+        ),
+        item(
+          value: _TaskMenuAction.redownload,
+          icon: Icons.restart_alt,
+          label: strings.redownload,
+        ),
+        item(
+          value: _TaskMenuAction.remove,
+          icon: Icons.delete_outline,
+          label: strings.remove,
+          destructive: true,
+        ),
+      ],
+    );
+
+    switch (action) {
+      case _TaskMenuAction.primary:
+        if (task.canPause) {
+          onPause();
+        } else if (task.canRun) {
+          onStart();
+        } else {
+          onRedownload();
+        }
+        break;
+      case _TaskMenuAction.openFile:
+        onOpenFile();
+        break;
+      case _TaskMenuAction.copySource:
+        onCopySource();
+        break;
+      case _TaskMenuAction.redownload:
+        onRedownload();
+        break;
+      case _TaskMenuAction.remove:
+        onRemove();
+        break;
+      case null:
+        break;
+    }
+  }
+}
+
+class _TaskIconButton extends StatelessWidget {
+  const _TaskIconButton({
+    required this.icon,
+    required this.color,
+    required this.onPressed,
+    this.filled = false,
+  });
+
+  final IconData icon;
+  final Color color;
+  final VoidCallback onPressed;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 17),
+      color: filled ? Colors.white : color,
+      style: IconButton.styleFrom(
+        fixedSize: const Size(32, 32),
+        minimumSize: const Size(32, 32),
+        padding: EdgeInsets.zero,
+        backgroundColor: filled ? color : Colors.white,
+        side: BorderSide(
+          color: filled
+              ? Colors.transparent
+              : Theme.of(context).colorScheme.outlineVariant,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+  }
+}
+
+class _TaskStatePill extends StatelessWidget {
+  const _TaskStatePill({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: color,
+          fontSize: 9.5,
+          height: 1,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
     );
   }
 }
@@ -3763,6 +3871,44 @@ DownloadState _taskVisualState(DownloadTask task) {
     return DownloadState.running;
   }
   return task.state;
+}
+
+double _taskProgressValue(DownloadTask task) {
+  if (task.state == DownloadState.finished) {
+    return 1;
+  }
+  final explicitProgress = task.progress;
+  if (explicitProgress != null) {
+    return explicitProgress.clamp(0.0, 1.0).toDouble();
+  }
+  final total = task.totalBytes;
+  if (total == null || total <= 0) {
+    return 0;
+  }
+  return (task.downloadedBytes / total).clamp(0.0, 1.0).toDouble();
+}
+
+IconData _taskStateIcon(DownloadState state) {
+  return switch (state) {
+    DownloadState.running => Icons.download_outlined,
+    DownloadState.finished => Icons.check,
+    DownloadState.failed => Icons.warning_amber_rounded,
+    DownloadState.paused => Icons.pause,
+    DownloadState.queued => Icons.schedule,
+  };
+}
+
+String _compactTaskSource(String source) {
+  final normalized = source.trim();
+  if (normalized.isEmpty) {
+    return '--';
+  }
+  final uri = Uri.tryParse(normalized);
+  if (uri != null && uri.host.isNotEmpty) {
+    final path = uri.path.isEmpty ? '' : uri.path;
+    return '${uri.host}$path';
+  }
+  return normalized;
 }
 
 Color _taskStateBackground(DownloadState state, ColorScheme colorScheme) {
