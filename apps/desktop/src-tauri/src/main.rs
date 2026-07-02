@@ -512,9 +512,9 @@ fn home_dir() -> Option<PathBuf> {
 
 fn main() {
     tauri::Builder::default()
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(target_os = "windows")]
-            setup_e2e_webview(app)?;
+            setup_e2e_webview(_app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1603,59 +1603,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn desktop_start_download_runs_single_ipfs_task() {
-        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
-        let temp_dir = tempfile::tempdir().unwrap();
-        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
-        let output_dir = temp_dir.path().join("downloads");
-        let cid = "bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244";
-        let payload = b"fluxdown-desktop-start-ipfs";
-        let source = spawn_checked_http_server(
-            payload,
-            "/ipfs/bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt",
-        );
-        let address = server_address(&source);
-        let gateway = format!("http%3A%2F%2F{address}");
-
-        let task = enqueue_download(AddPayload {
-            source: format!("ipfs://{cid}/readme.txt?gateway={gateway}"),
-            output_dir: output_dir.to_string_lossy().into_owned(),
-            file_name: Some("desktop-start-ipfs.txt".to_string()),
-            expected_sha256: None,
-            torrent_file_indices: Vec::new(),
-        })
-        .await
-        .unwrap();
-        assert_eq!(task.protocol, Protocol::Ipfs);
-
-        let report = start_download(
-            task.id.clone(),
-            Some(1),
-            Some(1),
-            Some(1),
-            None,
-            Some(false),
-        )
-        .await
-        .unwrap();
-        assert_eq!(report.task.state, DownloadState::Finished);
-        assert_eq!(
-            report.task.file_name.as_deref(),
-            Some("desktop-start-ipfs.txt")
-        );
-        assert_eq!(report.task.downloaded_bytes, payload.len() as u64);
-
-        let output_path = output_dir.join("desktop-start-ipfs.txt");
-        // 作者: long
-        // IPFS 自定义 gateway 的单任务启动必须保留映射后的真实结果，供列表打开和属性面板使用。
-        assert_eq!(
-            task_output_path(task.id.clone()).await.unwrap(),
-            output_path.to_string_lossy()
-        );
-        assert_eq!(std::fs::read(output_path).unwrap(), payload);
-    }
-
-    #[tokio::test]
     async fn desktop_commands_can_remove_running_task_during_queue_run() {
         let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
         let temp_dir = tempfile::tempdir().unwrap();
@@ -1805,47 +1752,6 @@ mod tests {
         assert_eq!(tasks[0].state, DownloadState::Finished);
         assert_eq!(
             std::fs::read(output_dir.join("desktop-webdav.txt")).unwrap(),
-            payload
-        );
-    }
-
-    #[tokio::test]
-    async fn desktop_commands_download_ipfs_task_through_custom_gateway() {
-        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
-        let temp_dir = tempfile::tempdir().unwrap();
-        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
-        let output_dir = temp_dir.path().join("downloads");
-        let cid = "bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244";
-        let payload = b"Hello IPFS";
-        let source = spawn_checked_http_server(
-            payload,
-            "/ipfs/bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt",
-        );
-        let address = server_address(&source);
-        let gateway = format!("http%3A%2F%2F{address}");
-
-        let task = enqueue_download(AddPayload {
-            source: format!("ipfs://{cid}/readme.txt?gateway={gateway}"),
-            output_dir: output_dir.to_string_lossy().into_owned(),
-            file_name: Some("desktop-ipfs.txt".to_string()),
-            expected_sha256: None,
-            torrent_file_indices: Vec::new(),
-        })
-        .await
-        .unwrap();
-        assert_eq!(task.protocol, Protocol::Ipfs);
-
-        let report = run_queue(1, Some(1), Some(1), None, Some(false))
-            .await
-            .unwrap();
-        assert_eq!(report.started, 1);
-        assert_eq!(report.finished, 1);
-        assert_eq!(report.failed, 0);
-
-        let tasks = list_downloads().await.unwrap();
-        assert_eq!(tasks[0].state, DownloadState::Finished);
-        assert_eq!(
-            std::fs::read(output_dir.join("desktop-ipfs.txt")).unwrap(),
             payload
         );
     }

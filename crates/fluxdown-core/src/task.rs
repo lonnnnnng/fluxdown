@@ -1,4 +1,5 @@
 use crate::{Protocol, SupportStatus, detect_protocol, support_status};
+use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -74,7 +75,9 @@ impl DownloadTask {
         let protocol = request.protocol();
         let file_name = request
             .file_name
+            .filter(|name| !name.trim().is_empty())
             .map(|name| sanitize_download_file_name(&name, "download.bin"));
+        let file_name = file_name.or_else(|| Some(suggested_download_file_name(&request.source)));
 
         Self {
             id: format!("task-{}", Uuid::new_v4()),
@@ -250,6 +253,79 @@ pub fn sanitize_download_file_name(name: &str, fallback: &str) -> String {
     } else {
         candidate
     }
+}
+
+pub fn suggested_download_file_name(source: &str) -> String {
+    let protocol = detect_protocol(source);
+    let trimmed = source.trim();
+
+    if protocol == Protocol::Magnet {
+        if let Some(display_name) = magnet_display_name(trimmed) {
+            return sanitize_download_file_name(&display_name, "magnet-download");
+        }
+        return "magnet-download".to_string();
+    }
+
+    if let Ok(url) = Url::parse(trimmed) {
+        let segment = url
+            .path_segments()
+            .and_then(|mut segments| segments.next_back())
+            .filter(|segment| !segment.trim().is_empty())
+            .map(|segment| percent_decode_str(segment).decode_utf8_lossy().into_owned());
+        let fallback = if url.host_str().unwrap_or_default().trim().is_empty() {
+            protocol_fallback_file_name(protocol)
+        } else {
+            url.host_str().unwrap_or_default().to_string()
+        };
+        let base = segment.unwrap_or(fallback);
+        if protocol == Protocol::M3u8 {
+            let stem = std::path::Path::new(&base)
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("playlist");
+            return sanitize_download_file_name(&format!("{stem}.mp4"), "playlist.mp4");
+        }
+        return sanitize_download_file_name(&base, &protocol_fallback_file_name(protocol));
+    }
+
+    let fallback = protocol_fallback_file_name(protocol);
+    let segment = trimmed
+        .split('?')
+        .next()
+        .unwrap_or(trimmed)
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|segment| !segment.trim().is_empty())
+        .unwrap_or(fallback.as_str())
+        .to_string();
+    if protocol == Protocol::M3u8 {
+        let stem = std::path::Path::new(&segment)
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("playlist");
+        return sanitize_download_file_name(&format!("{stem}.mp4"), "playlist.mp4");
+    }
+    sanitize_download_file_name(&segment, &fallback)
+}
+
+fn protocol_fallback_file_name(protocol: Protocol) -> String {
+    match protocol {
+        Protocol::M3u8 => "playlist.mp4",
+        Protocol::Torrent => "download.torrent",
+        Protocol::Magnet => "magnet-download",
+        Protocol::Ed2k => "ed2k-download",
+        _ => "download.bin",
+    }
+    .to_string()
+}
+
+fn magnet_display_name(source: &str) -> Option<String> {
+    let query = source.strip_prefix("magnet:?")?;
+    url::form_urlencoded::parse(query.as_bytes())
+        .find(|(key, value)| key == "dn" && !value.trim().is_empty())
+        .map(|(_, value)| value.into_owned())
 }
 
 pub fn redact_url_credentials(source: &str) -> String {
@@ -430,6 +506,34 @@ mod tests {
     }
 
     #[test]
+    fn suggests_file_names_from_download_links() {
+        assert_eq!(
+            suggested_download_file_name("http://example.com/"),
+            "example.com"
+        );
+        assert_eq!(
+            suggested_download_file_name("https://cdn.example.com/files/archive.zip?token=1"),
+            "archive.zip"
+        );
+        assert_eq!(
+            suggested_download_file_name("https://media.example.com/live/index.m3u8?token=1"),
+            "index.mp4"
+        );
+        assert_eq!(
+            suggested_download_file_name("magnet:?xt=urn:btih:abc&dn=Big+Buck+Bunny"),
+            "Big Buck Bunny"
+        );
+    }
+
+    #[test]
+    fn queued_tasks_store_suggested_file_name_when_name_is_omitted() {
+        let task = DownloadTask::from_request(DownloadRequest::new("http://example.com/", "/tmp"));
+
+        assert_eq!(task.file_name.as_deref(), Some("example.com"));
+        assert_eq!(task.request().file_name.as_deref(), Some("example.com"));
+    }
+
+    #[test]
     fn normalizes_torrent_file_indices_when_creating_task() {
         let mut request = DownloadRequest::new("/tmp/multi.torrent", "/tmp");
         request.torrent_file_indices = vec![3, 1, 3, 0];
@@ -503,20 +607,6 @@ mod tests {
             )
         );
         assert!(task.source.contains("user:p%40ss"));
-    }
-
-    #[test]
-    fn redacts_credentials_from_nested_gateway_urls() {
-        let source = "ipfs://bafy/readme.txt?gateway=https%3A%2F%2Fuser%3Ap%2540ss%40gateway.example.com%2Froot";
-
-        let redacted = redact_url_credentials(source);
-
-        assert_eq!(
-            redacted,
-            "ipfs://bafy/readme.txt?gateway=https%3A%2F%2F***%3A***%40gateway.example.com%2Froot"
-        );
-        assert!(!redacted.contains("user"));
-        assert!(!redacted.contains("p%2540ss"));
     }
 
     #[test]

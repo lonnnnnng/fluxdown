@@ -22,7 +22,6 @@
 | Magnet | `magnet:?` | 内建 | 内建 | 依赖 torrent 后端。 |
 | ed2k | `ed2k://` | 移交 | 移交 | 桌面优先 aMule `ed2k` CLI，否则系统 handler；移动端移交兼容 App。 |
 | m3u8/HLS | URL 或路径以 `.m3u8` 结尾 | 内建 | 内建 | VOD 播放列表，支持 AES-128 分片；移动端 Android 转封装输出 `.mp4`。 |
-| IPFS | `ipfs://` | 内建 | 内建 | 默认映射到 `https://ipfs.io/ipfs/...` 公共网关，也支持 `gateway=` 指定自定义 HTTP/HTTPS 网关。 |
 | Unknown | 未匹配 | 计划中 | 计划中 | 不会执行下载。 |
 
 ## 桌面端细节
@@ -92,22 +91,13 @@
 - 将分片顺序写入一个 `.ts` 文件。
 - 不支持 DRM、SAMPLE-AES、直播滚动窗口、复杂码率选择或转封装。
 
-### IPFS
-
-- `ipfs://<cid>/<path>` 默认映射到 `https://ipfs.io/ipfs/<cid>/<path>`。
-- `ipfs://<cid>/<path>?gateway=http%3A%2F%2F127.0.0.1%3A8765` 会改走指定网关，并生成 `<gateway>/ipfs/<cid>/<path>`。
-- 实际可用性、速度和内容可访问性取决于所选网关。
-- 当前不运行本地 IPFS 节点，也不使用 `ipfs` CLI 拉取。
-
 ## 移动端细节
 
-移动端下载能力在 `apps/mobile/lib/src` 中实现。
-
-### HTTP/HTTPS/WebDAV/IPFS
+### HTTP/HTTPS/WebDAV
 
 - 使用 Dart `http` client。
 - 支持进度、暂停和 Range 续传。
-- WebDAV/WebDAVS 和 IPFS 在移动端也通过 HTTP 兼容路径下载。
+- WebDAV/WebDAVS 在移动端也通过 HTTP 兼容路径下载。
 
 ### FTP/FTPS
 

@@ -21,7 +21,6 @@
 | `sftp-rebex-readme` | SFTP | `sftp://demo:password@test.rebex.net/readme.txt` | 379 bytes | 输出文本包含 Rebex readme | Rebex 公共只读测试服务。 |
 | `webdav-example-page` | WebDAV transport | `webdav://example.com/` | <= 1 MB | 输出大小 > 0 且 <= 1 MB | 移动端当前映射到 HTTP transport，不代表完整 WebDAV 方法覆盖。 |
 | `webdavs-cloudflare-trace` | WebDAVS transport | `webdavs://cloudflare.com/cdn-cgi/trace` | <= 1 MB | 输出文本非空且 <= 1 MB | 移动端当前映射到 HTTPS transport，不代表完整 WebDAV 方法覆盖。 |
-| `ipfs-hello` | IPFS | `ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244` | 11 bytes | 输出文本等于 `Hello IPFS` | 通过 App 的 IPFS gateway 路径拉取公开样例。 |
 
 ## 本地实验室资源
 
@@ -47,7 +46,6 @@
 | `magnet-local-media-single` | Magnet | `magnet:?xt=urn:btih:<media-infohash>&dn=<name>&tr=<tracker>` | 媒体回归，可超过 10 MB | metadata 将临时 magnet 名称改为真实文件名；下载完成且大小匹配 | 与 `torrent-local-media-single` 使用同一媒体 payload。 |
 | `torrent-local-media-multi-selection` | BitTorrent | `http://<host>:8766/multi_torrent/20260614_bundle.torrent` | 媒体回归，可超过 10 MB | Android 显示 libtorrent 文件列表；桌面 CLI/Tauri command 传入文件编号；所选 indexes 持久化，进度只计算所选 payload | 包含一个大媒体文件和至少一个小 sidecar 文件。 |
 | `magnet-local-media-multi-selection` | Magnet | `magnet:?xt=urn:btih:<bundle-infohash>&dn=<bundle>&tr=<tracker>` | 媒体回归，可超过 10 MB | Android 在 magnet metadata 到达后显示文件列表；桌面后续需要补齐 metadata 列表交互；所选 indexes 持久化，进度只计算所选 payload | 与 `torrent-local-media-multi-selection` 使用同一多文件 payload。 |
-| `ipfs-local-gateway-small` | IPFS | `ipfs://<cid>/readme.txt?gateway=http%3A%2F%2F<host>%3A8765` | <= 1 MB | 输出文本/hash 匹配 fixture | 使用兼容 `/ipfs/<cid>/...` 的本地 HTTP gateway，避免设备网络影响。 |
 | `ed2k-handoff` | ed2k | `ed2k://|file|sample.bin|<size>|<hash>|/` | <= 10 MB | FluxDown 移交给已安装 ed2k 客户端，或在无 handler 时清晰报错 | FluxDown 不能验证外部客户端最终下载完成。 |
 
 ## 本地资源搭建
@@ -267,14 +265,6 @@ Android 设备在同一 Wi-Fi 下应使用 `http://<lan-ip>:8766/...` 和包含 
 - 公网兼容性用例：Rebex 能暴露客户端是否缺少 data connection TLS session resumption 支持。
 - 本地通过用例：当目标平台客户端支持选定 FTPS 模式时，补充一个可控 FTPS fixture。
 
-### IPFS
-
-公共 CID 体积极小，但公共 gateway 在不同设备和网络下可能不稳定。可使用 `gateway=`
-query 参数把 App 指向本地兼容 gateway 的 fixture：
-
-```text
-ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt?gateway=http%3A%2F%2F127.0.0.1%3A8765
-```
 
 ### ed2k
 
@@ -330,11 +320,10 @@ flutter test integration_test/protocol_e2e_test.dart \
   -d <device-id> \
   --dart-define=FLUXDOWN_E2E_CASES_JSON='[
     {
-      "id": "ipfs-hello",
-      "source": "ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244",
-      "fileName": "ipfs-hello.txt",
-      "expectedBytes": 11,
-      "expectedText": "Hello IPFS"
+      "id": "http-small",
+      "source": "http://<mac-lan-ip>:8765/file.txt",
+      "fileName": "file.txt",
+      "expectedBytes": 12,
     }
   ]'
 ```

@@ -78,6 +78,7 @@ Future<ProtocolE2eRunResult> runProtocolE2e({
         source: source,
         outputFolder: outputDir.path,
         fileName: fileName,
+        selectedTorrentFileIndexes: testCase.selectedTorrentFileIndexes,
       );
 
       final started = DateTime.now().toUtc();
@@ -296,6 +297,7 @@ class ProtocolE2eCase {
     this.expectedErrorContains,
     this.expectedHeadHexContains,
     this.timeoutSeconds,
+    this.selectedTorrentFileIndexes,
   });
 
   factory ProtocolE2eCase.fromJson(Map<String, Object?> json) {
@@ -311,6 +313,11 @@ class ProtocolE2eCase {
       expectedErrorContains: json['expectedErrorContains'] as String?,
       expectedHeadHexContains: json['expectedHeadHexContains'] as String?,
       timeoutSeconds: json['timeoutSeconds'] as int?,
+      selectedTorrentFileIndexes:
+          (json['selectedTorrentFileIndexes'] as List<Object?>?)
+              ?.map((value) => value is int ? value : int.tryParse('$value'))
+              .whereType<int>()
+              .toList(growable: false),
     );
   }
 
@@ -325,4 +332,5 @@ class ProtocolE2eCase {
   final String? expectedErrorContains;
   final String? expectedHeadHexContains;
   final int? timeoutSeconds;
+  final List<int>? selectedTorrentFileIndexes;
 }

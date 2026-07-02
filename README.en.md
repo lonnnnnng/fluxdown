@@ -71,10 +71,10 @@ FluxDown is a multi-protocol downloader for desktop and mobile, with a CLI, desk
 
 | Platform | Verified | Current boundary |
 | --- | --- | --- |
-| Windows Desktop | Native release build, CLI HTTP direct download, CLI queued download, Tauri-command HTTP queued download, foreground GUI HTTP download, and output SHA-256 verification have passed. README screenshots cover queue, new task, and settings. | Foreground GUI clicking currently covers HTTP only; FTP/FTPS/SFTP/SMB/IPFS/WebDAV/Torrent/Magnet remain covered mainly through CLI or Tauri-command real-download tests. |
-| macOS Desktop | Release CLI covers HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet plus queue controls. Foreground GUI covers HTTP/HLS/Torrent/Magnet. Tauri commands cover HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet. | Foreground GUI FTP/FTPS/SFTP/SMB/IPFS/WebDAV loops are still planned separately. |
+| Windows Desktop | Native release build, CLI HTTP direct download, CLI queued download, Tauri-command HTTP queued download, foreground GUI HTTP download, and output SHA-256 verification have passed. README screenshots cover queue, new task, and settings. | Foreground GUI clicking currently covers HTTP only; FTP/FTPS/SFTP/SMB/WebDAV/Torrent/Magnet remain covered mainly through CLI or Tauri-command real-download tests. |
+| macOS Desktop | Release CLI covers HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet plus queue controls. Foreground GUI covers HTTP/HLS/Torrent/Magnet. Tauri commands cover HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet. | Foreground GUI FTP/FTPS/SFTP/SMB/WebDAV loops are still planned separately. |
 | Linux Desktop | Linux CLI, GUI executable, `.deb`, and `.rpm` build artifacts have existence/non-empty checks. | Installing or launching the GUI on a Linux desktop and completing a real download has not been verified yet. |
-| Android Real Device | Redmi Note 8 Pro foreground app verification covers local HTTP/HTTPS/FTP/FTPS/SFTP/SMB/IPFS, small HLS, small torrent, small magnet, media-sized HLS, and single/multi-file torrent and magnet cases. | Store distribution still needs signing, license, and background-behavior validation. |
+| Android Real Device | Redmi Note 8 Pro foreground app verification covers local HTTP/HTTPS/FTP/FTPS/SFTP/SMB, small HLS, small torrent, small magnet, media-sized HLS, and single/multi-file torrent and magnet cases. | Store distribution still needs signing, license, and background-behavior validation. |
 | iOS Simulator | Simulator screenshots, Flutter simulator/unsigned-device build artifacts, URL-scheme configuration checks, and in-app HTTP, fMP4 HLS, BYTERANGE HLS, and TS HLS download smoke are in place. | Signed IPA, iPhone installation, QR scanning, file picking, share/open flows, and other physical-device capabilities are still pending. |
 
 See [Download verification status](docs/download-verification.md) for detailed evidence, commands, and remaining gaps.
@@ -92,11 +92,10 @@ The task model recognizes these transfer families:
 - m3u8 / HLS
 - SFTP
 - SMB
-- IPFS
 
-The desktop executable engine implements direct HTTP/HTTPS downloads, WebDAV/WebDAVS file downloads over HTTP transport, plain FTP and FTPS downloads, password-authenticated SFTP downloads, SMB2/3 share downloads, BitTorrent `.torrent` and magnet downloads, ed2k submission through the aMule `ed2k` CLI when installed with OS URL-handler fallback, IPFS gateway downloads, and VOD m3u8/HLS playlist downloads including AES-128 encrypted segments.
+The desktop executable engine implements direct HTTP/HTTPS downloads, WebDAV/WebDAVS file downloads over HTTP transport, plain FTP and FTPS downloads, password-authenticated SFTP downloads, SMB2/3 share downloads, BitTorrent `.torrent` and magnet downloads, ed2k submission through the aMule `ed2k` CLI when installed with OS URL-handler fallback, and VOD m3u8/HLS playlist downloads including AES-128 encrypted segments.
 
-The mobile app persists a local JSON queue and can execute individual tasks or run queued tasks with bounded concurrency. It supports HTTP/HTTPS and WebDAV/WebDAVS downloads with progress, pause, and HTTP Range resume. It also supports FTP/FTPS downloads with passive mode and REST resume, SFTP downloads with password authentication and offset resume, SMB2/3 file downloads, BitTorrent `.torrent` and magnet downloads through native libtorrent bindings, IPFS gateway downloads, plus VOD m3u8/HLS playlists, including AES-128 encrypted segments, remuxed into a final `.mp4` output on Android and iOS. ed2k links are executable as a mobile handoff to an installed eMule/aMule-compatible app.
+The mobile app persists a local JSON queue and can execute individual tasks or run queued tasks with bounded concurrency. It supports HTTP/HTTPS and WebDAV/WebDAVS downloads with progress, pause, and HTTP Range resume. It also supports FTP/FTPS downloads with passive mode and REST resume, SFTP downloads with password authentication and offset resume, SMB2/3 file downloads, BitTorrent `.torrent` and magnet downloads through native libtorrent bindings, plus VOD m3u8/HLS playlists, including AES-128 encrypted segments, remuxed into a final `.mp4` output on Android and iOS. ed2k links are executable as a mobile handoff to an installed eMule/aMule-compatible app.
 
 Mobile torrent support uses `libtorrent_flutter`, which ships GPL-licensed native components. Keep that license obligation in mind before distributing store builds.
 

@@ -86,10 +86,6 @@
           {
             "protocol": "smb",
             "executable": true
-          },
-          {
-            "protocol": "ipfs",
-            "executable": true
           }
         ]
       },
@@ -215,19 +211,6 @@
       "expectation": "原生 Tauri GUI VOD m3u8 两个分片按顺序合并落盘",
       "detail": "windows-gui-hls.ts",
       "duration_ms": 1219
-    },
-    {
-      "id": "win-gui-ipfs-local-gateway",
-      "protocol": "ipfs",
-      "source": "ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt?gateway=http%3A%2F%2F127.0.0.1%3A50171",
-      "status": "passed",
-      "gui_state": "finished",
-      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-gui-protocols-mawe3qjs\\downloads\\win-gui-ipfs-local-gateway\\windows-gui-ipfs.txt",
-      "bytes_written": 10,
-      "sha256": "206f158bef5fbaeddee314d74b90d9259c5e2abee372bbac8f3c6e65fbb0d87b",
-      "expectation": "原生 Tauri GUI IPFS gateway= 本地兼容网关真实落盘",
-      "detail": "windows-gui-ipfs.txt",
-      "duration_ms": 1244
     },
     {
       "id": "win-gui-sftp-local-docker",

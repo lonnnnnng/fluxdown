@@ -24,11 +24,11 @@ flowchart TD
     Core --> Store["桌面 JSON 队列"]
     Core --> Runner["QueueRunner"]
     Runner --> Engine["DownloadEngine"]
-    Engine --> DesktopBackends["HTTP / FTP / SFTP / SMB / Torrent / HLS / IPFS / ed2k handoff"]
+    Engine --> DesktopBackends["HTTP / FTP / SFTP / SMB / Torrent / HLS  / ed2k handoff"]
 
     Mobile --> MobileStore["移动 JSON 队列"]
     Mobile --> MobileRunner["MobileDownloadRunner"]
-    MobileRunner --> MobileBackends["HTTP / FTP / SFTP / SMB / libtorrent / HLS / IPFS / ed2k handoff"]
+    MobileRunner --> MobileBackends["HTTP / FTP / SFTP / SMB / libtorrent / HLS  / ed2k handoff"]
 
     Scripts["Node 构建脚本"] --> Artifacts["Release artifacts"]
     CI["GitHub Actions"] --> Artifacts
@@ -52,8 +52,8 @@ flowchart TD
 
 `crates/fluxdown-core/src/protocol.rs` 定义：
 
-- `Protocol`：`http`、`https`、`webdav`、`webdavs`、`ftp`、`ftps`、`torrent`、`magnet`、`ed2k`、`m3u8`、`sftp`、`smb`、`ipfs`、`unknown`。
-- `Backend`：`built-in`、`system-handoff`、`aria2`、`amule`、`smb-client`、`ipfs`、`planned`。
+- `Protocol`：`http`、`https`、`webdav`、`webdavs`、`ftp`、`ftps`、`torrent`、`magnet`、`ed2k`、`m3u8`、`sftp`、`smb`、`unknown`。
+- `Backend`：`built-in`、`system-handoff`、`aria2`、`amule`、`smb-client`、`planned`。
 - `SupportStatus` 和 `RuntimeSupportStatus`：区分“协议理论支持”和“当前机器是否可执行”。
 - `DoctorReport`：汇总后端和协议运行状态。
 
@@ -105,7 +105,7 @@ flowchart TD
 
 主要依赖：
 
-- `reqwest`：HTTP/HTTPS/WebDAV/IPFS 网关。
+- `reqwest`：HTTP/HTTPS/WebDAV 网关。
 - `suppaftp`：FTP/FTPS。
 - `ssh2`：SFTP。
 - `smb2`：SMB2/3。
@@ -221,6 +221,5 @@ sequenceDiagram
 
 - Rust core 先服务桌面端，移动端使用 Dart 原生实现，避免早期引入复杂 FFI。
 - 队列采用本地 JSON，便于调试和迁移，但不适合多进程高并发写入。
-- IPFS 当前通过公共网关实现，降低部署复杂度，但可用性受网关影响。
 - ed2k 采用外部移交，缩小实现面，但进度和完成状态不可由 FluxDown 完整掌控。
 - HLS 当前聚焦 VOD 下载，不承诺直播、DRM 或复杂多码率选择策略。

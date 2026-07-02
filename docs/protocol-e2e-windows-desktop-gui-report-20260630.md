@@ -1,4 +1,4 @@
-# Windows 原生 Tauri GUI 13 协议真实下载验证报告
+# Windows 原生 Tauri GUI 12 协议真实下载验证报告
 
 验证时间：2026-06-30 09:21 CST
 验证环境：Windows 开发机，`target/e2e-gui/debug/fluxdown-desktop.exe`，FluxDown `1.0.4`
@@ -10,7 +10,7 @@
 
 本轮验证使用 Windows 原生 Tauri 桌面窗口前台操作完成，不再用 CLI/core 结论替代 GUI。脚本通过 WebView2 CDP 驱动真实 `fluxdown-desktop.exe` 窗口，逐项点击设置页、创建下载任务、点击“开始队列”，并在任务列表中等待状态进入 `finished` 或 ed2k 的系统移交完成状态。
 
-HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、m3u8/HLS、SFTP、SMB、Torrent、Magnet、IPFS 均通过 GUI 前台路径完成真实文件落盘和 SHA-256 校验。ed2k 当前仍按产品定义验证系统/aMule 移交，不声明 FluxDown 内建下载完成。
+HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、m3u8/HLS、SFTP、SMB、Torrent、Magnet 均通过 GUI 前台路径完成真实文件落盘和 SHA-256 校验。ed2k 当前仍按产品定义验证系统/aMule 移交，不声明 FluxDown 内建下载完成。
 
 ## 设置页验证
 
@@ -36,7 +36,6 @@ HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、m3u8/HLS、SFTP、SMB、Torrent�
 | FTP | `win-gui-ftp-local` | 通过 | `finished` | 28 | `51e3ec3c46ae4903d6acc26ceff6d42ce29402966850f0fdf76d54c03ae7f19f` |
 | FTPS | `win-gui-ftps-local-explicit` | 通过 | `finished` | 29 | `a449606cbe0666e54c511bdaae62ef4ba22bf8793d0ab203803abf54099090d2` |
 | m3u8/HLS | `win-gui-m3u8-local-vod` | 通过 | `finished` | 48 | `7ecf9fe1bba3dd832ea1a76fdf837034bb91028068a3e6d954f37a58d49d46f1` |
-| IPFS | `win-gui-ipfs-local-gateway` | 通过 | `finished` | 10 | `206f158bef5fbaeddee314d74b90d9259c5e2abee372bbac8f3c6e65fbb0d87b` |
 | SFTP | `win-gui-sftp-local-docker` | 通过 | `finished` | 33 | `299fe7a22946acc8b8c6c3c6c0c2dae1c097a1c1dcc682fefdf129dd3102085d` |
 | SMB | `win-gui-smb-local-docker` | 通过 | `finished` | 32 | `96275ee381ea27cc8edd212f60ba558071fe48b46146dd59a5241ab4cff129a6` |
 | Torrent | `win-gui-torrent-local-docker-seed` | 通过 | `finished` | 36 | `b0d8d3dae051f1f073fcc1bd6c95c8f017679a54900cae02cace594b68d16821` |
@@ -48,4 +47,4 @@ HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、m3u8/HLS、SFTP、SMB、Torrent�
 - GUI 验证脚本会为 Windows E2E 启动独立 `XDG_DATA_HOME` 和 WebView2 data directory，避免污染用户日常队列和窗口状态。
 - 常规 Tauri 启动不暴露 CDP；仅当 `FLUXDOWN_E2E_WEBVIEW2_ARGS` 存在时，桌面端会创建 E2E 专用窗口并传入 WebView2 remote debugging 参数。
 - SFTP、SMB、Torrent、Magnet 使用 Docker fixture；Torrent/Magnet 通过本地 tracker 和 Transmission seeder 提供合法小体积资源。
-- CLI/core 13 协议证据单独保留在 [Windows CLI 13 协议真实下载验证报告](protocol-e2e-windows-report-20260630.md) 中，本报告只覆盖 Windows 原生 Tauri GUI 前台路径。
+- CLI/core 12 协议证据单独保留在 [Windows CLI 12 协议真实下载验证报告](protocol-e2e-windows-report-20260630.md) 中，本报告只覆盖 Windows 原生 Tauri GUI 前台路径。

@@ -1,5 +1,113 @@
 # Android 真机协议测试报告
 
+## 2026-07-01 公开动画 Torrent/Magnet 前台验证
+
+用户希望使用动画资源验证磁力链接和种子下载。为避免引入疑似未授权资源站内容，
+本轮改用 Blender 官方公开下载目录中的小体积动画/视频资源，并在本地生成
+`.torrent` 与 magnet 做真机前台 App 流程验证。
+
+测试环境：
+
+- 设备：Redmi Note 8 Pro，adb id `wsvwypiz7xwslvl7`。
+- App：`dev.fluxdown.mobile`，`versionName=1.0.4`。
+- Mac 局域网地址：`192.168.1.12`。
+- tracker：`http://192.168.1.12:6969/announce`。
+- torrent HTTP：`http://192.168.1.12:8767/torrent/`。
+- Transmission 做种端口：`192.168.1.12:51423`。
+- 输入方式：正常打开前台 App，点击右下角新建任务按钮，在弹框中输入链接后点击
+  “开始下载”；未使用隐藏 integration runner。
+
+资源：
+
+| 资源 | 来源 | 大小 | 源文件 SHA-256 |
+| --- | --- | --- | --- |
+| `ton_bug_1999.mpg` | `https://download.blender.org/demo/movies/ton_bug_1999.mpg` | 2,217,876 B | `e663add649d93aa6d286952ca8e5ac6cf1ce3d658cbb518d2e377bbd22b6a19c` |
+| `seamcut_blender242.mov` | `https://download.blender.org/demo/movies/seamcut_blender242.mov` | 3,844,547 B | `17a1640e27cb48b6e2d576665fbc73a3de8c1d673c72fa9b2dd9ba153a3a77a1` |
+
+本轮链接：
+
+| 类型 | 链接 |
+| --- | --- |
+| `ton_bug_1999.mpg` torrent | `http://192.168.1.12:8767/torrent/ton_bug_1999.torrent` |
+| `ton_bug_1999.mpg` magnet | `magnet:?xt=urn:btih:7c4a088c3b3b9a12dcede8fad6236ebeb6bb5326&dn=ton_bug_1999_magnet.mpg&tr=http%3A%2F%2F192.168.1.12%3A6969%2Fannounce` |
+| `seamcut_blender242.mov` torrent | `http://192.168.1.12:8767/torrent/seamcut_blender242.torrent` |
+| `seamcut_blender242.mov` magnet | `magnet:?xt=urn:btih:42f3705be45018174248467cef5e9fe6c8aaab86&dn=seamcut_blender242_magnet.mov&tr=http%3A%2F%2F192.168.1.12%3A6969%2Fannounce` |
+
+说明：magnet 验证使用 `*_magnet.*` 文件名生成独立种子，避免命中同名 torrent
+任务已经落盘的输出文件缓存；内容与对应源文件一致。
+
+结果：
+
+| Case | 协议 | 队列文件名 | 结果 | 队列证据 | 落盘 SHA-256 |
+| --- | --- | --- | --- | --- | --- |
+| `open-animation-ton-torrent` | Torrent | `ton_bug_1999.mpg` | 通过 | `state=finished`，`downloadedBytes=2217876/2217876`，开始 `01:57:47`，结束 `01:57:48` | `e663add649d93aa6d286952ca8e5ac6cf1ce3d658cbb518d2e377bbd22b6a19c` |
+| `open-animation-seamcut-torrent` | Torrent | `seamcut_blender242.mov` | 通过 | `state=finished`，`downloadedBytes=3844547/3844547`，开始 `01:59:29`，结束 `01:59:30` | `17a1640e27cb48b6e2d576665fbc73a3de8c1d673c72fa9b2dd9ba153a3a77a1` |
+| `open-animation-ton-magnet` | Magnet | `ton_bug_1999_magnet.mpg` | 通过 | `state=finished`，`downloadedBytes=2217876/2217876`，开始 `02:02:13`，结束 `02:02:23` | `e663add649d93aa6d286952ca8e5ac6cf1ce3d658cbb518d2e377bbd22b6a19c` |
+| `open-animation-seamcut-magnet` | Magnet | `seamcut_blender242_magnet.mov` | 通过 | `state=finished`，`downloadedBytes=3844547/3844547`，开始 `02:04:01`，结束 `02:04:13` | `17a1640e27cb48b6e2d576665fbc73a3de8c1d673c72fa9b2dd9ba153a3a77a1` |
+
+结论：Android 真机前台 App 流程下，公开动画资源的 `.torrent` 和 magnet 均可完成
+metadata 识别、自动命名、队列完成状态更新和文件落盘；落盘 SHA-256 与源文件一致。
+
+## 2026-07-01 最新前台 App 复测
+
+本轮继续使用 Redmi Note 8 Pro 真机正常 App UI，不使用隐藏 integration runner
+作为证据。设备 adb id 为 `wsvwypiz7xwslvl7`，App 包名为
+`dev.fluxdown.mobile`，安装版本显示 `versionName=1.0.4`、`versionCode=5`。
+
+测试方式：
+
+- 通过右下角“新建任务”按钮打开新建弹框，输入下载链接后点击“开始下载”。
+- 通过 `run-as dev.fluxdown.mobile` 读取 App 队列 JSON 和落盘文件，仅作为结果取证。
+- 本轮已全局移除 IPFS，因此 IPFS 不再纳入协议总数和测试用例。
+- 当前有效协议口径为 12 类：HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、
+  SFTP、SMB、m3u8/HLS、Torrent、Magnet、ed2k。
+
+### 资源和服务
+
+- Mac 局域网地址：`192.168.1.12`。
+- FTPS：`ftps://flux:fluxpass@192.168.1.12:2121/ftps.txt?allowBadCertificate=true`。
+- SMB：`smb://flux:fluxpass@192.168.1.12/flux/sample.txt`。
+- Torrent/Magnet 本地实验室：
+  - tracker：`http://192.168.1.12:6969/announce`
+  - torrent HTTP：`http://192.168.1.12:8099/android-single.torrent`
+  - magnet：`magnet:?xt=urn:btih:fb11339dd7ff771f67d5d21c1f77f07aee67249a&dn=android-p2p-single.txt&tr=http%3A%2F%2F192.168.1.12%3A6969%2Fannounce`
+  - Transmission 做种端口：`192.168.1.12:51423`
+- 公网小资源：
+  - HTTP：`http://example.com/`
+  - HTTPS：`https://cloudflare.com/cdn-cgi/trace`
+  - WebDAV transport：`webdav://example.com/`
+  - WebDAVS transport：`webdavs://cloudflare.com/cdn-cgi/trace`
+  - FTP/SFTP：`ftp://demo:password@test.rebex.net/readme.txt`、
+    `sftp://demo:password@test.rebex.net/readme.txt`
+  - HLS：`https://raw.githubusercontent.com/shaka-project/shaka-player/main/test/test/assets/hls-ts-aac/playlist.m3u8`
+
+### 结果矩阵
+
+| 协议 | 结果 | 证据 |
+| --- | --- | --- |
+| HTTP | 通过 | 队列快照 `2026-07-01 00:22`：`state=finished`，`fileName=example.com`，`downloadedBytes=559/559`；真机落盘 `/app_flutter/downloads/example.com`，大小 559 B。 |
+| HTTPS | 通过 | 队列快照：`state=finished`，`fileName=trace`，`downloadedBytes=212/212`；真机落盘存在。后续 WebDAVS 同名文件覆盖为 213 B。 |
+| WebDAV | 通过 | 队列快照：`state=finished`，`fileName=example.com`，`downloadedBytes=559/559`。移动端当前按 HTTP transport 处理 WebDAV scheme。 |
+| WebDAVS | 通过 | 队列快照：`state=finished`，`fileName=trace`，`downloadedBytes=213/213`；真机落盘 `/app_flutter/downloads/trace`，大小 213 B。移动端当前按 HTTPS transport 处理 WebDAVS scheme。 |
+| FTP | 通过 | 队列快照：`state=finished`，`fileName=readme.txt`，`downloadedBytes=379/379`；真机落盘 `readme.txt`，大小 379 B。 |
+| FTPS | 通过 | 本地 FTPS 小文件 `ftps.txt`：`state=finished`，`downloadedBytes=21/21`；真机落盘 `ftps.txt`，大小 21 B。旧的 `readme.txt` FTPS 用例因目标文件变化触发 REST 越界失败，不作为本轮通过证据。 |
+| SFTP | 通过 | 队列快照：`state=finished`，`fileName=readme.txt`，`downloadedBytes=379/379`；真机落盘 `readme.txt`，大小 379 B。 |
+| SMB | 通过 | 队列快照：`state=finished`，`fileName=sample.txt`，`downloadedBytes=24/24`；真机落盘 `sample.txt`，大小 24 B。 |
+| m3u8/HLS | 通过 | Shaka HLS：`state=finished`，队列记录 `downloadedBytes=510847/510847`；真机落盘 `playlist.mp4`，大小 517599 B，输出为 `.mp4`。 |
+| Torrent | 通过 | 通过前台新建任务输入 `http://192.168.1.12:8099/android-single.torrent`；App metadata 后把卡片名改为真实文件 `android-p2p-single.txt`；`state=finished`，`downloadedBytes=39/39`；真机落盘 `android-p2p-single.txt`，大小 39 B。 |
+| Magnet | 未通过 | 使用同一做种资源的完整 magnet，App 自动识别并命名为 `android-p2p-single.txt`，但等待约 2 分钟后仍为 `state=running`、`downloadedBytes=0`、`totalBytes=null`，未拿到 metadata。 |
+| ed2k | 移交通路通过 | 从 F-Droid 安装 `Mule on Android`（`org.dkf.jmule`，versionCode `39`，versionName `38`，APK SHA-256 `936a40a3f8b8b1c3f7509eb3bb4f8a8671d2eb3d3f67b41fa92fbf3c263a7493`）。FluxDown 前台新建真实链接 `ed2k://|file|en_kinect_for_windows_developer_toolkit_v1.5.2_x86_x64.exe|62599512|BB8329A4CD8FF37AAD8D25A77869192F|/` 后，系统启动 `org.dkf.jmule/.activities.MainActivity`；Mule 列表显示 `en_kinect_for_windows_developer_toolkit_v1.5.2_x86_x64.exe`、`59.70 Mb`、状态 `等待来源`。FluxDown 队列记录 `state=finished`、`downloadedBytes=0/0`，表示移交已完成，不代表 FluxDown 内建完成 ed2k 文件下载。 |
+
+### 本轮结论
+
+- 已完成真机真实下载成功：HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、SFTP、
+  SMB、m3u8/HLS、Torrent，共 10 类。
+- 已完成真机外部 App 移交：ed2k。安装 `Mule on Android` 后，FluxDown 能把
+  ed2k 链接移交给外部客户端，外部客户端能创建对应传输任务并等待来源。
+- 未通过：Magnet。即使使用局域网本地 tracker + Transmission 做种，当前移动端
+  `libtorrent_flutter` 任务仍长时间停留在 0B/无 metadata。后续需要继续排查
+  Android 端 magnet 添加、tracker announce、metadata 获取链路。
+
 ## 运行上下文
 
 - 日期：2026-06-13，Asia/Shanghai。
@@ -18,7 +126,7 @@ SMB、WebDAV 实验共享等不适合暴露到公网的协议，统一在
 ## 结果摘要
 
 - Android 真机通过：HTTP、HTTPS、FTP、FTPS、SFTP、WebDAV transport、
-  WebDAVS transport、m3u8/HLS、SMB、BitTorrent `.torrent`、Magnet、IPFS
+  WebDAVS transport、m3u8/HLS、SMB、BitTorrent `.torrent`、Magnet
   gateway 下载。
 - 边界验证：ed2k。FluxDown 会把 ed2k 移交给外部 Android App；当前设备未安装
   ed2k handler，因此预期结果是明确的无 handler 失败。
@@ -89,7 +197,6 @@ integration-test 的 "Test starting..." 页面。实验室主机为 `192.168.1.7
 | `smb-local-small` | SMB | `smb://flux:fluxpass@192.168.1.7/flux/sample.txt` | 11 B | 通过 | `state=finished`，`downloadedBytes=11`，`outputBytes=11`，内容匹配 `smb-sample\n`。 |
 | `torrent-local-small` | BitTorrent | `http://127.0.0.1:8765/webtorrent-sample.torrent`，通过 `adb reverse` | 15 B payload | 通过 | `state=finished`，`downloadedBytes=15`，`totalBytes=15`，`outputBytes=15`，内容匹配 `torrent-sample\n`。 |
 | `magnet-local-small` | Magnet | `magnet:?xt=urn:btih:fb443f977107cf6810a45c93288e63009291124d&dn=torrent-sample.txt&tr=http%3A%2F%2F192.168.1.7%3A8000%2Fannounce` | 15 B payload | 通过 | `state=finished`，`downloadedBytes=15`，`totalBytes=15`，`outputBytes=15`，内容匹配 `torrent-sample\n`。 |
-| `ipfs-local-gateway-small` | IPFS | `ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt?gateway=http%3A%2F%2F127.0.0.1%3A8765` | 10 B | 通过 | `state=finished`，`downloadedBytes=10`，`outputBytes=10`，内容匹配 `Hello IPFS`。 |
 | `ed2k-no-handler` | ed2k | `ed2k://|file|sample.bin|12|0123456789ABCDEF0123456789ABCDEF|/` | 12 B link | 预期的无 handler 边界 | `state=failed`，错误包含 `No installed app can handle this ed2k link`。Android package manager 也返回 `No activities found`。 |
 
 ## 使用命令

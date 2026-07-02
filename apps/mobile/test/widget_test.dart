@@ -55,7 +55,7 @@ void main() {
     expect(detectProtocol('ftp://example.com/file.bin'), 'ftp');
     expect(detectProtocol('ftps://example.com/file.bin'), 'ftps');
     expect(detectProtocol('sftp://example.com/file.bin'), 'sftp');
-    expect(detectProtocol('ipfs://bafybeigdyrzt/readme.txt'), 'ipfs');
+    expect(detectProtocol('custom://example.invalid/readme.txt'), 'unknown');
     expect(detectProtocol('magnet:?xt=urn:btih:abc'), 'magnet');
     expect(detectProtocol('ed2k://|file|x|1|hash|/'), 'ed2k');
     expect(detectProtocol('/tmp/file.torrent'), 'torrent');
@@ -65,6 +65,28 @@ void main() {
       'torrent',
     );
     expect(detectProtocol('https://example.com/video.m3u8?token=1'), 'm3u8');
+  });
+
+  test('suggests file names from download links before falling back', () {
+    expect(suggestedFileName('http://example.com/'), 'example.com');
+    expect(
+      suggestedFileName('https://cdn.example.com/files/archive.zip?token=1'),
+      'archive.zip',
+    );
+    expect(
+      suggestedFileName('https://media.example.com/live/index.m3u8?token=1'),
+      'index.mp4',
+    );
+    expect(
+      suggestedFileName('magnet:?xt=urn:btih:abc&dn=Big+Buck+Bunny'),
+      'Big Buck Bunny',
+    );
+    expect(
+      suggestedFileName(
+        'ed2k://|file|en_kinect_for_windows_developer_toolkit_v1.5.2_x86_x64.exe|62599512|BB8329A4CD8FF37AAD8D25A77869192F|/',
+      ),
+      'en_kinect_for_windows_developer_toolkit_v1.5.2_x86_x64.exe',
+    );
   });
 
   test('serializes queued mobile tasks', () {
@@ -135,6 +157,8 @@ void main() {
     expect(restored.torrentName, 'bundle');
     expect(restored.torrentFiles, hasLength(2));
     expect(restored.torrentFiles.first.path, 'bundle/movie.mp4');
+    expect(restored.hasTorrentFolder, isTrue);
+    expect(restored.torrentFolderName, 'bundle');
     expect(restored.selectedTorrentFileIndexes, [0]);
     expect(restored.selectedTorrentFiles.single.name, 'movie.mp4');
     expect(restored.selectedTorrentTotalBytes, 1024);
@@ -158,7 +182,7 @@ void main() {
     expect(multi.files, hasLength(2));
     expect(multi.files.first.path, 'video.mp4');
     expect(multi.files.last.path, 'sub/file.srt');
-    expect(torrentDisplayName(multi, selectedIndexes: const [0]), 'video.mp4');
+    expect(torrentDisplayName(multi, selectedIndexes: const [0]), 'bundle');
     expect(torrentDisplayName(multi, selectedIndexes: const [0, 1]), 'bundle');
   });
 
@@ -211,6 +235,21 @@ void main() {
     expect(restored.elapsed, firstElapsed);
   });
 
+  test('migrates removed protocol names to unknown', () {
+    final json =
+        DownloadTask.create(
+            source: 'custom://example.invalid/file.bin',
+            outputFolder: '/tmp/downloads',
+          ).toJson()
+          ..['protocol'] = 'removed-protocol'
+          ..['fileName'] = 'legacy.bin';
+
+    final restored = DownloadTask.fromJson(json);
+
+    expect(restored.protocol, 'unknown');
+    expect(restored.isBuiltInMobile, isFalse);
+  });
+
   test('mobile task store atomically replaces queue files', () async {
     final tempDir = await Directory.systemTemp.createTemp(
       'fluxdown_mobile_store_test_',
@@ -250,7 +289,6 @@ void main() {
     expect(supportStatus('ftp').executable, isTrue);
     expect(supportStatus('ftps').executable, isTrue);
     expect(supportStatus('sftp').executable, isTrue);
-    expect(supportStatus('ipfs').executable, isTrue);
     expect(supportStatus('m3u8').executable, isTrue);
     expect(supportStatus('torrent').executable, isTrue);
     expect(supportStatus('magnet').executable, isTrue);
@@ -578,6 +616,44 @@ void main() {
       await tempDir.delete(recursive: true);
     }
   });
+
+  test(
+    'mobile controller resumes after pause even before cancel settles',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'fluxdown_mobile_resume_after_pause_test_',
+      );
+      final runner = _ResumeAfterPauseMobileDownloadRunner();
+      final controller = DownloadController(
+        store: TaskStore(baseDirectory: tempDir),
+        runner: runner,
+      );
+
+      try {
+        final task = await controller.add(
+          source: 'https://example.com/resume-after-pause.bin',
+          outputFolder: tempDir.path,
+        );
+
+        final firstRun = controller.start(task.id);
+        await runner.firstStarted.future;
+        await controller.pause(task.id);
+        await controller.start(task.id);
+        await runner.secondStarted.future;
+        await firstRun;
+        await runner.secondFinished.future;
+
+        final resumed = controller.tasks.single;
+        expect(runner.attempts, 2);
+        expect(resumed.state, DownloadState.finished);
+        expect(resumed.downloadedBytes, 8);
+        expect(resumed.pausedAt, isNull);
+        expect(resumed.currentSpeedBytesPerSecond, 0);
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
 
   test(
     'mobile queue starts the next task after pausing an active task',
@@ -925,50 +1001,6 @@ void main() {
       expect(
         await File(p.join(tempDir.path, 'file.bin')).readAsBytes(),
         payload,
-      );
-    } finally {
-      await server.close(force: true);
-      await serverDone.cancel();
-      await tempDir.delete(recursive: true);
-    }
-  });
-
-  test('downloads IPFS files through a configured gateway', () async {
-    final payload = utf8Bytes('Hello IPFS');
-    final cid = 'bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244';
-    final tempDir = await Directory.systemTemp.createTemp(
-      'fluxdown_mobile_ipfs_test_',
-    );
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    final serverDone = server.listen((request) async {
-      expect(request.uri.path, '/ipfs/$cid/readme.txt');
-      expect(request.uri.queryParameters['download'], '1');
-      request.response
-        ..statusCode = HttpStatus.ok
-        ..headers.contentLength = payload.length
-        ..add(payload);
-      await request.response.close();
-    });
-
-    try {
-      final gateway = Uri.encodeComponent(
-        'http://${server.address.host}:${server.port}',
-      );
-      final source = 'ipfs://$cid/readme.txt?gateway=$gateway&download=1';
-      final task = DownloadTask.create(
-        source: source,
-        outputFolder: tempDir.path,
-        fileName: 'ipfs-hello.txt',
-      );
-      final runner = MobileDownloadRunner();
-
-      final finished = await runner.download(task, onProgress: (_) {});
-      expect(finished.state, DownloadState.finished);
-      expect(finished.protocol, 'ipfs');
-      expect(finished.downloadedBytes, payload.length);
-      expect(
-        await File(p.join(tempDir.path, 'ipfs-hello.txt')).readAsString(),
-        'Hello IPFS',
       );
     } finally {
       await server.close(force: true);
@@ -1729,6 +1761,58 @@ class _CancellableMobileDownloadRunner extends MobileDownloadRunner {
     );
     await cancelled.future;
     throw const DownloadCancelled();
+  }
+}
+
+class _ResumeAfterPauseMobileDownloadRunner extends MobileDownloadRunner {
+  final firstStarted = Completer<void>();
+  final secondStarted = Completer<void>();
+  final secondFinished = Completer<void>();
+  final _cancelled = Completer<void>();
+  var attempts = 0;
+
+  @override
+  void cancel(String taskId) {
+    if (!_cancelled.isCompleted) {
+      _cancelled.complete();
+    }
+  }
+
+  @override
+  Future<DownloadTask> download(
+    DownloadTask task, {
+    int speedLimitKbps = 0,
+    int threadCount = 8,
+    TorrentMetadataSelector? onTorrentMetadata,
+    required FutureOr<void> Function(DownloadTask task) onProgress,
+  }) async {
+    attempts += 1;
+    if (attempts == 1) {
+      firstStarted.complete();
+      await onProgress(
+        task.copyWith(
+          state: DownloadState.running,
+          downloadedBytes: 4,
+          totalBytes: 8,
+          clearError: true,
+        ),
+      );
+      await _cancelled.future;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      throw const DownloadCancelled();
+    }
+
+    secondStarted.complete();
+    final progress = task.copyWith(
+      state: DownloadState.running,
+      downloadedBytes: 8,
+      totalBytes: 8,
+      clearError: true,
+    );
+    await onProgress(progress);
+    final finished = progress.copyWith(state: DownloadState.finished);
+    secondFinished.complete();
+    return finished;
   }
 }
 

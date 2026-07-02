@@ -501,7 +501,7 @@ fn detect_command_outputs_stable_protocol_names() {
         ("ftps://example.com/file.iso", "ftps"),
         ("sftp://example.com/file.iso", "sftp"),
         ("smb://nas/share/file.iso", "smb"),
-        ("ipfs://bafybeigdyrzt/readme.txt", "ipfs"),
+        ("custom://example.invalid/readme.txt", "unknown"),
         ("magnet:?xt=urn:btih:abc", "magnet"),
         ("ed2k://|file|x|1|hash|/", "ed2k"),
         ("https://example.com/file.torrent?token=abc", "torrent"),
@@ -824,6 +824,81 @@ fn download_command_sanitizes_requested_output_name() {
         summary["output_path"].as_str().unwrap(),
         safe_path.to_string_lossy()
     );
+}
+
+#[test]
+fn download_command_uses_host_name_for_root_url_when_name_is_omitted() {
+    let payload = b"fluxdown-cli-root-name";
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0; 1024];
+        let _ = stream.read(&mut buffer).unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            payload.len()
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+        stream.write_all(payload).unwrap();
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let output_dir = temp_dir.path().join("downloads");
+    let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "download",
+            &format!("http://{address}/"),
+            "--output",
+            output_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    server.join().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let expected_path = output_dir.join("127.0.0.1");
+    assert_eq!(std::fs::read(&expected_path).unwrap(), payload);
+    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["display_name"], "127.0.0.1");
+    assert_eq!(
+        summary["output_path"].as_str().unwrap(),
+        expected_path.to_string_lossy()
+    );
+}
+
+#[test]
+fn add_command_stores_suggested_file_name_when_name_is_omitted() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let output_dir = temp_dir.path().join("downloads");
+    let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "add",
+            "http://example.com/",
+            "--output",
+            output_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let task: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(task["file_name"], "example.com");
+    let stored = list_task(&store_path, task["id"].as_str().unwrap());
+    assert_eq!(stored["file_name"], "example.com");
 }
 
 #[test]
@@ -2196,127 +2271,5 @@ fn queue_commands_add_and_run_webdav_task() {
     // 作者: long
     // WebDAV 在队列里走 HTTP 传输映射，完成后仍要像普通任务一样保留用户指定的保存文件名。
     assert_eq!(final_list[0]["file_name"], "queue-webdav.txt");
-    assert_eq!(final_list[0]["downloaded_bytes"], payload.len() as u64);
-}
-
-#[test]
-fn download_command_fetches_ipfs_file_through_custom_gateway() {
-    let cid = "bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244";
-    let payload = b"Hello IPFS";
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    let server = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        let mut buffer = [0; 1024];
-        let read = stream.read(&mut buffer).unwrap();
-        let request = String::from_utf8_lossy(&buffer[..read]);
-        assert!(request.starts_with(&format!("GET /ipfs/{cid}/readme.txt ")));
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            payload.len()
-        );
-        stream.write_all(response.as_bytes()).unwrap();
-        stream.write_all(payload).unwrap();
-    });
-
-    let temp_dir = tempfile::tempdir().unwrap();
-    let gateway = format!("http%3A%2F%2F{address}");
-    let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
-        .args([
-            "download",
-            &format!("ipfs://{cid}/readme.txt?gateway={gateway}"),
-            "--output",
-            temp_dir.path().to_str().unwrap(),
-            "--name",
-            "ipfs-local.txt",
-        ])
-        .output()
-        .unwrap();
-
-    server.join().unwrap();
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        std::fs::read(temp_dir.path().join("ipfs-local.txt")).unwrap(),
-        payload
-    );
-
-    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(summary["protocol"], "ipfs");
-    assert_eq!(summary["backend"], "built-in");
-    assert_eq!(summary["bytes_written"], payload.len() as u64);
-}
-
-#[test]
-fn queue_commands_add_and_run_ipfs_task_through_custom_gateway() {
-    let cid = "bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244";
-    let payload = b"Hello queued IPFS";
-    let (address, server) = spawn_checked_http_server(
-        payload,
-        "/ipfs/bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt",
-    );
-    let temp_dir = tempfile::tempdir().unwrap();
-    let store_path = temp_dir.path().join("queue.json");
-    let downloads_dir = temp_dir.path().join("downloads");
-    let gateway = format!("http%3A%2F%2F{address}");
-
-    let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
-        .args([
-            "--store",
-            store_path.to_str().unwrap(),
-            "add",
-            &format!("ipfs://{cid}/readme.txt?gateway={gateway}"),
-            "--output",
-            downloads_dir.to_str().unwrap(),
-            "--name",
-            "queue-ipfs.txt",
-        ])
-        .output()
-        .unwrap();
-    assert!(
-        add_output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&add_output.stderr)
-    );
-    let added: Value = serde_json::from_slice(&add_output.stdout).unwrap();
-    let task_id = added["id"].as_str().unwrap().to_string();
-    assert_eq!(added["protocol"], "ipfs");
-
-    let run_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
-        .args([
-            "--store",
-            store_path.to_str().unwrap(),
-            "run",
-            "--concurrency",
-            "1",
-        ])
-        .output()
-        .unwrap();
-
-    server.join().unwrap();
-    assert!(
-        run_output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&run_output.stderr)
-    );
-    assert_eq!(
-        std::fs::read(downloads_dir.join("queue-ipfs.txt")).unwrap(),
-        payload
-    );
-
-    let report: Value = serde_json::from_slice(&run_output.stdout).unwrap();
-    assert_eq!(report["finished"], 1);
-    assert_eq!(report["failed"], 0);
-    assert_eq!(report["tasks"][0]["id"], task_id);
-    assert_eq!(report["tasks"][0]["state"], "finished");
-    assert_eq!(report["tasks"][0]["file_name"], "queue-ipfs.txt");
-
-    let final_list = list_tasks(&store_path);
-    // 作者: long
-    // IPFS 自定义 gateway 是离线可控验证入口，队列执行必须保留 gateway 映射后的真实下载结果。
-    assert_eq!(final_list[0]["file_name"], "queue-ipfs.txt");
     assert_eq!(final_list[0]["downloaded_bytes"], payload.len() as u64);
 }

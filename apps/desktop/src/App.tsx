@@ -16,7 +16,6 @@ type Protocol =
   | "m3u8"
   | "sftp"
   | "smb"
-  | "ipfs"
   | "unknown";
 
 type Backend =
@@ -25,7 +24,6 @@ type Backend =
   | "aria2"
   | "amule"
   | "smb-client"
-  | "ipfs"
   | "planned";
 
 type SupportStatus = {
@@ -233,7 +231,6 @@ const supportedNow = new Set<Protocol>([
   "m3u8",
   "sftp",
   "smb",
-  "ipfs",
 ]);
 
 function fallbackDetect(source: string): Protocol {
@@ -250,7 +247,6 @@ function fallbackDetect(source: string): Protocol {
   if (value.startsWith("ftp://")) return "ftp";
   if (value.startsWith("sftp://")) return "sftp";
   if (value.startsWith("smb://")) return "smb";
-  if (value.startsWith("ipfs://")) return "ipfs";
   return "unknown";
 }
 
@@ -458,7 +454,6 @@ function backendLabel(backend: Backend) {
     aria2: "aria2",
     amule: "aMule",
     "smb-client": "SMB 客户端",
-    ipfs: "IPFS",
     planned: "规划中",
   };
   return labels[backend];
@@ -604,6 +599,7 @@ function App() {
   const [source, setSource] = useState("");
   const [sourceSupport, setSourceSupport] = useState<SupportStatus | null>(null);
   const [fileName, setFileName] = useState("");
+  const [fileNameEdited, setFileNameEdited] = useState(false);
   const [expectedSha256, setExpectedSha256] = useState("");
   const [torrentFileIndices, setTorrentFileIndices] = useState("");
   const [outputDir, setOutputDir] = useState(settings.outputDir);
@@ -841,6 +837,7 @@ function App() {
     setNewDialogOpen(false);
     updateNewTaskSource("");
     setFileName("");
+    setFileNameEdited(false);
     setExpectedSha256("");
     setTorrentFileIndices("");
     setOutputDir(settings.outputDir);
@@ -1000,19 +997,21 @@ function App() {
   function openNewDialog() {
     setOutputDir(settings.outputDir);
     setSourceSupport(source.trim() ? fallbackSupport(source.trim()) : null);
+    setFileNameEdited(false);
     setNewDialogOpen(true);
   }
 
   function closeNewDialog() {
     setNewDialogOpen(false);
     setSourceSupport(null);
+    setFileNameEdited(false);
   }
 
   function updateNewTaskSource(value: string) {
     const normalizedSource = value.trim();
     setSource(value);
     setSourceSupport(normalizedSource ? fallbackSupport(normalizedSource) : null);
-    if (!fileName.trim()) setFileName(suggestedFileName(value));
+    if (!fileNameEdited) setFileName(normalizedSource ? suggestedFileName(value) : "");
   }
 
   const currentMenuTask = tasks.find((task) => task.id === menuTaskId) ?? null;
@@ -1057,7 +1056,7 @@ function App() {
               <strong>
                 协议能力 {protocolReadyCount} / {protocolTotalCount}
               </strong>
-              <small>HTTP、M3U8、BT、SFTP、SMB、IPFS 等后端可用性</small>
+              <small>HTTP、M3U8、BT、SFTP、SMB 等后端可用性</small>
               <div className="protocolMeter">
                 <span />
               </div>
@@ -1067,7 +1066,6 @@ function App() {
                 <span>BT</span>
                 <span>SFTP</span>
                 <span>SMB</span>
-                <span>IPFS</span>
               </div>
             </div>
           </aside>
@@ -1189,13 +1187,16 @@ function App() {
       )}
 
       {newDialogOpen ? (
-        <NewTaskDialog
+          <NewTaskDialog
           expectedSha256={expectedSha256}
           fileName={fileName}
           onClose={closeNewDialog}
           onCreate={createTask}
           onExpectedSha256Change={setExpectedSha256}
-          onFileNameChange={setFileName}
+          onFileNameChange={(value) => {
+            setFileNameEdited(true);
+            setFileName(value);
+          }}
           onOutputDirChange={setOutputDir}
           onPaste={pasteFromClipboard}
           onSourceChange={updateNewTaskSource}

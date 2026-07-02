@@ -768,15 +768,6 @@ def local_cases(fixtures: dict[str, Any]) -> list[GuiCaseSpec]:
             payloads["m3u8"],
             "原生 Tauri GUI VOD m3u8 两个分片按顺序合并落盘",
         ),
-        GuiCaseSpec(
-            "win-gui-ipfs-local-gateway",
-            "ipfs",
-            f"ipfs://{cli.CID}/readme.txt?gateway={urllib.parse.quote(f'http://127.0.0.1:{http_port}', safe='')}",
-            "windows-gui-ipfs.txt",
-            cli.sha256_bytes(payloads["ipfs"]),
-            payloads["ipfs"],
-            "原生 Tauri GUI IPFS gateway= 本地兼容网关真实落盘",
-        ),
     ]
 
 
@@ -1119,7 +1110,6 @@ def main() -> int:
             "ftps",
             "ed2k",
             "m3u8",
-            "ipfs",
         }
         if not args.skip_docker:
             expected_protocols.update({"sftp", "smb", "torrent", "magnet"})

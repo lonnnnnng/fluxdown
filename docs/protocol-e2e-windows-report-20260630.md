@@ -1,4 +1,4 @@
-# Windows CLI 13 协议真实下载验证报告
+# Windows CLI 12 协议真实下载验证报告
 
 验证时间：2026-06-30 01:49 CST
 验证环境：Windows 开发机，`target/debug/fluxdown.exe`，FluxDown `1.0.4`
@@ -7,7 +7,7 @@
 
 ## 结论
 
-本轮 Windows CLI 对当前支持的 13 种协议逐一执行了真实用例验证。HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、m3u8/HLS、SFTP、SMB、Torrent、Magnet、IPFS 均完成真实下载落盘，并校验输出文件 SHA-256。ed2k 当前产品定义为系统/aMule 移交协议，本轮验证了 CLI 能完成系统移交通路；FluxDown 不声明外部 ed2k 客户端的最终下载完成状态。
+本轮 Windows CLI 对当前支持的 12 种协议逐一执行了真实用例验证。HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、m3u8/HLS、SFTP、SMB、Torrent、Magnet 均完成真实下载落盘，并校验输出文件 SHA-256。ed2k 当前产品定义为系统/aMule 移交协议，本轮验证了 CLI 能完成系统移交通路；FluxDown 不声明外部 ed2k 客户端的最终下载完成状态。
 
 本轮未发现 FluxDown core/CLI 下载实现需要修改的问题。过程中修复了新增 Windows 验证脚本的两个 fixture 问题：FTPS fixture 补齐 TLS `close_notify` 收尾，P2P tracker 补齐 `complete`/`incomplete` 字段以匹配 `librqbit` HTTP tracker 响应结构。
 
@@ -26,7 +26,6 @@
 | SMB | `win-smb-local-docker` | Docker `dperson/samba` SMB2/3 共享 | 通过 | 28 | `9233ff29c61650d79a29d411b72991ab7efc106bf9844a2606b815f674afdac4` |
 | Torrent | `win-torrent-local-docker-seed` | 本地 `.torrent` + Docker Transmission 做种 + 本地 tracker | 通过 | 32 | `408d5a0c192e7ec194079f486c29e1dfb9a82cb0817b7763aa37c652de702702` |
 | Magnet | `win-magnet-local-docker-seed` | 同一 Transmission seeder，通过 magnet 获取 metadata | 通过 | 32 | `408d5a0c192e7ec194079f486c29e1dfb9a82cb0817b7763aa37c652de702702` |
-| IPFS | `win-ipfs-local-gateway` | `ipfs://` + 本地兼容 HTTP gateway | 通过 | 10 | `206f158bef5fbaeddee314d74b90d9259c5e2abee372bbac8f3c6e65fbb0d87b` |
 | ed2k | `win-ed2k-system-handoff` | `ed2k://` 系统 URL handler 移交 | 通过 | 0 | 不适用 |
 
 ## 说明

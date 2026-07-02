@@ -83,19 +83,6 @@
       "duration_ms": 46
     },
     {
-      "id": "win-ipfs-local-gateway",
-      "protocol": "ipfs",
-      "source": "ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt?gateway=http%3A%2F%2F127.0.0.1%3A59129",
-      "status": "passed",
-      "output_path": "C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-protocols-7w2v2wi7\\downloads\\win-ipfs-local-gateway\\windows-ipfs.txt",
-      "bytes_written": 10,
-      "sha256": "206f158bef5fbaeddee314d74b90d9259c5e2abee372bbac8f3c6e65fbb0d87b",
-      "expectation": "IPFS gateway= 本地兼容网关真实落盘",
-      "detail": "display_name=windows-ipfs.txt; backend=built-in",
-      "command": "D:\\downloader\\fluxdown\\target\\debug\\fluxdown.exe download ipfs://bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244/readme.txt?gateway=http%3A%2F%2F127.0.0.1%3A59129 --output C:\\Users\\L\\AppData\\Local\\Temp\\fluxdown-win-protocols-7w2v2wi7\\downloads\\win-ipfs-local-gateway --name windows-ipfs.txt --sha256 206f158bef5fbaeddee314d74b90d9259c5e2abee372bbac8f3c6e65fbb0d87b",
-      "duration_ms": 25
-    },
-    {
       "id": "win-m3u8-local-vod",
       "protocol": "m3u8",
       "source": "http://127.0.0.1:59129/playlist.m3u8",

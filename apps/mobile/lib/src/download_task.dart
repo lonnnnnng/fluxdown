@@ -96,6 +96,7 @@ class DownloadTask {
 
   factory DownloadTask.fromJson(Map<String, Object?> json) {
     final state = DownloadState.values.byName(json['state'] as String);
+    final protocol = _knownProtocol(json['protocol'] as String?);
     final updatedAt = DateTime.parse(json['updatedAt'] as String);
     final pausedAt =
         _dateTimeFromJson(json['pausedAt']) ??
@@ -105,7 +106,7 @@ class DownloadTask {
       source: json['source'] as String,
       outputFolder: json['outputFolder'] as String,
       fileName: json['fileName'] as String,
-      protocol: json['protocol'] as String,
+      protocol: protocol,
       state: state,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: updatedAt,
@@ -187,6 +188,7 @@ class DownloadTask {
   }
 
   bool get isTorrentLike => protocol == 'torrent' || protocol == 'magnet';
+  bool get hasTorrentFolder => isTorrentLike && torrentFiles.isNotEmpty;
 
   List<int> get effectiveSelectedTorrentFileIndexes {
     final selected = selectedTorrentFileIndexes;
@@ -210,6 +212,19 @@ class DownloadTask {
     return files.fold<int>(0, (total, file) => total + file.size);
   }
 
+  String get torrentFolderName {
+    if (!isTorrentLike) return fileName;
+    final metadataName = torrentName?.trim();
+    if (metadataName != null && metadataName.isNotEmpty) {
+      return normalizeFileName(metadataName);
+    }
+    final topLevelName = _commonTorrentTopLevelName(torrentFiles);
+    if (topLevelName != null) {
+      return normalizeFileName(topLevelName);
+    }
+    return fileName;
+  }
+
   bool get isBuiltInMobile =>
       protocol == 'http' ||
       protocol == 'https' ||
@@ -218,7 +233,6 @@ class DownloadTask {
       protocol == 'ftp' ||
       protocol == 'ftps' ||
       protocol == 'sftp' ||
-      protocol == 'ipfs' ||
       protocol == 'torrent' ||
       protocol == 'magnet' ||
       protocol == 'smb' ||
@@ -304,10 +318,48 @@ class DownloadTask {
   }
 }
 
+String _knownProtocol(String? value) {
+  final protocol = value?.trim().toLowerCase();
+  return switch (protocol) {
+    'http' ||
+    'https' ||
+    'webdav' ||
+    'webdavs' ||
+    'ftp' ||
+    'ftps' ||
+    'sftp' ||
+    'torrent' ||
+    'magnet' ||
+    'smb' ||
+    'ed2k' ||
+    'm3u8' => protocol!,
+    _ => 'unknown',
+  };
+}
+
 int? _intFromJson(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   return int.tryParse(value?.toString() ?? '');
+}
+
+String? _commonTorrentTopLevelName(List<TorrentFileEntry> files) {
+  String? current;
+  for (final file in files) {
+    final normalizedPath = file.path.replaceAll('\\', '/').trim();
+    final topLevel = normalizedPath
+        .split('/')
+        .where((part) => part.trim().isNotEmpty)
+        .firstOrNull;
+    if (topLevel == null) {
+      return null;
+    }
+    current ??= topLevel;
+    if (current != topLevel) {
+      return null;
+    }
+  }
+  return current;
 }
 
 DateTime? _dateTimeFromJson(Object? value) {
@@ -320,19 +372,42 @@ DateTime? _dateTimeFromJson(Object? value) {
 String suggestedFileName(String source) {
   final protocol = detectProtocol(source);
   final uri = Uri.tryParse(source.trim());
+  if (protocol == 'magnet') {
+    final displayName = uri?.queryParameters['dn']?.trim();
+    return displayName == null || displayName.isEmpty
+        ? 'magnet-download'
+        : displayName;
+  }
+  if (protocol == 'ed2k') {
+    final parts = source.trim().split('|');
+    // 作者: long
+    // ed2k 链接的文件名在管道分隔字段中，不能按普通 URL path 取，否则会显示成转义后的整段参数。
+    if (parts.length >= 3 && parts[1].toLowerCase() == 'file') {
+      final displayName = Uri.decodeComponent(parts[2]).trim();
+      if (displayName.isNotEmpty) {
+        return displayName;
+      }
+    }
+  }
   final segment = uri?.pathSegments
       .where((part) => part.trim().isNotEmpty)
       .lastOrNull;
+  final host = uri?.host.trim();
 
   if (protocol == 'm3u8') {
+    final fallback = host == null || host.isEmpty ? 'playlist' : host;
     final baseName = segment == null || segment.trim().isEmpty
-        ? 'playlist'
+        ? fallback
         : p.basenameWithoutExtension(Uri.decodeComponent(segment));
     return '$baseName.mp4';
   }
 
   if (segment != null && segment.trim().isNotEmpty) {
     return Uri.decodeComponent(segment);
+  }
+
+  if (host != null && host.isNotEmpty) {
+    return host;
   }
 
   return switch (protocol) {

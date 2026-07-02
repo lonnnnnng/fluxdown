@@ -1,6 +1,6 @@
 use crate::{
     Backend, DownloadRequest, Protocol, backend_availability, sanitize_download_file_name,
-    validate_sha256_text,
+    suggested_download_file_name, validate_sha256_text,
 };
 use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
 use futures_util::{StreamExt, stream};
@@ -321,10 +321,6 @@ impl DownloadEngine {
             Protocol::Sftp => self.download_sftp(request, progress, cancel, options).await,
             Protocol::Ed2k => self.download_with_ed2k(request).await,
             Protocol::Smb => self.download_smb(request, progress, cancel, options).await,
-            Protocol::Ipfs => {
-                self.download_ipfs_gateway(request, progress, cancel, options)
-                    .await
-            }
             protocol => Err(DownloadError::UnsupportedProtocol(protocol)),
         }?;
         validate_summary_sha256(&mut summary, expected_sha256.as_deref()).await?;
@@ -1340,23 +1336,6 @@ impl DownloadEngine {
             sha256: None,
         })
     }
-
-    async fn download_ipfs_gateway(
-        &self,
-        request: DownloadRequest,
-        progress: Option<ProgressCallback>,
-        cancel: Option<CancelToken>,
-        options: DownloadOptions,
-    ) -> Result<DownloadSummary, DownloadError> {
-        let gateway_url = ipfs_gateway_url(&request.source)?;
-        let mut http_request = request;
-        http_request.source = gateway_url;
-        let mut summary = self
-            .download_http(http_request, progress, cancel, options)
-            .await?;
-        summary.protocol = Protocol::Ipfs;
-        Ok(summary)
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -1741,20 +1720,7 @@ fn safe_torrent_name(name: Option<&str>) -> Option<String> {
 }
 
 fn inferred_file_name_from_source(source: &str) -> String {
-    Url::parse(source)
-        .ok()
-        .map(|url| infer_file_name(&url, "download.bin"))
-        .unwrap_or_else(|| {
-            source
-                .split('?')
-                .next()
-                .unwrap_or(source)
-                .rsplit('/')
-                .next()
-                .filter(|segment| !segment.is_empty())
-                .unwrap_or("download.bin")
-                .to_string()
-        })
+    suggested_download_file_name(source)
 }
 
 fn infer_total_bytes(
@@ -1778,6 +1744,7 @@ fn infer_file_name(url: &Url, fallback: &str) -> String {
         .path_segments()
         .and_then(|mut segments| segments.next_back())
         .filter(|segment| !segment.is_empty())
+        .or_else(|| url.host_str())
         .unwrap_or(fallback)
         .to_string();
     sanitize_download_file_name(&percent_decode(&inferred), fallback)
@@ -1818,77 +1785,6 @@ async fn torrent_source(
     }
 }
 
-fn ipfs_gateway_url(source: &str) -> Result<String, DownloadError> {
-    let url = Url::parse(source).map_err(|_| DownloadError::InvalidUrl(source.to_string()))?;
-    if url.scheme() != "ipfs" {
-        return Err(DownloadError::InvalidUrl(source.to_string()));
-    }
-    let cid = url
-        .host_str()
-        .filter(|host| !host.is_empty())
-        .ok_or_else(|| DownloadError::InvalidUrl(source.to_string()))?;
-    let source_query = url.query_pairs().collect::<Vec<_>>();
-    let gateway_value = source_query
-        .iter()
-        .find_map(|(key, value)| {
-            if key.eq_ignore_ascii_case("gateway") {
-                Some(value.trim().to_string())
-            } else {
-                None
-            }
-        })
-        .filter(|value| !value.is_empty());
-    let mut gateway_url = match gateway_value {
-        Some(value) => Url::parse(&value).map_err(|_| DownloadError::InvalidUrl(source.into()))?,
-        None => Url::parse("https://ipfs.io").expect("default IPFS gateway URL is valid"),
-    };
-    if gateway_url.scheme() != "http" && gateway_url.scheme() != "https" {
-        return Err(DownloadError::InvalidUrl(source.to_string()));
-    }
-
-    let mut path_segments = gateway_url
-        .path_segments()
-        .map(|segments| {
-            segments
-                .filter(|segment| !segment.is_empty())
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    path_segments.push("ipfs".to_string());
-    path_segments.push(cid.to_string());
-    if let Some(ipfs_segments) = url.path_segments() {
-        path_segments.extend(
-            ipfs_segments
-                .filter(|segment| !segment.is_empty())
-                .map(ToOwned::to_owned),
-        );
-    }
-
-    {
-        let mut output_segments = gateway_url
-            .path_segments_mut()
-            .map_err(|_| DownloadError::InvalidUrl(source.to_string()))?;
-        output_segments.clear();
-        for segment in &path_segments {
-            output_segments.push(segment);
-        }
-    }
-
-    let forwarded_query = source_query
-        .into_iter()
-        .filter(|(key, _)| !key.eq_ignore_ascii_case("gateway"))
-        .collect::<Vec<_>>();
-    if !forwarded_query.is_empty() {
-        let mut output_query = gateway_url.query_pairs_mut();
-        for (key, value) in forwarded_query {
-            output_query.append_pair(&key, &value);
-        }
-    }
-
-    Ok(gateway_url.to_string())
-}
-
 fn webdav_http_url(source: &str) -> Result<String, DownloadError> {
     let url = Url::parse(source).map_err(|_| DownloadError::InvalidUrl(source.to_string()))?;
     let target_scheme = match url.scheme() {
@@ -1921,7 +1817,7 @@ fn http_client_for_url(default_client: &Client, url: &Url) -> Result<Client, Dow
     }
 
     // 作者: long
-    // 本地实验室 HTTPS/WebDAVS/IPFS fixture 会使用临时自签证书；只有 URL 显式 opt-in 时才放宽校验，避免影响普通公网下载的 TLS 安全边界。
+    // 本地实验室 HTTPS/WebDAVS fixture 会使用临时自签证书；只有 URL 显式 opt-in 时才放宽校验，避免影响普通公网下载的 TLS 安全边界。
     Ok(Client::builder()
         .danger_accept_invalid_certs(true)
         .build()?)
@@ -2771,25 +2667,6 @@ fn main() {{
             String::from_utf8_lossy(&output.stderr)
         );
         path
-    }
-
-    #[test]
-    fn maps_ipfs_urls_to_https_gateway_urls() {
-        assert_eq!(
-            ipfs_gateway_url("ipfs://bafybeigdyrzt/readme.txt").unwrap(),
-            "https://ipfs.io/ipfs/bafybeigdyrzt/readme.txt",
-        );
-    }
-
-    #[test]
-    fn maps_ipfs_urls_to_custom_gateway() {
-        assert_eq!(
-            ipfs_gateway_url(
-                "ipfs://bafybeigdyrzt/readme.txt?gateway=http%3A%2F%2F127.0.0.1%3A8765%2Flab&download=1"
-            )
-            .unwrap(),
-            "http://127.0.0.1:8765/lab/ipfs/bafybeigdyrzt/readme.txt?download=1",
-        );
     }
 
     #[test]

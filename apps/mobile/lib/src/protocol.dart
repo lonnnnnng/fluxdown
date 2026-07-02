@@ -28,14 +28,6 @@ ProtocolSupport supportStatus(String protocol) {
     );
   }
 
-  if (protocol == 'ipfs') {
-    return const ProtocolSupport(
-      backendLabel: 'Built-in mobile',
-      executable: true,
-      note: 'Native IPFS gateway downloader with HTTP progress and resume.',
-    );
-  }
-
   if (protocol == 'm3u8') {
     return const ProtocolSupport(
       backendLabel: 'Built-in mobile',
@@ -109,7 +101,6 @@ String detectProtocol(String source) {
   if (value.startsWith('ftp://')) return 'ftp';
   if (value.startsWith('sftp://')) return 'sftp';
   if (value.startsWith('smb://')) return 'smb';
-  if (value.startsWith('ipfs://')) return 'ipfs';
   return 'unknown';
 }
 

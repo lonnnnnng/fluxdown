@@ -1275,34 +1275,7 @@ class MobileDownloadRunner {
     if (uri.scheme == 'webdavs') {
       return uri.replace(scheme: 'https');
     }
-    if (uri.scheme != 'ipfs') {
-      return uri;
-    }
-    final cid = uri.host;
-    if (cid.isEmpty) {
-      throw FormatException('Invalid IPFS URL: $source');
-    }
-    final sourceQuery = Map<String, String>.of(uri.queryParameters);
-    final gatewayValue = sourceQuery.remove('gateway')?.trim();
-    final gateway = gatewayValue == null || gatewayValue.isEmpty
-        ? Uri.https('ipfs.io')
-        : Uri.parse(gatewayValue);
-    if (gateway.scheme != 'http' && gateway.scheme != 'https') {
-      throw FormatException('Invalid IPFS gateway URL: $gatewayValue');
-    }
-
-    final gatewayPath = gateway.pathSegments
-        .where((segment) => segment.isNotEmpty)
-        .toList(growable: false);
-    final ipfsPath = uri.pathSegments
-        .where((segment) => segment.isNotEmpty)
-        .toList(growable: false);
-    final query = <String, String>{...gateway.queryParameters, ...sourceQuery};
-
-    return gateway.replace(
-      pathSegments: [...gatewayPath, 'ipfs', cid, ...ipfsPath],
-      queryParameters: query.isEmpty ? null : query,
-    );
+    return uri;
   }
 
   http.Client _clientFor(Uri uri) {

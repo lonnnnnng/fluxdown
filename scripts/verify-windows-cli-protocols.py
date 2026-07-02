@@ -29,7 +29,6 @@ DEFAULT_FLUXDOWN = ROOT_DIR / "target" / "debug" / "fluxdown.exe"
 TRANSMISSION_IMAGE = "lscr.io/linuxserver/transmission:latest"
 SFTP_IMAGE = "atmoz/sftp"
 SMB_IMAGE = "dperson/samba"
-CID = "bafkreidfdrlkeq4m4xnxuyx6iae76fdm4wgl5d4xzsb77ixhyqwumhz244"
 
 
 class VerifyError(RuntimeError):
@@ -581,7 +580,6 @@ def setup_basic_fixtures(ctx: Context) -> dict[str, Any]:
     https_payload = b"fluxdown windows https sample\n"
     webdav_payload = b"fluxdown windows webdav sample\n"
     webdavs_payload = b"fluxdown windows webdavs sample\n"
-    ipfs_payload = b"Hello IPFS"
     seg1 = b"windows hls segment one\n"
     seg2 = b"windows hls segment two\n"
     playlist = (
@@ -598,7 +596,6 @@ def setup_basic_fixtures(ctx: Context) -> dict[str, Any]:
     plain_routes = {
         "/http.txt": http_payload,
         "/webdav.txt": webdav_payload,
-        f"/ipfs/{CID}/readme.txt": ipfs_payload,
         "/playlist.m3u8": playlist,
         "/seg1.ts": seg1,
         "/seg2.ts": seg2,
@@ -637,7 +634,6 @@ def setup_basic_fixtures(ctx: Context) -> dict[str, Any]:
             "https": https_payload,
             "webdav": webdav_payload,
             "webdavs": webdavs_payload,
-            "ipfs": ipfs_payload,
             "m3u8": seg1 + seg2,
             "ftp": ftp_payload,
             "ftps": ftps_payload,
@@ -700,14 +696,6 @@ def run_local_transport_cases(ctx: Context, fixtures: dict[str, Any]) -> None:
             "windows-ftps.txt",
             payloads["ftps"],
             "显式 FTPS 控制和数据连接 TLS 落盘",
-        ),
-        (
-            "win-ipfs-local-gateway",
-            "ipfs",
-            f"ipfs://{CID}/readme.txt?gateway={urllib.parse.quote(f'http://127.0.0.1:{http_port}', safe='')}",
-            "windows-ipfs.txt",
-            payloads["ipfs"],
-            "IPFS gateway= 本地兼容网关真实落盘",
         ),
     ]
     for case_id, protocol, source, name, payload, expectation in cases:
@@ -1169,7 +1157,6 @@ def main() -> int:
             "m3u8",
             "sftp",
             "smb",
-            "ipfs",
         }
         missing = sorted(expected - protocols)
         if missing:

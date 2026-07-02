@@ -25,7 +25,6 @@ const expectedProtocols = [
   'm3u8',
   'sftp',
   'smb',
-  'ipfs',
 ]
 
 if (!['all', 'cli'].includes(scope)) {

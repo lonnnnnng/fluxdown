@@ -397,18 +397,10 @@ String torrentDisplayName(
   TorrentMetadata metadata, {
   required List<int> selectedIndexes,
 }) {
-  final selected = _selectedFiles(metadata.files, selectedIndexes);
-  if (selected.length == 1) {
-    return normalizeFileName(selected.single.name);
-  }
-
   final baseName = metadata.name.trim().isEmpty
       ? 'torrent-download'
       : metadata.name.trim();
-  if (selected.length == metadata.files.length) {
-    return normalizeFileName(baseName);
-  }
-  return normalizeFileName('$baseName (${selected.length} files)');
+  return normalizeFileName(baseName);
 }
 
 Future<List<int>?> _readTorrentBytesFromSource(

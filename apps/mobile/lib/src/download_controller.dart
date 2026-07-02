@@ -34,6 +34,7 @@ class DownloadController {
   final void Function()? _onChanged;
   final List<DownloadTask> _tasks = [];
   final Set<String> _activeTaskIds = {};
+  final Map<String, _StartRequest> _pendingStarts = {};
   Future<void> _saveQueue = Future.value();
   Future<MobileQueueRunReport>? _queueRun;
   _QueueRunRequest? _pendingQueueRun;
@@ -74,6 +75,7 @@ class DownloadController {
 
   Future<void> remove(String id) async {
     _runner.cancel(id);
+    _pendingStarts.remove(id);
     _tasks.removeWhere((task) => task.id == id);
     await _save();
     _emit();
@@ -96,6 +98,7 @@ class DownloadController {
 
   Future<void> resetForRedownload(String id) async {
     _runner.cancel(id);
+    _pendingStarts.remove(id);
     _replace(
       id,
       (task) => task.copyWith(
@@ -121,6 +124,15 @@ class DownloadController {
     TorrentMetadataSelector? onTorrentMetadata,
   }) async {
     if (_activeTaskIds.contains(id)) {
+      final task = _maybeTaskById(id);
+      if (task != null && task.canRun) {
+        _pendingStarts[id] = _StartRequest(
+          maxRetries: maxRetries,
+          speedLimitKbps: speedLimitKbps,
+          threadCount: threadCount,
+          onTorrentMetadata: onTorrentMetadata,
+        );
+      }
       return;
     }
     final task = _maybeTaskById(id);
@@ -138,6 +150,21 @@ class DownloadController {
       );
     } finally {
       _activeTaskIds.remove(id);
+      final pending = _pendingStarts.remove(id);
+      final latest = _maybeTaskById(id);
+      if (pending != null && latest != null && latest.canRun) {
+        // 作者: long
+        // 用户暂停后马上点继续时，上一轮下载 Future 可能还没释放 active 标记；这里在旧任务真正收尾后补启动，避免“点了继续但没反应”。
+        unawaited(
+          start(
+            id,
+            maxRetries: pending.maxRetries,
+            speedLimitKbps: pending.speedLimitKbps,
+            threadCount: pending.threadCount,
+            onTorrentMetadata: pending.onTorrentMetadata,
+          ),
+        );
+      }
     }
   }
 
@@ -425,6 +452,20 @@ class _QueueRunRequest {
   });
 
   final int concurrency;
+  final int maxRetries;
+  final int speedLimitKbps;
+  final int threadCount;
+  final TorrentMetadataSelector? onTorrentMetadata;
+}
+
+class _StartRequest {
+  const _StartRequest({
+    required this.maxRetries,
+    required this.speedLimitKbps,
+    required this.threadCount,
+    required this.onTorrentMetadata,
+  });
+
   final int maxRetries;
   final int speedLimitKbps;
   final int threadCount;

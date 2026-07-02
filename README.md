@@ -38,7 +38,7 @@ FluxDown 是一款面向桌面和移动端的多协议下载器，包含 CLI、�
 - CLI 和桌面端会把另存文件名规范化为单文件名，避免异常文件名写出保存目录。
 - CLI 和桌面客户端新建任务支持可选 SHA-256 校验，校验失败会让直连命令报错或队列任务进入失败状态。
 - 桌面队列默认使用平台原生数据目录，macOS 会兼容读取并迁移旧版 `~/.local/share/fluxdown/queue.json`。
-- macOS、Windows、Android、iOS 已补充当前阶段的界面截图和验证记录；Windows CLI 和原生 Tauri GUI 均已完成当前支持 13 协议真实下载/移交验证。
+- macOS、Windows、Android、iOS 已补充当前阶段的界面截图和验证记录；Windows CLI 和原生 Tauri GUI 均已完成当前支持 12 协议真实下载/移交验证。
 - macOS 已完成 release CLI 多协议脚本化真实下载、桌面 Tauri command 多协议真实下载，以及 GUI 前台 HTTP/HLS/Torrent/Magnet 下载闭环。
 - Android 真机已补充本地协议资源和媒体级 HLS、torrent、magnet 前台 App 验证；iOS 模拟器已完成界面截图、构建产物验证和 App 内 HTTP/HLS 下载 smoke，签名 IPA 与 iPhone 真机能力仍待补。
 - Linux 当前仅完成 CLI/GUI 构建产物存在性检查，尚未在 Linux 桌面环境中完成真实 GUI 下载验证。
@@ -74,17 +74,17 @@ FluxDown 是一款面向桌面和移动端的多协议下载器，包含 CLI、�
 
 | 平台 | 已完成验证 | 当前边界 |
 | --- | --- | --- |
-| Windows 桌面端 | 本机 release 构建、CLI 13 协议真实用例验证、原生 Tauri GUI 前台 13 协议真实用例验证均已通过；HTTP/HTTPS/WebDAV/WebDAVS/FTP/FTPS/m3u8/SFTP/SMB/Torrent/Magnet/IPFS 均完成落盘和 SHA-256 校验，ed2k 按产品定义完成系统移交验证；README 已补充 Windows 下载列表、新建任务和设置截图。 | GUI 验证使用 E2E 专用 WebView2 调试窗口和隔离队列；ed2k 是移交通路验证，不代表 FluxDown 内建 ed2k 下载完成。 |
-| macOS 桌面端 | release CLI 已覆盖 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet 和队列控制；GUI 前台已覆盖 HTTP/HLS/Torrent/Magnet；Tauri command 已覆盖 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet。 | 纯 GUI 的 FTP/FTPS/SFTP/SMB/IPFS/WebDAV 点击闭环后续单独补。 |
+| Windows 桌面端 | 本机 release 构建、CLI 12 协议真实用例验证、原生 Tauri GUI 前台 12 协议真实用例验证均已通过；HTTP/HTTPS/WebDAV/WebDAVS/FTP/FTPS/m3u8/SFTP/SMB/Torrent/Magnet 均完成落盘和 SHA-256 校验，ed2k 按产品定义完成系统移交验证；README 已补充 Windows 下载列表、新建任务和设置截图。 | GUI 验证使用 E2E 专用 WebView2 调试窗口和隔离队列；ed2k 是移交通路验证，不代表 FluxDown 内建 ed2k 下载完成。 |
+| macOS 桌面端 | release CLI 已覆盖 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet 和队列控制；GUI 前台已覆盖 HTTP/HLS/Torrent/Magnet；Tauri command 已覆盖 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet。 | 纯 GUI 的 FTP/FTPS/SFTP/SMB/WebDAV 点击闭环后续单独补。 |
 | Linux 桌面端 | 已有 Linux CLI、GUI 可执行文件、`.deb`、`.rpm` 等构建产物和非空检查。 | 尚未在 Linux 桌面环境安装或启动 GUI 完成真实下载验证。 |
-| Android 真机 | Redmi Note 8 Pro 前台 App 已覆盖本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB/IPFS、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单/多文件 torrent 和 magnet。 | 正式商店分发前还需要签名、许可证和更多后台策略验证。 |
+| Android 真机 | Redmi Note 8 Pro 前台 App 已覆盖本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单/多文件 torrent 和 magnet。 | 正式商店分发前还需要签名、许可证和更多后台策略验证。 |
 | iOS 模拟器 | 已补充模拟器界面截图、Flutter simulator/unsigned device 构建产物、URL scheme 配置验证，以及 App 内 HTTP、fMP4 HLS、BYTERANGE HLS、TS HLS 下载 smoke。 | 暂未完成签名 IPA、iPhone 真机安装，以及扫码、文件选择、分享/打开等真机能力验证。 |
 
 完整证据、命令和未覆盖项见 [下载验证状态](docs/download-verification.md)。
 
 ## 协议路线
 
-FluxDown 识别 HTTP/HTTPS、WebDAV/WebDAVS、FTP/FTPS、`.torrent`、Magnet、ed2k、m3u8/HLS、SFTP、SMB 和 IPFS。桌面端 CLI/GUI 共用 Rust 下载核心；移动端 App 使用 Flutter 本地队列，并在 Android/iOS 上把 HLS 输出为最终 `.mp4` 文件。
+FluxDown 识别 HTTP/HTTPS、WebDAV/WebDAVS、FTP/FTPS、`.torrent`、Magnet、ed2k、m3u8/HLS、SFTP、SMB。桌面端 CLI/GUI 共用 Rust 下载核心；移动端 App 使用 Flutter 本地队列，并在 Android/iOS 上把 HLS 输出为最终 `.mp4` 文件。
 
 完整协议实现、平台差异和已知限制见 [协议支持矩阵](docs/protocols.md)。真实下载验证边界见 [下载验证状态](docs/download-verification.md)。
 
@@ -110,7 +110,7 @@ npm run desktop:build
 ```
 
 macOS 构建完成后，桌面 App 位于 `target/release/bundle/macos/FluxDown.app`。开发调试可运行 `npm run desktop:web` 和 `npm run desktop:dev`。
-Windows 本机具备桌面工具链时，`npm run desktop:build` 会生成 `target/release/fluxdown-desktop.exe`、MSI 和 NSIS installer；当前 Windows 机已经通过 CLI 和原生 Tauri GUI 13 协议真实验证。
+Windows 本机具备桌面工具链时，`npm run desktop:build` 会生成 `target/release/fluxdown-desktop.exe`、MSI 和 NSIS installer；当前 Windows 机已经通过 CLI 和原生 Tauri GUI 12 协议真实验证。
 
 ### 移动端
 

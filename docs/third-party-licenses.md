@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | `anyhow` | 错误处理 | MIT OR Apache-2.0 |
 | `clap` | CLI 参数解析 | MIT OR Apache-2.0 |
-| `reqwest` | HTTP/HTTPS/WebDAV/IPFS gateway 传输 | MIT OR Apache-2.0 |
+| `reqwest` | HTTP/HTTPS/WebDAV gateway 传输 | MIT OR Apache-2.0 |
 | `tokio` | 异步运行时 | MIT |
 | `serde` / `serde_json` | 队列和命令 JSON 序列化 | MIT OR Apache-2.0 |
 | `sha2` | 下载完成后的 SHA-256 校验 | MIT OR Apache-2.0 |

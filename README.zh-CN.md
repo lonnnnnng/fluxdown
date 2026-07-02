@@ -72,10 +72,10 @@ FluxDown 是一款面向桌面和移动端的多协议下载器，包含 CLI、�
 
 | 平台 | 已完成验证 | 当前边界 |
 | --- | --- | --- |
-| Windows 桌面端 | 本机 release 构建、CLI HTTP 直连下载、CLI 队列下载、Tauri command HTTP 队列下载、真实 GUI 前台 HTTP 下载和文件 SHA-256 校验均已通过；README 已补充 Windows 下载列表、新建任务和设置截图。 | GUI 前台点击目前只覆盖 HTTP；FTP/FTPS/SFTP/SMB/IPFS/WebDAV/Torrent/Magnet 仍主要依赖 CLI 或 Tauri command 真实下载验证。 |
-| macOS 桌面端 | release CLI 已覆盖 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet 和队列控制；GUI 前台已覆盖 HTTP/HLS/Torrent/Magnet；Tauri command 已覆盖 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet。 | 纯 GUI 的 FTP/FTPS/SFTP/SMB/IPFS/WebDAV 点击闭环后续单独补。 |
+| Windows 桌面端 | 本机 release 构建、CLI HTTP 直连下载、CLI 队列下载、Tauri command HTTP 队列下载、真实 GUI 前台 HTTP 下载和文件 SHA-256 校验均已通过；README 已补充 Windows 下载列表、新建任务和设置截图。 | GUI 前台点击目前只覆盖 HTTP；FTP/FTPS/SFTP/SMB/WebDAV/Torrent/Magnet 仍主要依赖 CLI 或 Tauri command 真实下载验证。 |
+| macOS 桌面端 | release CLI 已覆盖 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet 和队列控制；GUI 前台已覆盖 HTTP/HLS/Torrent/Magnet；Tauri command 已覆盖 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet。 | 纯 GUI 的 FTP/FTPS/SFTP/SMB/WebDAV 点击闭环后续单独补。 |
 | Linux 桌面端 | 已有 Linux CLI、GUI 可执行文件、`.deb`、`.rpm` 等构建产物和非空检查。 | 尚未在 Linux 桌面环境安装或启动 GUI 完成真实下载验证。 |
-| Android 真机 | Redmi Note 8 Pro 前台 App 已覆盖本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB/IPFS、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单/多文件 torrent 和 magnet。 | 正式商店分发前还需要签名、许可证和更多后台策略验证。 |
+| Android 真机 | Redmi Note 8 Pro 前台 App 已覆盖本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单/多文件 torrent 和 magnet。 | 正式商店分发前还需要签名、许可证和更多后台策略验证。 |
 | iOS 模拟器 | 已补充模拟器界面截图、Flutter simulator/unsigned device 构建产物和 URL scheme 配置验证。 | 暂未完成签名 IPA、iPhone 真机安装和 App 内真实下载闭环。 |
 
 完整证据、命令和未覆盖项见 [下载验证状态](docs/download-verification.md)。
@@ -93,11 +93,10 @@ FluxDown 是一款面向桌面和移动端的多协议下载器，包含 CLI、�
 - m3u8 / HLS
 - SFTP
 - SMB
-- IPFS
 
-桌面端执行引擎已经实现 HTTP/HTTPS 直链下载、基于 HTTP 传输的 WebDAV/WebDAVS 文件下载、FTP/FTPS 下载、密码认证 SFTP 下载、SMB2/3 共享文件下载、BitTorrent `.torrent` 和 Magnet 下载、ed2k 通过 aMule `ed2k` CLI 提交并在缺失时退回系统 URL handler、IPFS 网关下载，以及 VOD m3u8/HLS 播放列表下载，包括 AES-128 加密分片。
+桌面端执行引擎已经实现 HTTP/HTTPS 直链下载、基于 HTTP 传输的 WebDAV/WebDAVS 文件下载、FTP/FTPS 下载、密码认证 SFTP 下载、SMB2/3 共享文件下载、BitTorrent `.torrent` 和 Magnet 下载、ed2k 通过 aMule `ed2k` CLI 提交并在缺失时退回系统 URL handler，以及 VOD m3u8/HLS 播放列表下载，包括 AES-128 加密分片。
 
-移动端 App 使用本地 JSON 队列，可以执行单个任务，也可以用有界并发运行队列。移动端支持 HTTP/HTTPS 和 WebDAV/WebDAVS 下载，包含进度、暂停和 HTTP Range 续传；也支持 FTP/FTPS 被动模式与 REST 续传、SFTP 密码认证与偏移续传、SMB2/3 文件下载、通过原生 libtorrent 绑定下载 BitTorrent `.torrent` 和 Magnet、IPFS 网关下载，以及 VOD m3u8/HLS 播放列表下载，包括 AES-128 加密分片，并在 Android 和 iOS 上转封装为最终 `.mp4` 文件。ed2k 链接会移交给设备上已安装的 eMule/aMule 兼容 App。
+移动端 App 使用本地 JSON 队列，可以执行单个任务，也可以用有界并发运行队列。移动端支持 HTTP/HTTPS 和 WebDAV/WebDAVS 下载，包含进度、暂停和 HTTP Range 续传；也支持 FTP/FTPS 被动模式与 REST 续传、SFTP 密码认证与偏移续传、SMB2/3 文件下载、通过原生 libtorrent 绑定下载 BitTorrent `.torrent` 和 Magnet，以及 VOD m3u8/HLS 播放列表下载，包括 AES-128 加密分片，并在 Android 和 iOS 上转封装为最终 `.mp4` 文件。ed2k 链接会移交给设备上已安装的 eMule/aMule 兼容 App。
 
 移动端 torrent 支持使用 `libtorrent_flutter`，它包含 GPL 许可的原生组件。正式分发商店版本前需要确认许可证义务。
 

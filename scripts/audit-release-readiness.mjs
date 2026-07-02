@@ -19,7 +19,6 @@ const requiredProtocols = [
   'm3u8',
   'sftp',
   'smb',
-  'ipfs',
 ]
 
 const checks = [
@@ -27,7 +26,7 @@ const checks = [
     label: 'Rust protocol model covers requested transfer families',
     kind: 'source-contains',
     file: 'crates/fluxdown-core/src/protocol.rs',
-    values: ['Http', 'Https', 'Webdav', 'Webdavs', 'Ftp', 'Ftps', 'Torrent', 'Magnet', 'Ed2k', 'M3u8', 'Sftp', 'Smb', 'Ipfs'],
+    values: ['Http', 'Https', 'Webdav', 'Webdavs', 'Ftp', 'Ftps', 'Torrent', 'Magnet', 'Ed2k', 'M3u8', 'Sftp', 'Smb'],
   },
   {
     label: 'Desktop engine dispatches implemented transfer families',
@@ -42,7 +41,6 @@ const checks = [
       'download_sftp',
       'download_with_ed2k',
       'download_smb',
-      'download_ipfs_gateway',
     ],
   },
   {

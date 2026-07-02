@@ -18,7 +18,7 @@ pub enum Protocol {
     M3u8,
     Sftp,
     Smb,
-    Ipfs,
+    #[serde(other)]
     Unknown,
 }
 
@@ -37,7 +37,6 @@ impl Protocol {
             Protocol::M3u8 => "m3u8",
             Protocol::Sftp => "sftp",
             Protocol::Smb => "smb",
-            Protocol::Ipfs => "ipfs",
             Protocol::Unknown => "unknown",
         }
     }
@@ -51,7 +50,6 @@ pub enum Backend {
     Aria2,
     Amule,
     SmbClient,
-    Ipfs,
     Planned,
 }
 
@@ -98,8 +96,7 @@ pub fn support_status(protocol: Protocol) -> SupportStatus {
         | Protocol::Magnet
         | Protocol::M3u8
         | Protocol::Sftp
-        | Protocol::Smb
-        | Protocol::Ipfs => Backend::BuiltIn,
+        | Protocol::Smb => Backend::BuiltIn,
         Protocol::Ed2k => Backend::SystemHandoff,
         Protocol::Unknown => Backend::Planned,
     };
@@ -174,7 +171,6 @@ pub async fn doctor_report() -> DoctorReport {
         Protocol::M3u8,
         Protocol::Sftp,
         Protocol::Smb,
-        Protocol::Ipfs,
     ];
 
     DoctorReport {
@@ -207,9 +203,6 @@ pub async fn backend_availability(backend: Backend) -> BackendAvailability {
         Backend::Amule => command_availability(backend, "ed2k", "optional ed2k CLI handoff").await,
         Backend::SmbClient => {
             command_availability(backend, "smbclient", "optional external SMB fallback").await
-        }
-        Backend::Ipfs => {
-            command_availability(backend, "ipfs", "optional external IPFS backend").await
         }
         Backend::Planned => BackendAvailability {
             backend,
@@ -269,7 +262,6 @@ pub fn detect_protocol(input: &str) -> Protocol {
             "ftps" => Protocol::Ftps,
             "sftp" => Protocol::Sftp,
             "smb" => Protocol::Smb,
-            "ipfs" => Protocol::Ipfs,
             _ => Protocol::Unknown,
         },
         Err(_) => Protocol::Unknown,
@@ -314,7 +306,6 @@ mod tests {
             ("ftps://example.com/file.iso", Protocol::Ftps),
             ("sftp://example.com/file.iso", Protocol::Sftp),
             ("smb://nas/share/file.iso", Protocol::Smb),
-            ("ipfs://bafybeigdyrzt", Protocol::Ipfs),
             ("magnet:?xt=urn:btih:abc", Protocol::Magnet),
             ("ed2k://|file|x|1|hash|/", Protocol::Ed2k),
             ("/tmp/linux.torrent", Protocol::Torrent),
@@ -345,7 +336,6 @@ mod tests {
             Protocol::M3u8,
             Protocol::Sftp,
             Protocol::Smb,
-            Protocol::Ipfs,
             Protocol::Unknown,
         ];
 
@@ -353,6 +343,13 @@ mod tests {
             let serialized = serde_json::to_string(&protocol).unwrap();
             assert_eq!(serialized, format!("\"{}\"", protocol.as_str()));
         }
+    }
+
+    #[test]
+    fn deserializes_removed_protocols_as_unknown() {
+        let protocol: Protocol = serde_json::from_str("\"removed-protocol\"").unwrap();
+
+        assert_eq!(protocol, Protocol::Unknown);
     }
 
     #[test]
@@ -365,7 +362,6 @@ mod tests {
         assert_eq!(support_status(Protocol::Ftps).backend, Backend::BuiltIn);
         assert_eq!(support_status(Protocol::Torrent).backend, Backend::BuiltIn);
         assert_eq!(support_status(Protocol::Magnet).backend, Backend::BuiltIn);
-        assert_eq!(support_status(Protocol::Ipfs).backend, Backend::BuiltIn);
         assert_eq!(support_status(Protocol::Sftp).backend, Backend::BuiltIn);
         assert_eq!(
             support_status(Protocol::Ed2k).backend,

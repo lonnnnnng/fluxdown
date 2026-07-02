@@ -7,13 +7,13 @@
 - [需求文档](requirements.md)：产品目标、平台范围、用户流程、验收标准和非目标。
 - [业务文档](business.md)：产品定位、用户场景、价值主张、发布渠道、合规与运营边界。
 - [技术架构](architecture.md)：仓库结构、核心模块、队列模型、协议调度、端侧边界和关键依赖。
-- [协议支持矩阵](protocols.md)：HTTP、FTP、BitTorrent、Magnet、ed2k、m3u8/HLS、SFTP、SMB、IPFS 等协议在桌面端和移动端的支持状态。
+- [协议支持矩阵](protocols.md)：HTTP、FTP、BitTorrent、Magnet、ed2k、m3u8/HLS、SFTP、SMB 等协议在桌面端和移动端的支持状态。
 - [下载验证状态](download-verification.md)：区分构建/产物校验和真实下载端到端验证，记录各端与各协议当前验证边界。
 - [Apple 目标验收清单](apple-verification.md)：聚焦 macOS 桌面、macOS CLI 和 iOS 当前目标的通过项、待执行项和推荐命令。
 - [协议端到端测试用例](protocol-e2e-test-cases.md)：跨平台复用的 10 MB 以下协议下载测试矩阵。
 - [Android 真机协议测试报告](android-real-device-protocol-report.md)：Android 真机协议下载实测结果和未覆盖项。
-- [Windows CLI 13 协议真实下载验证报告](protocol-e2e-windows-report-20260630.md)：Windows 开发机上 13 种协议的真实用例、落盘 hash 和验证结论。
-- [Windows 原生 Tauri GUI 13 协议真实下载验证报告](protocol-e2e-windows-desktop-gui-report-20260630.md)：Windows 原生桌面窗口前台操作的 13 协议验证、设置页验证和截图证据。
+- [Windows CLI 12 协议真实下载验证报告](protocol-e2e-windows-report-20260630.md)：Windows 开发机上 12 种协议的真实用例、落盘 hash 和验证结论。
+- [Windows 原生 Tauri GUI 12 协议真实下载验证报告](protocol-e2e-windows-desktop-gui-report-20260630.md)：Windows 原生桌面窗口前台操作的 12 协议验证、设置页验证和截图证据。
 - [构建与发布](build-release.md)：本地构建命令、CI 作业、发布产物、签名配置和版本发布流程。
 - [第三方许可证清单](third-party-licenses.md)：项目自有许可证、主要直接依赖和移动端 GPL 风险边界。
 - [运维与安全](operations-security.md)：本地数据、凭据处理、第三方后端、许可证、隐私假设和排障入口。
@@ -27,7 +27,7 @@ FluxDown 是一个跨平台下载器工作区：
 - 移动端：Android 和 iPhone，使用 Flutter App。
 - 共享核心：Rust core crate 提供协议检测、任务模型、任务存储、队列运行器和桌面下载执行能力。
 
-当前版本号为 `1.0.4`。发布流水线在 `.github/workflows/build.yml` 中定义，只允许在 GitHub Actions 页面手动触发，并且必须显式选择 `run_mode=package` 或 `run_mode=release`；普通代码推送和 `v*` 标签推送都不会自动执行。
+当前版本号为 `1.0.5`。发布流水线在 `.github/workflows/build.yml` 中定义，只允许在 GitHub Actions 页面手动触发，并且必须显式选择 `run_mode=package` 或 `run_mode=release`；普通代码推送和 `v*` 标签推送都不会自动执行。
 
 ## 当前版本重点
 
@@ -41,8 +41,8 @@ FluxDown 是一个跨平台下载器工作区：
 - CLI 和桌面端会把另存文件名规范化为单文件名，避免异常文件名写出保存目录。
 - 桌面队列默认使用平台原生数据目录，macOS 会从旧版 `~/.local/share/fluxdown/queue.json` 兼容迁移到 `~/Library/Application Support/FluxDown/queue.json`。
 - Android 真机已补充本地协议资源和媒体级 HLS/torrent/magnet 前台 App 验证报告。
-- Windows CLI 和原生 Tauri GUI 均已补充当前支持的 13 种协议真实用例验证，HTTP/HTTPS/WebDAV/WebDAVS/FTP/FTPS/m3u8/SFTP/SMB/Torrent/Magnet/IPFS 均完成真实落盘和 SHA-256 校验，ed2k 完成系统移交通路验证；GUI 验证还覆盖了设置页各菜单切换、设置项编辑、后端自检和截图证据。
-- macOS CLI 已补充本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP/IPFS、本地自签 HTTPS/WebDAVS/FTPS 和自定义 IPFS gateway 真实下载验证，也覆盖限速、重试、暂停继续和并发排队；macOS GUI 已补充构建、启动、基础渲染、纯 GUI HTTP/HLS/Torrent/Magnet 下载闭环和 Tauri command 级 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/IPFS/Torrent/Magnet 下载验证，剩余纯 GUI 协议点击验证当前阶段暂缓。
+- Windows CLI 和原生 Tauri GUI 均已补充当前支持的 12 种协议真实用例验证，HTTP/HTTPS/WebDAV/WebDAVS/FTP/FTPS/m3u8/SFTP/SMB/Torrent/Magnet 均完成真实落盘和 SHA-256 校验，ed2k 完成系统移交通路验证；GUI 验证还覆盖了设置页各菜单切换、设置项编辑、后端自检和截图证据。
+- macOS CLI 已补充本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP、本地自签 HTTPS/WebDAVS/FTPS 真实下载验证，也覆盖限速、重试、暂停继续和并发排队；macOS GUI 已补充构建、启动、基础渲染、纯 GUI HTTP/HLS/Torrent/Magnet 下载闭环和 Tauri command 级 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet 下载验证，剩余纯 GUI 协议点击验证当前阶段暂缓。
 - iOS 已补充 Flutter 静态验证、simulator/unsigned device 构建产物、URL scheme 配置验证，以及 iOS simulator App 内 HTTP、fMP4 HLS、BYTERANGE HLS、TS HLS 下载 smoke；签名 IPA 和 iPhone 真机能力仍待证书、profile 与设备窗口补验。
 - Linux 当前仍只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。
 - 仓库根目录已补齐 MIT `LICENSE`，第三方依赖和移动端 GPL 风险见 [第三方许可证清单](third-party-licenses.md)。

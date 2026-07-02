@@ -54,7 +54,6 @@ sftp://user:password@example.com/path/file.zip
 - 桌面属性页。
 - 桌面任务错误和 toast 错误。
 
-脱敏会递归处理常见嵌套 URL，例如 IPFS `gateway=` 和 Magnet `tr=` tracker 参数中的账号密码。
 
 这些信息仍可能会出现在：
 
@@ -89,7 +88,6 @@ sftp://user:password@example.com/path/file.zip
 | BitTorrent/Magnet | 公开 peer 网络暴露 IP，内容合规风险高。 | 仅下载有权访问的内容。 |
 | ed2k | 由外部客户端处理，FluxDown 无法控制其行为。 | 确认外部客户端可信。 |
 | m3u8/HLS | 可能涉及版权、鉴权和 DRM。 | 只下载合法来源，不绕过 DRM。 |
-| IPFS | 公共网关可用性和隐私不可控。 | 需要稳定性时考虑自建网关或节点。 |
 
 ## 外部后端与系统移交
 

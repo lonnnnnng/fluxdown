@@ -6,7 +6,7 @@ FluxDown 面向需要在多设备上处理不同来源下载任务的用户。�
 
 ## 产品目标
 
-- 支持主流传输类型：HTTP/HTTPS、WebDAV/WebDAVS、FTP/FTPS、BitTorrent `.torrent`、Magnet、ed2k、m3u8/HLS、SFTP、SMB 和 IPFS。
+- 支持主流传输类型：HTTP/HTTPS、WebDAV/WebDAVS、FTP/FTPS、BitTorrent `.torrent`、Magnet、ed2k、m3u8/HLS、SFTP、SMB。
 - 覆盖主要平台：Windows、macOS、Linux、Android、iPhone。
 - 桌面端同时提供 CLI 和 GUI，满足自动化脚本与日常图形操作两类场景。
 - 移动端提供本地队列、开始、暂停、删除和批量运行能力。
@@ -102,7 +102,6 @@ CLI 需要支持：
 | Magnet | 通过 torrent 引擎添加 magnet 链接；拿到 metadata 后使用真实文件列表更新任务名，多文件 magnet 必须允许用户选择下载内容。 |
 | ed2k | 桌面优先使用 aMule `ed2k` CLI，否则系统 URL handler；移动端移交系统兼容 App。 |
 | m3u8/HLS | 支持 VOD 播放列表、主播放列表首个变体、AES-128 分片解密；移动端 Android 输出最终 `.mp4`。 |
-| IPFS | 将 `ipfs://` 映射到公共网关下载。 |
 
 ## 非功能需求
 
