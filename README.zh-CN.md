@@ -2,53 +2,22 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面和移动端的多协议下载器，包含 CLI、桌面 GUI 和移动 App。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 `1.0.5`，最新发布见 [FluxDown 1.0.5](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.5)。
 
-## 目标平台
+## 当前状态
 
-- 桌面端：Windows、macOS、Linux
-  - CLI：`fluxdown`
-  - GUI：Tauri + React
-- 移动端：Android、iPhone
-  - App：Flutter
-- 共享引擎：Rust core crate
-
-## 文档
-
-- [文档索引](docs/README.md)
-- [需求文档](docs/requirements.md)
-- [业务文档](docs/business.md)
-- [技术架构](docs/architecture.md)
-- [协议支持矩阵](docs/protocols.md)
-- [下载验证状态](docs/download-verification.md)
-- [构建与发布](docs/build-release.md)
-- [运维与安全](docs/operations-security.md)
-- [路线图](docs/roadmap.md)
-
-## 当前版本重点
-
-- 默认文档入口为中文，英文 README 保留在 [README.en.md](README.en.md)。
-- 桌面端 GUI 收敛为下载列表和设置两页，Windows、macOS、Linux 共用同一套 Tauri UI。
-- Android 队列页按状态分组，任务项显示开始/结束时间、总耗时、已下载/总大小、实时速度和平均速度。
-- 新建任务支持剪切板、二维码扫描、协议/后端状态预览、另存文件名和保存位置选择。
-- 设置页支持下载保存位置、并发下载数、下载线程数、自动重试数和最大下载网速。
-- Torrent/Magnet 获取 metadata 后会展示真实文件名；Android 已支持多文件选择，桌面 CLI/Tauri command 已支持按文件编号选择下载内容。
-- CLI 输出和桌面展示会脱敏 URL 中的用户名和密码，原始链接仍可用于下载和复制。
-- CLI 和桌面端会把另存文件名规范化为单文件名，避免异常文件名写出保存目录。
-- CLI 和桌面客户端新建任务支持可选 SHA-256 校验，校验失败会让直连命令报错或队列任务进入失败状态。
-- 桌面队列默认使用平台原生数据目录，macOS 会兼容读取并迁移旧版 `~/.local/share/fluxdown/queue.json`。
-- macOS、Windows、Android、iOS 已补充当前阶段的界面截图和验证记录；Windows 已完成 CLI 直连/队列 HTTP 真下载和 GUI 前台 HTTP 真下载闭环。
-- macOS 已完成 release CLI 多协议脚本化真实下载、桌面 Tauri command 多协议真实下载，以及 GUI 前台 HTTP/HLS/Torrent/Magnet 下载闭环。
-- Android 真机已补充本地协议资源和媒体级 HLS、torrent、magnet 前台 App 验证；iOS 当前完成模拟器界面和构建产物验证，签名 IPA 与真机下载闭环仍待补。
-- Linux 当前仅完成 CLI/GUI 构建产物存在性检查，尚未在 Linux 桌面环境中完成真实 GUI 下载验证。
+- 桌面端支持 Windows、macOS、Linux，包含 `fluxdown` CLI 和 Tauri + React GUI。
+- 移动端支持 Android 和 iPhone，使用 Flutter App。
+- 桌面端 GUI 收敛为下载列表和设置两页；移动端首页保留任务队列和设置入口。
+- 新建任务支持粘贴链接、二维码扫描、保存文件名、保存位置和 SHA-256 校验。
+- 设置项包含下载保存位置、并发下载数、下载线程数、自动重试数和最大下载网速。
+- 支持 HTTP/HTTPS、WebDAV/WebDAVS、FTP/FTPS、m3u8/HLS、SFTP、SMB、`.torrent`、Magnet 和 ed2k 移交。
+- Torrent/Magnet 获取 metadata 后会展示真实文件名；Android 支持多文件选择，桌面 CLI/Tauri command 支持按文件编号选择。
+- HLS 下载会输出最终 `.mp4`；移动端已覆盖 fMP4、BYTERANGE 和 TS HLS smoke。
+- CLI 和桌面端会脱敏 URL 中的用户名和密码，并把另存文件名规范化为单文件名。
+- 普通提交和 tag 推送不会触发 GitHub Actions；只有明确打包或发版时才手动运行流水线。
 
 ## 界面截图
-
-### Windows 桌面端
-
-| 下载列表 | 新建任务 | 设置 |
-| --- | --- | --- |
-| <img src="docs/artifacts/readme/windows/queue.png" alt="Windows 下载列表" width="320"> | <img src="docs/artifacts/readme/windows/new-task.png" alt="Windows 新建任务" width="320"> | <img src="docs/artifacts/readme/windows/settings.png" alt="Windows 设置" width="320"> |
 
 ### macOS 桌面端
 
@@ -56,49 +25,23 @@ FluxDown 是一款面向桌面和移动端的多协议下载器，包含 CLI、�
 | --- | --- | --- |
 | <img src="docs/artifacts/readme/macos/queue.png" alt="macOS 下载列表" width="320"> | <img src="docs/artifacts/readme/macos/new-task.png" alt="macOS 新建任务" width="320"> | <img src="docs/artifacts/readme/macos/settings.png" alt="macOS 设置" width="320"> |
 
-### Android 真机
+### Android 模拟器（Pixel_9）
 
 | 下载列表 | 新建任务 | 设置 |
 | --- | --- | --- |
-| <img src="docs/artifacts/readme/android-real-device/queue.png" alt="Android 下载列表" width="220"> | <img src="docs/artifacts/readme/android-real-device/new-task.png" alt="Android 新建任务" width="220"> | <img src="docs/artifacts/readme/android-real-device/settings.png" alt="Android 设置" width="220"> |
+| <img src="docs/artifacts/readme/android-emulator/queue.png" alt="Android 模拟器下载列表" width="220"> | <img src="docs/artifacts/readme/android-emulator/new-task.png" alt="Android 模拟器新建任务" width="220"> | <img src="docs/artifacts/readme/android-emulator/settings.png" alt="Android 模拟器设置" width="220"> |
 
-### iOS 模拟器
+## 验证边界
 
-| 下载列表 | 新建任务 | 设置 |
+| 平台 | 已验证 | 仍需补充 |
 | --- | --- | --- |
-| <img src="docs/artifacts/readme/ios-simulator/queue.jpg" alt="iOS 下载列表" width="220"> | <img src="docs/artifacts/readme/ios-simulator/new-task.jpg" alt="iOS 新建任务" width="220"> | <img src="docs/artifacts/readme/ios-simulator/settings.jpg" alt="iOS 设置" width="220"> |
+| macOS 桌面/CLI | release CLI 覆盖 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet 和队列控制；桌面 GUI 前台覆盖 HTTP/HLS/Torrent/Magnet；Tauri command 覆盖 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet。 | 纯 GUI 的 FTP/FTPS/SFTP/SMB/WebDAV 点击闭环后续单独补。 |
+| Windows 桌面/CLI | CI 产物已发布；Windows 开发机完成 CLI 12 协议真实用例验证和原生 Tauri GUI 前台 12 协议验证，ed2k 按产品定义完成系统移交验证。 | ed2k 不是 FluxDown 内建下载完成；GUI 验证使用 E2E 专用窗口和隔离队列。 |
+| Linux 桌面/CLI | CI 已生成 Linux CLI、GUI 可执行文件、`.deb`、`.rpm` 并做非空检查。 | 尚未在 Linux 桌面环境安装 GUI 并完成真实下载。 |
+| Android App | Redmi Note 8 Pro 真机已覆盖本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单/多文件 torrent 和 magnet。Pixel_9 模拟器已更新当前界面截图。 | 商店分发前还需签名、许可证和后台策略复验。 |
+| iOS App | CI 已生成 iOS simulator app 和 unsigned device app；iOS simulator 已完成 HTTP、fMP4 HLS、BYTERANGE HLS、TS HLS 下载 smoke。 | 签名 IPA、iPhone 真机安装、扫码、文件选择、分享/打开等真机能力仍待补。 |
 
-## 验证进度
-
-| 平台 | 已完成验证 | 当前边界 |
-| --- | --- | --- |
-| Windows 桌面端 | 本机 release 构建、CLI HTTP 直连下载、CLI 队列下载、Tauri command HTTP 队列下载、真实 GUI 前台 HTTP 下载和文件 SHA-256 校验均已通过；README 已补充 Windows 下载列表、新建任务和设置截图。 | GUI 前台点击目前只覆盖 HTTP；FTP/FTPS/SFTP/SMB/WebDAV/Torrent/Magnet 仍主要依赖 CLI 或 Tauri command 真实下载验证。 |
-| macOS 桌面端 | release CLI 已覆盖 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet 和队列控制；GUI 前台已覆盖 HTTP/HLS/Torrent/Magnet；Tauri command 已覆盖 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet。 | 纯 GUI 的 FTP/FTPS/SFTP/SMB/WebDAV 点击闭环后续单独补。 |
-| Linux 桌面端 | 已有 Linux CLI、GUI 可执行文件、`.deb`、`.rpm` 等构建产物和非空检查。 | 尚未在 Linux 桌面环境安装或启动 GUI 完成真实下载验证。 |
-| Android 真机 | Redmi Note 8 Pro 前台 App 已覆盖本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单/多文件 torrent 和 magnet。 | 正式商店分发前还需要签名、许可证和更多后台策略验证。 |
-| iOS 模拟器 | 已补充模拟器界面截图、Flutter simulator/unsigned device 构建产物和 URL scheme 配置验证。 | 暂未完成签名 IPA、iPhone 真机安装和 App 内真实下载闭环。 |
-
-完整证据、命令和未覆盖项见 [下载验证状态](docs/download-verification.md)。
-
-## 协议路线
-
-任务模型识别这些传输类型：
-
-- HTTP 和 HTTPS
-- WebDAV 和 WebDAVS
-- FTP 和 FTPS
-- BitTorrent `.torrent`
-- Magnet 磁力链接
-- ed2k
-- m3u8 / HLS
-- SFTP
-- SMB
-
-桌面端执行引擎已经实现 HTTP/HTTPS 直链下载、基于 HTTP 传输的 WebDAV/WebDAVS 文件下载、FTP/FTPS 下载、密码认证 SFTP 下载、SMB2/3 共享文件下载、BitTorrent `.torrent` 和 Magnet 下载、ed2k 通过 aMule `ed2k` CLI 提交并在缺失时退回系统 URL handler，以及 VOD m3u8/HLS 播放列表下载，包括 AES-128 加密分片。
-
-移动端 App 使用本地 JSON 队列，可以执行单个任务，也可以用有界并发运行队列。移动端支持 HTTP/HTTPS 和 WebDAV/WebDAVS 下载，包含进度、暂停和 HTTP Range 续传；也支持 FTP/FTPS 被动模式与 REST 续传、SFTP 密码认证与偏移续传、SMB2/3 文件下载、通过原生 libtorrent 绑定下载 BitTorrent `.torrent` 和 Magnet，以及 VOD m3u8/HLS 播放列表下载，包括 AES-128 加密分片，并在 Android 和 iOS 上转封装为最终 `.mp4` 文件。ed2k 链接会移交给设备上已安装的 eMule/aMule 兼容 App。
-
-移动端 torrent 支持使用 `libtorrent_flutter`，它包含 GPL 许可的原生组件。正式分发商店版本前需要确认许可证义务。
+完整证据见 [下载验证状态](docs/download-verification.md)。
 
 ## 快速开始
 
@@ -112,104 +55,62 @@ cargo run -p fluxdown-cli -- add "https://example.com/file.zip" --output ./downl
 cargo run -p fluxdown-cli -- run --concurrency 2
 ```
 
-`download` 会立即执行下载并打印 JSON 摘要；`add` 会把任务写入队列；`run` 按并发数执行排队任务。默认队列文件为 `$XDG_DATA_HOME/fluxdown/queue.json` 或 `~/.local/share/fluxdown/queue.json`，CLI 可通过 `--store /path/to/queue.json` 覆盖。
+`download` 会立即执行下载并打印 JSON 摘要；`add` 会写入队列；`run` 按并发数执行队列。`--sha256 <64位hex>` 可用于校验最终文件。
 
 ### 桌面端
 
 ```sh
 npm install
-npm run desktop:web
 npm run desktop:build
 ```
 
-macOS 构建完成后，桌面 App 位于 `target/release/bundle/macos/FluxDown.app`。Windows 本机具备桌面工具链时，`npm run desktop:build` 会生成 `target/release/fluxdown-desktop.exe`、MSI 和 NSIS installer；当前 Windows 机已经通过 GUI 前台 HTTP 下载闭环验证。Windows 和 Linux 交叉构建产物仍可通过本地 Docker 辅助脚本或 GitHub Actions 生成，详见 [构建与发布](docs/build-release.md)。
+macOS 构建产物位于 `target/release/bundle/macos/FluxDown.app`。开发调试可运行 `npm run desktop:web` 和 `npm run desktop:dev`。
 
-### 移动端
+### Android
 
 ```sh
-cd apps/mobile && flutter analyze
-cd apps/mobile && flutter test
-cd apps/mobile && flutter build apk --debug
-cd apps/mobile && flutter build ios --simulator
-cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
+cd apps/mobile
+flutter analyze
+flutter test
+flutter build apk --debug
+flutter build apk --release
 ```
 
-Flutter 移动端队列文件保存在 App documents 目录下的 `fluxdown/queue.json`。下载输出默认在 App 沙盒内的 `downloads` 文件夹，用户可在 App 中修改。
-移动端 ed2k 移交依赖平台 URL handler 可见性。Android manifest 声明了 `ed2k` VIEW query，iOS Info.plist 声明了 `ed2k` 的 `LSApplicationQueriesSchemes`；`npm run verify:mobile-url-schemes` 会检查两端配置。
+### iOS
 
-## 构建产物
+```sh
+cd apps/mobile
+flutter build ios --simulator
+LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
+```
 
-- `npm run desktop:build` 构建 Tauri 桌面 App bundle。在 macOS 上会生成 `target/release/bundle/macos/FluxDown.app`。
-- `npm run desktop:dmg` 使用不依赖 Finder 的 `hdiutil` 流程，创建 `target/release/bundle/dmg/FluxDown_<version>_aarch64.dmg`。这样可以避免 CI/headless 环境中的 Finder AppleScript 超时。
-- `cd apps/mobile && flutter build apk --debug` 生成 `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`。
-- `cd apps/mobile && flutter build apk --release` 生成 `apps/mobile/build/app/outputs/flutter-apk/app-release.apk`。
-- `cd apps/mobile/android && ./gradlew bundleRelease` 生成 Google Play 可上传的 `apps/mobile/build/app/outputs/bundle/release/app-release.aab`。
-- `cd apps/mobile && flutter build ios --simulator` 在安装匹配 iOS simulator runtime 时验证 iOS 项目，不需要 Apple 签名。
-- `cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release` 在 Apple 签名材料可用时创建 iOS debug frameworks。当前 macOS runner 上 Flutter 会在该命令前做签名身份检查，所以 CI 只在 iOS 签名 secrets 配置后执行。
-- `cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ipa --export-options-plist=ios/ExportOptions.plist` 在 Apple 签名、Team 和 provisioning 配置完成后创建 App Store IPA。
-- `npm run mobile:ios:ipa:signed` 将 base64 编码的 Apple 签名材料导入本地临时 keychain，生成手动导出配置，构建签名 App Store IPA，并验证 `apps/mobile/build/ios/ipa/*.ipa`。
-- `cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign` 验证 device build 到签名前阶段。可部署到 iPhone 的构建仍需要 Apple Development Team 和 provisioning profile。
-- `npm run verify:artifacts` 检查本地 CLI、桌面 DMG、Android APK/AAB 和 iOS debug frameworks 等 release 产物存在且非空。
-- `docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work rust:1-bookworm bash -lc '/usr/local/cargo/bin/cargo test -p fluxdown-core -p fluxdown-cli --target-dir /work/target-linux-docker && /usr/local/cargo/bin/cargo build -p fluxdown-cli --release --target-dir /work/target-linux-docker && mkdir -p dist/linux-amd64 && cp target-linux-docker/release/fluxdown dist/linux-amd64/fluxdown'` 在 Docker 可用时本地构建并测试 Linux amd64 CLI 产物。
-- `npm run verify:linux-cli` 检查 Docker 构建的 Linux CLI 产物存在且非空。
-- `npm run desktop:linux:docker` 在隔离 Docker 环境中使用 Node 22 构建 Linux amd64 Tauri GUI，并把产物复制到 `dist/linux-gui`。
-- `npm run verify:linux-gui` 检查 Docker 构建的 Linux GUI 可执行文件以及 `.deb`、`.rpm` 包存在且非空。
-- `npm run desktop:windows-cli:docker` 通过 Docker 交叉构建 Windows x86_64 CLI，并暂存 `dist/windows-gnu/fluxdown.exe`。
-- `npm run verify:windows-cli` 检查 Docker 构建的 Windows CLI 产物存在且非空。
-- `npm run desktop:windows-gui:docker` 通过 Docker 交叉构建 Windows x86_64 GUI 可执行文件，并暂存 `dist/windows-gui-gnu/fluxdown-desktop.exe` 和 `WebView2Loader.dll`。
-- `npm run verify:windows-gui` 检查 Docker 构建的 Windows GUI 可执行文件和相邻 WebView2 loader 存在且非空。
-- `npm run mobile:ios:simulator:verify` 检查 Flutter 构建的本地 iPhone simulator app bundle。
-- `npm run mobile:ios:verify` 检查 Flutter 构建的本地 unsigned iPhone device app bundle。
-- `npm run release:stage` 将本地 release 输出复制和归档到 `dist/release/FluxDown-<version>` 下的平台目录。
-- `npm run verify:release` 检查 staged release 目录包含预期的桌面 CLI、桌面 GUI、Android 和 unsigned iPhone/simulator/framework 产物。
-- `npm run release:manifest` 写入 `dist/release/FluxDown-<version>/FluxDown-release-manifest.json`，记录原始构建输出和 staged release 产物的平台、界面、大小和 SHA-256。`.app`、`.xcframework` 等目录产物使用文件聚合哈希。
-- `npm run release:manifest:verify` 重新计算当前本地产物，并和 `dist/release/FluxDown-<version>/FluxDown-release-manifest.json` 校验。
-- `npm run release:prepare` 一次性执行 staging、manifest 生成、staged artifact 校验和 manifest 校验。
-- `npm run audit:release` 检查协议覆盖和可用本地 release 产物，并把缺失本地 iPhone IPA 等签名依赖缺口作为 warning 报告。
+签名 IPA 需要 Apple certificate、provisioning profile、Team ID 和 keychain 密码，详见 [构建与发布](docs/build-release.md)。
 
-Windows CLI 和原始 Windows GUI 可执行文件可以用 Docker 在本地交叉构建。在 installer 外分发或测试 Docker 交叉构建的原始 Windows GUI 可执行文件时，请把 `WebView2Loader.dll` 放在同一目录。Windows installer 包（`.msi` 和 NSIS `.exe`）在 CI 的 `windows-latest` 上构建和验证，因为 Tauri 桌面 bundle 需要 Windows 桌面工具链；该 CI artifact 会上传 installer 和原始 Windows GUI 可执行文件。
+## 发布产物
 
-## Android 签名
+`v1.0.5` Release 已包含：
 
-本地 Android release 构建会使用 `apps/mobile/android/key.properties`。复制 `apps/mobile/android/key.properties.example`，设置密码、alias 和 keystore 文件，并确保真实 `key.properties` 和 keystore 不进入版本控制。如果文件不存在，release 构建会回退到 debug signing，因此 APK/AAB 仍可用于本地安装测试。
+- Android debug APK、release APK、release AAB
+- iOS simulator app、unsigned device app
+- macOS CLI、`.app.tar.gz`、DMG
+- Windows CLI、桌面 exe、MSI、NSIS installer
+- Linux CLI、桌面可执行文件、deb、rpm
+- release manifest、LICENSE、第三方许可证清单
 
-CI 在设置以下 repository secrets 后可以产出签名 Android release artifact：
+Release 页面：[FluxDown 1.0.5](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.5)
 
-- `ANDROID_KEYSTORE_BASE64`：base64 编码的 upload keystore。
-- `ANDROID_KEYSTORE_PASSWORD`：keystore 密码。
-- `ANDROID_KEY_ALIAS`：upload key alias。
-- `ANDROID_KEY_PASSWORD`：upload key 密码。
+## 文档
 
-没有这些 secrets 时，CI 仍会使用 debug signing 构建 release APK/AAB，用于安装和打包检查。
+- [文档索引](docs/README.md)
+- [需求文档](docs/requirements.md)
+- [技术架构](docs/architecture.md)
+- [协议支持矩阵](docs/protocols.md)
+- [下载验证状态](docs/download-verification.md)
+- [构建与发布](docs/build-release.md)
+- [第三方许可证清单](docs/third-party-licenses.md)
+- [运维与安全](docs/operations-security.md)
+- [路线图](docs/roadmap.md)
 
-## iOS 签名
+## 许可证
 
-本地 iPhone IPA 构建需要仓库外的 Apple 签名材料：Apple team、distribution certificate，以及 bundle id `dev.fluxdown.mobile` 的 App Store provisioning profile。仓库中的 `apps/mobile/ios/ExportOptions.plist` 配置为 App Store export 和 automatic signing。`npm run mobile:ios:ipa:signed` 使用和 CI 相同的签名输入，把解码后的凭据写入被忽略的 `apps/mobile/ios/signing/`，写入被忽略的 `apps/mobile/ios/ExportOptions.local.plist`，并验证生成的 IPA。
-
-CI 总是构建 simulator 和 unsigned device iOS artifact 作为编译检查。当以下 repository secrets 设置完成后，CI 还会构建 debug frameworks 并上传签名 IPA：
-
-- `IOS_CERTIFICATE_BASE64`：base64 编码的 `.p12` distribution certificate。
-- `IOS_CERTIFICATE_PASSWORD`：`.p12` 证书密码。
-- `IOS_PROVISIONING_PROFILE_BASE64`：base64 编码的 `dev.fluxdown.mobile` `.mobileprovision` profile。
-- `IOS_KEYCHAIN_PASSWORD`：CI 临时 keychain 密码。
-- `APPLE_TEAM_ID`：拥有 provisioning profile 的 Apple Developer Team ID。
-
-没有这些 secrets 时，CI 会跳过 IPA 步骤，但仍通过 simulator 和 unsigned device 构建验证 Flutter iPhone 项目。debug framework 构建也受 iOS 签名 secret 集合控制，因为当前 macOS/Flutter runner 会在该命令完成前做签名身份检查。
-
-## CI 产物
-
-`.github/workflows/build.yml` 会针对产品目标平台验证并打包项目：
-
-- `fluxdown-cli-linux`：Linux CLI 二进制，暂存名为 `fluxdown`。
-- `fluxdown-cli-windows`：Windows CLI 二进制，暂存名为 `fluxdown.exe`。
-- `fluxdown-cli-macos`：macOS CLI 二进制，暂存名为 `fluxdown`。
-- `fluxdown-desktop-linux`：Linux Tauri GUI 产物，包括 `.deb`、`.rpm` 和原始可执行文件。
-- `fluxdown-desktop-windows`：Windows Tauri GUI 产物，例如 `.msi`、NSIS `.exe` 和 runner 生成的原始可执行文件。
-- `fluxdown-desktop-macos`：macOS `FluxDown.app` 和不依赖 Finder 的 DMG。
-- `fluxdown-android-debug-apk`：Android debug APK。
-- `fluxdown-android-release-apk`：使用当前 repository 签名配置的 Android release APK。
-- `fluxdown-android-release-aab`：使用当前 repository 签名配置的 Android release App Bundle。
-- `fluxdown-ios-debug-frameworks`：Flutter App 和插件的 iOS debug framework 构建输出。
-- `fluxdown-ios-simulator`：安装匹配 simulator runtime 时生成的 iPhone simulator app bundle。
-- `fluxdown-ios-device-unsigned`：无代码签名构建的 unsigned iPhone device app bundle。
-- `fluxdown-ios-release-ipa`：签名 iPhone App Store IPA，仅在 iOS signing secrets 配置完成后生成。
+FluxDown 自有代码采用 MIT License，见 [LICENSE](LICENSE)。移动端 torrent/magnet 使用的 `libtorrent_flutter` 包含 GPL 许可原生组件，正式分发商店版本前需要完成许可证义务审查；详情见 [第三方许可证清单](docs/third-party-licenses.md)。
