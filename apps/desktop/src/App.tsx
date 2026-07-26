@@ -1,6 +1,35 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Check,
+  ClipboardPaste,
+  Clock3,
+  Copy,
+  Download,
+  ExternalLink,
+  FolderOpen,
+  Gauge,
+  HardDrive,
+  Info,
+  Link2,
+  MoreVertical,
+  Pause,
+  Play,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+  Share2,
+  Timer,
+  Trash2,
+  X,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
+import appMark from "../src-tauri/icons/source.svg";
 import "./App.css";
 
 type Protocol =
@@ -69,18 +98,28 @@ type IconName =
   | "alert"
   | "arrow-left"
   | "check"
+  | "clipboard"
   | "clock"
   | "copy"
   | "download"
+  | "external-link"
   | "folder"
+  | "gauge"
+  | "hard-drive"
+  | "info"
   | "link"
   | "more"
   | "pause"
   | "play"
+  | "plus"
   | "refresh"
   | "search"
   | "settings"
-  | "trash";
+  | "share"
+  | "timer"
+  | "trash"
+  | "x"
+  | "zap";
 
 type DownloadTask = {
   id: string;
@@ -190,32 +229,32 @@ const settingsSections: Array<{
   { id: "diagnostics", icon: "check", title: "高级诊断", subtitle: "自检、报告和后端状态" },
 ];
 
-const iconPaths: Record<IconName, string[]> = {
-  alert: [
-    "M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
-    "M12 9v4",
-    "M12 17h.01",
-  ],
-  "arrow-left": ["M19 12H5", "M12 19l-7-7 7-7"],
-  check: ["M20 6 9 17l-5-5"],
-  clock: ["M12 8v5l3 2", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"],
-  copy: ["M8 8h10v12H8z", "M6 16H4V4h12v2"],
-  download: ["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "M7 10l5 5 5-5", "M12 15V3"],
-  folder: ["M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"],
-  link: [
-    "M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1",
-    "M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1",
-  ],
-  more: ["M12 6h.01", "M12 12h.01", "M12 18h.01"],
-  pause: ["M8 5v14", "M16 5v14"],
-  play: ["M8 5v14l11-7Z"],
-  refresh: ["M21 12a9 9 0 0 1-15.3 6.4L3 16", "M3 21v-5h5", "M3 12A9 9 0 0 1 18.3 5.6L21 8", "M21 3v5h-5"],
-  search: ["M21 21l-4.3-4.3", "M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z"],
-  settings: [
-    "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z",
-    "M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9L4.2 7A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 .9-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5.9h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z",
-  ],
-  trash: ["M3 6h18", "M8 6V4h8v2", "M19 6l-1 14H6L5 6", "M10 11v5", "M14 11v5"],
+const iconComponents: Record<IconName, LucideIcon> = {
+  alert: AlertTriangle,
+  "arrow-left": ArrowLeft,
+  check: Check,
+  clipboard: ClipboardPaste,
+  clock: Clock3,
+  copy: Copy,
+  download: Download,
+  "external-link": ExternalLink,
+  folder: FolderOpen,
+  gauge: Gauge,
+  "hard-drive": HardDrive,
+  info: Info,
+  link: Link2,
+  more: MoreVertical,
+  pause: Pause,
+  play: Play,
+  plus: Plus,
+  refresh: RefreshCw,
+  search: Search,
+  settings: Settings,
+  share: Share2,
+  timer: Timer,
+  trash: Trash2,
+  x: X,
+  zap: Zap,
 };
 
 const supportedNow = new Set<Protocol>([
@@ -578,13 +617,8 @@ function formatRemainingTime(tasks: DownloadTask[]) {
 }
 
 function Icon({ name }: { name: IconName }) {
-  return (
-    <svg aria-hidden="true" className={`uiIcon icon-${name}`} viewBox="0 0 24 24">
-      {iconPaths[name].map((path) => (
-        <path d={path} key={path} />
-      ))}
-    </svg>
-  );
+  const Component = iconComponents[name];
+  return <Component aria-hidden="true" className={`uiIcon icon-${name}`} />;
 }
 
 function App() {
@@ -696,8 +730,8 @@ function App() {
         );
       })
       .catch(() => {
-        // Web preview has no Tauri backend; keep the empty value and let the
-        // preview fallback create an in-memory task.
+        // 作者: long
+        // 浏览器预览没有 Tauri 后端，此处保留空路径，后续仍可用内存任务检查桌面布局和交互。
       });
     invoke<DoctorReport>("doctor")
       .then(setDoctorReport)
@@ -1024,11 +1058,11 @@ function App() {
             <div>
               <div className="brand">
                 <span className="brandMark" aria-label="FluxDown">
-                  FD
+                  <img alt="" src={appMark} />
                 </span>
                 <div>
                   <strong>FluxDown</strong>
-                  <span>下载控制台</span>
+                  <span>传输控制台</span>
                 </div>
               </div>
 
@@ -1073,8 +1107,12 @@ function App() {
           <section className="workspace">
             <header className="workspaceHeader">
               <div className="titleBlock">
+                <span className="pageEyebrow">传输中心</span>
                 <h1>下载任务</h1>
-                <p>左侧切换状态，右侧集中执行队列操作。{message}</p>
+                <p aria-live="polite" className="systemMessage">
+                  <i aria-hidden="true" />
+                  {message}
+                </p>
               </div>
               <div className="toolbar">
                 <label className="searchBox">
@@ -1092,17 +1130,18 @@ function App() {
                   data-testid="new-task-button"
                   onClick={openNewDialog}
                 >
-                  <Icon name="download" />
-                  新建任务
+                  <Icon name="plus" />
+                  新建
                 </button>
                 <button
-                  className="actionButton"
+                  aria-label="从剪切板新建任务"
+                  className="iconButton"
                   data-action="paste-link"
                   data-testid="paste-link-button"
                   onClick={openPasteDialog}
+                  title="从剪切板新建任务"
                 >
-                  <Icon name="link" />
-                  粘贴链接
+                  <Icon name="clipboard" />
                 </button>
                 <button
                   className="actionButton"
@@ -1116,6 +1155,7 @@ function App() {
                 </button>
                 <div className="iconActions">
                   <button
+                    aria-label="刷新列表"
                     data-action="refresh"
                     data-testid="refresh-button"
                     title="刷新列表"
@@ -1124,6 +1164,7 @@ function App() {
                     <Icon name="refresh" />
                   </button>
                   <button
+                    aria-label="打开设置"
                     data-action="settings"
                     data-testid="settings-button"
                     title="设置"
@@ -1138,26 +1179,26 @@ function App() {
             <section className="contentView queueView">
               <div className="insights">
                 <div className="metric accent">
-                  <span>实时下载速度</span>
+                  <span><Icon name="gauge" />实时速度</span>
                   <strong>{formatBytes(totalCurrentSpeed)}/s</strong>
-                  <small>{runningTasks.length} 个任务正在占用带宽</small>
+                  <small>{runningTasks.length} 个下载中</small>
                 </div>
                 <div className="metric">
-                  <span>已完成数据</span>
+                  <span><Icon name="hard-drive" />已完成数据</span>
                   <strong>{formatBytes(completedBytes)}</strong>
                   <small>{counts.finished} 个任务完成</small>
                 </div>
                 <div className="metric">
-                  <span>队列并发</span>
+                  <span><Icon name="zap" />队列并发</span>
                   <strong>
                     {runningTasks.length} / {settings.concurrency}
                   </strong>
-                  <small>{settings.autoStart ? "自动接续已开启" : "自动接续已关闭"}</small>
+                  <small>{settings.autoStart ? "自动接续" : "手动启动"}</small>
                 </div>
                 <div className="metric">
-                  <span>剩余时间</span>
+                  <span><Icon name="timer" />剩余时间</span>
                   <strong>{formatRemainingTime(tasks)}</strong>
-                  <small>按当前速度估算</small>
+                  <small>动态估算</small>
                 </div>
               </div>
 
@@ -1167,7 +1208,6 @@ function App() {
                 filter={filter}
                 menuTaskId={menuTaskId}
                 onMenu={setMenuTaskId}
-                onOpen={openTaskOutput}
                 onToggle={toggleTask}
                 searchQuery={searchQuery}
                 tasks={visibleTasks}
@@ -1259,7 +1299,6 @@ function DownloadList({
   filter,
   menuTaskId,
   onMenu,
-  onOpen,
   onToggle,
   searchQuery,
   tasks,
@@ -1270,7 +1309,6 @@ function DownloadList({
   filter: QueueFilter;
   menuTaskId: string | null;
   onMenu: (id: string | null) => void;
-  onOpen: (task: DownloadTask) => void;
   onToggle: (task: DownloadTask) => void;
   searchQuery: string;
   tasks: DownloadTask[];
@@ -1286,11 +1324,14 @@ function DownloadList({
         <span>状态</span>
         <span>进度</span>
         <span>速度</span>
-        <span>操作</span>
+        <span aria-hidden="true" />
       </div>
       <div className="taskList" data-testid="task-list">
         {tasks.length === 0 ? (
           <div className="emptyNote">
+            <span className="emptyGlyph" aria-hidden="true">
+              <Icon name="download" />
+            </span>
             <span>{emptyTitle}</span>
             <strong>{emptySubtitle}</strong>
           </div>
@@ -1301,7 +1342,6 @@ function DownloadList({
               key={task.id}
               menuOpen={menuTaskId === task.id}
               onMenu={onMenu}
-              onOpen={onOpen}
               onToggle={onToggle}
               task={task}
             />
@@ -1338,19 +1378,47 @@ function TaskRow({
   action,
   menuOpen,
   onMenu,
-  onOpen,
   onToggle,
   task,
 }: {
   action: TaskAction;
   menuOpen: boolean;
   onMenu: (id: string | null) => void;
-  onOpen: (task: DownloadTask) => void;
   onToggle: (task: DownloadTask) => void;
   task: DownloadTask;
 }) {
   const progress = progressRatio(task);
   const width = `${Math.round(progress * 100)}%`;
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
+
+  function cancelLongPress() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  function startLongPress(event: React.PointerEvent<HTMLElement>) {
+    if (event.button !== 0 || (event.target as HTMLElement).closest("button")) return;
+    longPressTriggeredRef.current = false;
+    cancelLongPress();
+    // 作者: long
+    // 触控板和触摸屏长按沿用移动端任务菜单，普通桌面鼠标仍可使用右键或三点按钮。
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      onMenu(task.id);
+    }, 520);
+  }
+
+  function handleRowClick(event: React.MouseEvent<HTMLElement>) {
+    if ((event.target as HTMLElement).closest("button")) return;
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      return;
+    }
+    onToggle(task);
+  }
 
   return (
     <article
@@ -1363,11 +1431,26 @@ function TaskRow({
       data-task-title={taskTitle(task)}
       data-state={task.state}
       data-testid="task-row"
+      aria-label={`${taskActionTitle(task)}：${taskTitle(task)}`}
+      onClick={handleRowClick}
       onContextMenu={(event) => {
         event.preventDefault();
+        cancelLongPress();
         onMenu(task.id);
       }}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onToggle(task);
+        }
+      }}
+      onPointerCancel={cancelLongPress}
+      onPointerDown={startLongPress}
+      onPointerLeave={cancelLongPress}
+      onPointerUp={cancelLongPress}
       style={{ "--value": width } as CSSProperties}
+      tabIndex={0}
     >
       <div className="taskFile">
         <div className="fileMark">
@@ -1391,20 +1474,15 @@ function TaskRow({
       <span className="speedCell">{taskSpeedLabel(task)}</span>
       <div className="rowActions">
         <button
-          data-testid="task-toggle-button"
-          onClick={() => onToggle(task)}
-          title={taskActionTitle(task)}
-        >
-          <Icon name={task.state === "running" ? "pause" : "play"} />
-        </button>
-        <button data-testid="task-open-button" onClick={() => onOpen(task)} title="打开文件">
-          <Icon name="folder" />
-        </button>
-        <button
+          aria-label="更多任务操作"
           aria-pressed={menuOpen}
           data-testid="task-more-button"
-          onClick={() => onMenu(menuOpen ? null : task.id)}
-          title="更多"
+          onClick={(event) => {
+            event.stopPropagation();
+            onMenu(menuOpen ? null : task.id);
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          title="更多任务操作"
         >
           <Icon name="more" />
         </button>
@@ -1457,15 +1535,15 @@ function NewTaskDialog({
       >
         <header className="dialogHeader">
           <div>
-            <span className="dialogMark">＋</span>
+            <span className="dialogMark"><Icon name="plus" /></span>
             <h2>新建任务</h2>
           </div>
           <div className="dialogTools">
-            <button data-testid="new-task-paste" title="从剪切板读取" onClick={onPaste}>
-              ⧉
+            <button aria-label="从剪切板读取" data-testid="new-task-paste" title="从剪切板读取" onClick={onPaste}>
+              <Icon name="clipboard" />
             </button>
-            <button data-testid="new-task-close" title="关闭" onClick={onClose}>
-              ×
+            <button aria-label="关闭" data-testid="new-task-close" title="关闭" onClick={onClose}>
+              <Icon name="x" />
             </button>
           </div>
         </header>
@@ -1572,17 +1650,17 @@ function TaskMenu({
       <section className="taskMenu" onMouseDown={(event) => event.stopPropagation()}>
         <header>
           <strong>{taskTitle(task)}</strong>
-          <button onClick={onClose}>×</button>
+          <button aria-label="关闭" onClick={onClose}><Icon name="x" /></button>
         </header>
-        <button onClick={onCopyLink}>复制下载链接</button>
-        <button onClick={onCopyPath}>复制文件路径</button>
-        <button onClick={onOpen}>打开</button>
-        <button onClick={onReveal}>在文件夹中显示</button>
-        <button onClick={onShare}>分享</button>
-        <button onClick={onProperties}>属性</button>
-        <button onClick={onRedownload}>重新下载</button>
+        <button onClick={onCopyLink}><Icon name="link" />复制下载链接</button>
+        <button onClick={onCopyPath}><Icon name="copy" />复制文件路径</button>
+        <button onClick={onOpen}><Icon name="external-link" />打开</button>
+        <button onClick={onReveal}><Icon name="folder" />在文件夹中显示</button>
+        <button onClick={onShare}><Icon name="share" />分享</button>
+        <button onClick={onProperties}><Icon name="info" />属性</button>
+        <button onClick={onRedownload}><Icon name="refresh" />重新下载</button>
         <button className="danger" onClick={onRemove}>
-          删除
+          <Icon name="trash" />删除
         </button>
       </section>
     </div>
@@ -1601,8 +1679,8 @@ function PropertyDialog({
       <section className="propertyDialog" onMouseDown={(event) => event.stopPropagation()}>
         <header className="dialogHeader">
           <h2>任务属性</h2>
-          <button title="关闭" onClick={onClose}>
-            ×
+          <button aria-label="关闭" title="关闭" onClick={onClose}>
+            <Icon name="x" />
           </button>
         </header>
         <dl>
@@ -1696,14 +1774,19 @@ function SettingsPage({
   return (
     <main className="settingsShell" data-testid="settings-page">
       <aside className="settingsSidebar">
-        <button className="settingsReturn" data-testid="settings-back-button" onClick={onBack}>
-          <Icon name="arrow-left" />
-          返回任务
-        </button>
+        <div className="brand settingsBrand">
+          <span className="brandMark" aria-label="FluxDown">
+            <img alt="" src={appMark} />
+          </span>
+          <div>
+            <strong>FluxDown</strong>
+            <span>偏好设置</span>
+          </div>
+        </div>
 
         <div className="settingsTitleBlock">
           <h1>设置</h1>
-          <p>用独立工作台管理下载策略、协议能力、存储路径和安全选项。</p>
+          <p>下载策略与本机能力</p>
         </div>
 
         <nav className="settingsNav" aria-label="设置分类">
@@ -1727,7 +1810,7 @@ function SettingsPage({
         <div className="settingsSidebarFoot">
           <strong>当前配置健康度 {healthScore}%</strong>
           <span data-settings-notice="sidebar">
-            {availableBackendCount} / {backends.length} 个后端可用，设置变更会自动保存到本机。
+            {availableBackendCount} / {backends.length} 个后端可用，修改后实时生效并自动保存。
           </span>
         </div>
       </aside>
@@ -1739,9 +1822,14 @@ function SettingsPage({
             <p>{activeSection.subtitle}</p>
           </div>
           <div className="settingsDetailActions">
-            <button className="actionButton" data-testid="settings-detail-back-button" onClick={onBack}>
+            <button
+              aria-label="返回任务"
+              className="iconButton"
+              data-testid="settings-detail-back-button"
+              onClick={onBack}
+              title="返回任务"
+            >
               <Icon name="arrow-left" />
-              返回任务
             </button>
             <button
               className="actionButton"
@@ -1753,13 +1841,14 @@ function SettingsPage({
               检查后端
             </button>
             <button
-              className="actionButton primary"
+              aria-label="保存设置"
+              className="iconButton primary"
               data-action="save-settings"
               data-testid="settings-save-button"
               onClick={saveCurrentSettings}
+              title="保存设置"
             >
               <Icon name="check" />
-              保存设置
             </button>
           </div>
         </header>

@@ -2,18 +2,19 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is `1.0.5`; see the latest release at [FluxDown 1.0.5](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.5).
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is `1.0.6`; see the latest release at [FluxDown 1.0.6](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.6).
 
 ## Current Status
 
 - Desktop supports Windows, macOS, and Linux, with the `fluxdown` CLI and a Tauri + React GUI.
 - Mobile supports Android and iPhone through a Flutter app.
-- The desktop GUI is now focused on two pages: download queue and settings. The mobile home screen keeps the queue and settings entry.
-- New task creation supports pasted links, QR scanning, save-as file names, output location selection, and SHA-256 verification.
+- The desktop GUI is focused on two pages, download queue and settings, with a compact state rail, transfer metrics, and task table. The mobile home screen keeps the queue and settings entry.
+- Desktop task rows start or pause on click; right-click, long press, or the overflow button opens actions for copy, open, share, properties, redownload, and delete.
+- New task creation supports pasted links, save-as file names, output location selection, and SHA-256 verification. Mobile additionally supports QR scanning.
 - Settings cover download location, concurrent downloads, download thread count, auto retry count, and max download speed.
 - Supported protocols include HTTP/HTTPS, WebDAV/WebDAVS, FTP/FTPS, m3u8/HLS, SFTP, SMB, `.torrent`, Magnet, and ed2k handoff.
 - Torrent and Magnet tasks switch to the real file name after metadata is available. Android supports multi-file selection, while desktop CLI/Tauri commands support selecting files by torrent file index.
-- HLS downloads produce a final `.mp4`; mobile smoke coverage includes fMP4, BYTERANGE, and TS HLS.
+- Mobile HLS downloads produce a final `.mp4`, with smoke coverage for fMP4, BYTERANGE, and TS HLS. Desktop output follows the core and available FFmpeg capabilities.
 - CLI and desktop redact usernames and passwords in URLs, and sanitize save-as names to a single file name.
 - Normal commits and tag pushes do not trigger GitHub Actions. CI is run manually only for explicit packaging or release work.
 
@@ -88,7 +89,7 @@ A signed IPA requires an Apple certificate, provisioning profile, Team ID, and k
 
 ## Release Assets
 
-The `v1.0.5` release includes:
+The `v1.0.6` release includes:
 
 - Android debug APK, release APK, and release AAB
 - iOS simulator app and unsigned device app
@@ -97,7 +98,7 @@ The `v1.0.5` release includes:
 - Linux CLI, desktop executable, deb, and rpm
 - Release manifest, LICENSE, and third-party license notices
 
-Release page: [FluxDown 1.0.5](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.5)
+Release page: [FluxDown 1.0.6](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.6)
 
 ## Documentation
 

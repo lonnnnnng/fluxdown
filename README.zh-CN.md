@@ -2,18 +2,19 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 `1.0.5`，最新发布见 [FluxDown 1.0.5](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.5)。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 `1.0.6`，最新发布见 [FluxDown 1.0.6](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.6)。
 
 ## 当前状态
 
 - 桌面端支持 Windows、macOS、Linux，包含 `fluxdown` CLI 和 Tauri + React GUI。
 - 移动端支持 Android 和 iPhone，使用 Flutter App。
-- 桌面端 GUI 收敛为下载列表和设置两页；移动端首页保留任务队列和设置入口。
-- 新建任务支持粘贴链接、二维码扫描、保存文件名、保存位置和 SHA-256 校验。
+- 桌面端 GUI 收敛为下载列表和设置两页，并采用紧凑的状态侧栏、传输指标栏和任务表格；移动端首页保留任务队列和设置入口。
+- 桌面任务行支持点击开始/暂停，右键、长按或三点按钮打开操作菜单；菜单集中提供复制、打开、分享、属性、重新下载和删除。
+- 新建任务支持粘贴链接、保存文件名、保存位置和 SHA-256 校验；移动端额外支持二维码扫描。
 - 设置项包含下载保存位置、并发下载数、下载线程数、自动重试数和最大下载网速。
 - 支持 HTTP/HTTPS、WebDAV/WebDAVS、FTP/FTPS、m3u8/HLS、SFTP、SMB、`.torrent`、Magnet 和 ed2k 移交。
 - Torrent/Magnet 获取 metadata 后会展示真实文件名；Android 支持多文件选择，桌面 CLI/Tauri command 支持按文件编号选择。
-- HLS 下载会输出最终 `.mp4`；移动端已覆盖 fMP4、BYTERANGE 和 TS HLS smoke。
+- 移动端 HLS 会输出最终 `.mp4`，并已覆盖 fMP4、BYTERANGE 和 TS HLS smoke；桌面端按 core/FFmpeg 能力输出合并媒体文件。
 - CLI 和桌面端会脱敏 URL 中的用户名和密码，并把另存文件名规范化为单文件名。
 - 普通提交和 tag 推送不会触发 GitHub Actions；只有明确打包或发版时才手动运行流水线。
 
@@ -88,7 +89,7 @@ LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
 
 ## 发布产物
 
-`v1.0.5` Release 已包含：
+`v1.0.6` Release 包含：
 
 - Android debug APK、release APK、release AAB
 - iOS simulator app、unsigned device app
@@ -97,7 +98,7 @@ LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
 - Linux CLI、桌面可执行文件、deb、rpm
 - release manifest、LICENSE、第三方许可证清单
 
-Release 页面：[FluxDown 1.0.5](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.5)
+Release 页面：[FluxDown 1.0.6](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.6)
 
 ## 文档
 

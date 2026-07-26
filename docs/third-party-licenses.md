@@ -1,6 +1,6 @@
 # 第三方许可证清单
 
-截至 2026-06-18，本项目自有代码采用 MIT License，许可证正文见仓库根目录 [LICENSE](../LICENSE)。
+截至 2026-07-26，本项目自有代码采用 MIT License，许可证正文见仓库根目录 [LICENSE](../LICENSE)。
 
 本清单用于发布前审查和 README 说明，不替代各依赖包自带的完整许可证文本。最终对外发布时，应以锁文件、构建产物和依赖包随附许可证为准重新生成完整 NOTICE / licenses bundle。
 
@@ -38,6 +38,7 @@
 | --- | --- | --- |
 | `@tauri-apps/api` | 前端调用 Tauri command | Apache-2.0 OR MIT |
 | `react` / `react-dom` | 桌面 GUI 视图层 | MIT |
+| `lucide-react` | 桌面 GUI 操作与状态图标 | ISC |
 | `vite` | 前端构建 | MIT |
 | `typescript` | 类型检查和构建 | Apache-2.0 |
 

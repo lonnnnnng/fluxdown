@@ -278,11 +278,11 @@ function writeReleaseNotes() {
 
 ## 本次重点
 
-- macOS CLI 发布二进制补充可重复多协议真实下载验收，覆盖 HTTP/HLS/HLS BYTERANGE、FTP/FTPS、SFTP、SMB、Torrent/Magnet 和队列控制。
-- macOS 桌面端补充 Tauri command 级真实下载验收和产物校验，覆盖 FTPS、SFTP、SMB、单/多文件 Torrent、单/多文件 Magnet、.app ad-hoc 签名和 DMG checksum。
-- iOS 补充当前阶段总验收入口，已在 simulator 中完成 App 内 HTTP、fMP4 HLS、BYTERANGE HLS 和 TS HLS 下载 smoke。
-- iOS 真机下载验收与签名 IPA 入口已补齐前置检查；当前 release 若没有 Apple signing secrets，会继续只包含 simulator 和 unsigned device 产物。
-- README 和验证文档已同步当前 macOS/CLI/iOS 进度，并明确仍未完成 iPhone 真机、签名 IPA 和剩余前台 GUI 协议点击验证。
+- 桌面端重构为紧凑的两页式传输控制台，统一状态侧栏、传输指标、任务表格、设置分组和中文界面。
+- 任务行支持点击开始/暂停，右键、长按或三点按钮打开操作菜单；复制、打开、分享、属性、重新下载和删除均使用一致的图标与布局。
+- 新建任务弹框、空列表、任务状态进度背景和设置页完成视觉收口，并适配默认 `1280×820` 与最小 `980×680` 窗口。
+- README 的 macOS 队列、新建任务和设置截图已由真实 Tauri 窗口重新采集，多语言说明和验证边界同步更新。
+- 下载协议能力和历史验证结论保持不变；iPhone 真机、签名 IPA、Linux GUI 真实下载和部分 macOS 纯 GUI 协议点击仍按验证文档所列边界处理。
 
 ## Assets
 
