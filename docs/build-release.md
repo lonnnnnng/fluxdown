@@ -251,7 +251,7 @@ Release manifest 记录平台、产物类型、大小和 SHA-256。目录型产�
 
 流水线只在明确需要打包或发版时，通过 GitHub Actions 页面手动触发 `workflow_dispatch` 运行。普通代码提交推送到 `main` 只同步代码，不触发打包流水线；推送 `v*` 标签也只同步标签，不自动触发流水线。手动触发时必须选择 `run_mode`：需要打包时选择 `package`，需要发版时选择 `release` 并切换到对应 `v*` 标签 ref。选择 `release` 但 ref 不是 `v*` 标签时，预检会立刻失败，避免误跑整套多平台构建。Actions 页面里事件为 `push` 的记录是旧版配置留下的历史执行记录，当前配置不会因普通 push 继续新增。
 
-`npm run verify:ci-config` 会检查 `.github/workflows/build.yml` 是否仍只保留 `workflow_dispatch` 入口、是否要求显式选择打包/发版模式、是否启用同 ref 手动运行去重、以及 Release 作业是否只允许在 `run_mode=release` 且 `v*` 标签 ref 上执行。
+`npm run verify:ci-config` 会先检查 Release 资产整理脚本的 JavaScript 语法，再检查 `.github/workflows/build.yml` 是否仍只保留 `workflow_dispatch` 入口、是否要求显式选择打包/发版模式、是否启用同 ref 手动运行去重、以及 Release 作业是否只允许在 `run_mode=release` 且 `v*` 标签 ref 上执行。
 
 ## CI 产物
 

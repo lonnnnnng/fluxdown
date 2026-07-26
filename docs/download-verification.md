@@ -69,6 +69,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-07-26 首次 `v1.0.6` 手动发布流水线在 Windows Rust/CLI job 中失败：`29` 个 CLI 集成测试通过，`queue_run_can_pause_and_resume_running_task_from_separate_cli_process` 和 `queue_run_can_remove_running_task_from_separate_cli_process` 因限速器等待整个网络块配额，未在测试规定的 `5s` 内响应暂停/删除而超时；同次运行的 Linux/macOS CLI、三平台桌面、Android、iOS simulator 和 unsigned device 构建均通过，但 Release job 因 Windows CLI job 失败而按设计跳过。修复后限速等待会每 `50ms` 检查一次取消状态，新增 `speed_limiter_wait_can_be_cancelled` 单元测试，原有两个跨进程队列测试在本机继续保持 `5s` 门槛并通过；版本顺延到 `1.0.7+8`，不重写已经推送的 `v1.0.6` 失败标签。
 
+2026-07-26 `v1.0.7` 手动发布流水线已通过 Linux、Windows、macOS 三平台 CLI 和桌面构建、Android debug/release APK 与 AAB、iOS simulator 和 unsigned device app 构建；Windows 两个跨进程队列测试通过。最终 Release job 首次执行时，Release Notes 模板中的窗口尺寸反引号未转义，导致 `prepare-github-release-assets.mjs` 在解析阶段报 `SyntaxError: Unexpected number`，平台产物本身不受影响且已全部上传为本次运行 artifacts。修复后 `npm run verify:ci-config` 会先用 `node --check` 校验资产整理脚本，防止同类模板语法问题拖到最终发布阶段。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
