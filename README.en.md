@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is `1.0.6`; see the latest release at [FluxDown 1.0.6](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.6).
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is `1.0.7`; see the latest release at [FluxDown 1.0.7](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.7).
 
 ## Current Status
 
@@ -89,7 +89,7 @@ A signed IPA requires an Apple certificate, provisioning profile, Team ID, and k
 
 ## Release Assets
 
-The `v1.0.6` release includes:
+The `v1.0.7` release includes:
 
 - Android debug APK, release APK, and release AAB
 - iOS simulator app and unsigned device app
@@ -98,7 +98,7 @@ The `v1.0.6` release includes:
 - Linux CLI, desktop executable, deb, and rpm
 - Release manifest, LICENSE, and third-party license notices
 
-Release page: [FluxDown 1.0.6](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.6)
+Release page: [FluxDown 1.0.7](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.7)
 
 ## Documentation
 

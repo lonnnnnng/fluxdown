@@ -9,7 +9,7 @@
 - Rust workspace `Cargo.toml`
 - Flutter `apps/mobile/pubspec.yaml`
 
-当前版本为 `1.0.6`。发布标签使用 `v<version>`，例如 `v1.0.6`。GitHub Release 作业会校验标签版本和 `package.json` 版本一致。
+当前版本为 `1.0.7`。发布标签使用 `v<version>`，例如 `v1.0.7`。GitHub Release 作业会校验标签版本和 `package.json` 版本一致。
 
 ## 本地依赖
 
@@ -276,7 +276,7 @@ Release manifest 记录平台、产物类型、大小和 SHA-256。目录型产�
 2. 运行本地检查和必要的平台构建。
 3. 运行 `npm run audit:release` 查看发布准备状态。
 4. 提交代码并推送到 `main`。这一步只同步代码，不触发 GitHub Actions 打包流水线。
-5. 创建并推送标签，例如 `git tag v1.0.6 && git push origin v1.0.6`。
+5. 创建并推送标签，例如 `git tag v1.0.7 && git push origin v1.0.7`。
 6. 在 GitHub Actions 页面手动运行 `Build` workflow，选择刚推送的 `v*` 标签 ref，并设置 `run_mode=release`。
 7. 在 Release 页面检查 assets 和 release notes。
 

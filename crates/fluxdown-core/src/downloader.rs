@@ -416,7 +416,9 @@ impl DownloadEngine {
                 return Err(DownloadError::Paused);
             }
             let chunk = chunk?;
-            limiter.wait(chunk.len() as u64).await;
+            limiter
+                .wait_with_cancel(chunk.len() as u64, cancel.as_ref())
+                .await?;
             file.write_all(&chunk).await?;
             bytes_written += chunk.len() as u64;
             emit_progress(&progress, bytes_written, total_bytes);
@@ -536,7 +538,9 @@ impl DownloadEngine {
                             return Err(DownloadError::Paused);
                         }
                         let chunk = chunk?;
-                        limiter.wait(chunk.len() as u64).await;
+                        limiter
+                            .wait_with_cancel(chunk.len() as u64, cancel.as_ref())
+                            .await?;
                         file.write_all(&chunk).await?;
                         range_written += chunk.len() as u64;
                         let total = downloaded.fetch_add(chunk.len() as u64, Ordering::SeqCst)
@@ -698,7 +702,9 @@ impl DownloadEngine {
             if read == 0 {
                 break;
             }
-            limiter.wait(read as u64).await;
+            limiter
+                .wait_with_cancel(read as u64, cancel.as_ref())
+                .await?;
             file.write_all(&buffer[..read]).await?;
             bytes_written += read as u64;
             emit_progress(&progress, bytes_written, total_bytes);
@@ -1117,7 +1123,9 @@ impl DownloadEngine {
                 return Err(DownloadError::Paused);
             }
             let chunk = chunk?;
-            limiter.wait(chunk.len() as u64).await;
+            limiter
+                .wait_with_cancel(chunk.len() as u64, cancel.as_ref())
+                .await?;
             bytes.extend_from_slice(&chunk);
         }
         let byte_range = byte_range.expect("checked above");
@@ -1181,7 +1189,9 @@ impl DownloadEngine {
                 return Err(DownloadError::Paused);
             }
             let chunk = chunk?;
-            limiter.wait(chunk.len() as u64).await;
+            limiter
+                .wait_with_cancel(chunk.len() as u64, cancel.as_ref())
+                .await?;
             bytes.extend_from_slice(&chunk);
         }
         Ok(bytes)
@@ -1316,7 +1326,9 @@ impl DownloadEngine {
             }
 
             let chunk = chunk?;
-            limiter.wait(chunk.len() as u64).await;
+            limiter
+                .wait_with_cancel(chunk.len() as u64, cancel.as_ref())
+                .await?;
             file.write_all(&chunk).await?;
             bytes_written += chunk.len() as u64;
             emit_progress(&progress, bytes_written, total_bytes);
@@ -1440,12 +1452,16 @@ impl DownloadSpeedLimiter {
         }
     }
 
-    async fn wait(&self, bytes: u64) {
+    async fn wait_with_cancel(
+        &self,
+        bytes: u64,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(), DownloadError> {
         let Some(inner) = &self.inner else {
-            return;
+            return Ok(());
         };
         if bytes == 0 {
-            return;
+            return Ok(());
         }
 
         let sleep_for = {
@@ -1460,9 +1476,20 @@ impl DownloadSpeedLimiter {
             state.next_available = ready_at;
             ready_at.saturating_duration_since(now)
         };
-        if !sleep_for.is_zero() {
-            tokio::time::sleep(sleep_for).await;
+        // 作者: long
+        // 低速限速时单个网络块可能占用数秒配额；分段等待让暂停或删除能及时中断，避免任务长时间卡在“下载中”。
+        let deadline = Instant::now() + sleep_for;
+        loop {
+            if cancel.is_some_and(CancelToken::is_cancelled) {
+                return Err(DownloadError::Paused);
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            tokio::time::sleep(remaining.min(Duration::from_millis(50))).await;
         }
+        Ok(())
     }
 }
 
@@ -2706,9 +2733,29 @@ fn main() {{
         let limiter = DownloadSpeedLimiter::new(Some(256 * 1024));
         let started = Instant::now();
 
-        limiter.wait(64 * 1024).await;
+        limiter.wait_with_cancel(64 * 1024, None).await.unwrap();
 
         assert!(started.elapsed() >= Duration::from_millis(220));
+    }
+
+    #[tokio::test]
+    async fn speed_limiter_wait_can_be_cancelled() {
+        let limiter = DownloadSpeedLimiter::new(Some(256 * 1024));
+        let cancel = CancelToken::default();
+        let cancel_after_delay = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            cancel_after_delay.cancel();
+        });
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            limiter.wait_with_cancel(512 * 1024, Some(&cancel)),
+        )
+        .await
+        .expect("cancelled limiter wait should return promptly");
+
+        assert!(matches!(result, Err(DownloadError::Paused)));
     }
 
     #[tokio::test]

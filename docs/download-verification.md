@@ -67,6 +67,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-07-26 为发布 `1.0.6` 完成桌面 UI 专项复验和本地发版前复验：macOS 真实 Tauri 开发窗口在默认 `1280×820` 下检查下载列表、新建任务弹框和设置页，并重新采集 README 三张截图；浏览器预览在最小 `980×680` 下检查下载列表、新建任务、设置页、紧凑任务行和三点菜单。任务行预览使用仅存于浏览器内存的排队任务，只用于验证文件名、状态、进度、速度和菜单列布局，不计入真实下载结果。版本号已同步到 `package.json`、桌面包、Rust workspace、Tauri 配置和 Flutter `1.0.6+7`；`cargo test --workspace`、桌面 lint/build、Flutter analyze/test、`npm run verify:macos`、`npm run verify:ios`、Android release APK/AAB 构建、`npm run verify:artifacts`、许可证清单和 CI 手动触发策略校验均通过。本轮生成并校验 `target/release/bundle/dmg/FluxDown_1.0.6_aarch64.dmg`、`apps/mobile/build/app/outputs/flutter-apk/app-release.apk`、`apps/mobile/build/app/outputs/bundle/release/app-release.aab`、iOS debug frameworks、iOS simulator app 和 unsigned iPhone device app；新增的桌面图标依赖 `lucide-react` 已补入第三方许可证清单。`npm run audit:release` 返回 `8 failed, 1 warning`：失败项仅为本机未生成的 Linux 四项、Windows 三项和跨平台 release manifest，签名 IPA 仍是证书与 provisioning profile 未配置时的可选警告；这些跨平台产物和 manifest 由手动触发的 GitHub Actions release workflow 在对应 runner 上生成。
 
+2026-07-26 首次 `v1.0.6` 手动发布流水线在 Windows Rust/CLI job 中失败：`29` 个 CLI 集成测试通过，`queue_run_can_pause_and_resume_running_task_from_separate_cli_process` 和 `queue_run_can_remove_running_task_from_separate_cli_process` 因限速器等待整个网络块配额，未在测试规定的 `5s` 内响应暂停/删除而超时；同次运行的 Linux/macOS CLI、三平台桌面、Android、iOS simulator 和 unsigned device 构建均通过，但 Release job 因 Windows CLI job 失败而按设计跳过。修复后限速等待会每 `50ms` 检查一次取消状态，新增 `speed_limiter_wait_can_be_cancelled` 单元测试，原有两个跨进程队列测试在本机继续保持 `5s` 门槛并通过；版本顺延到 `1.0.7+8`，不重写已经推送的 `v1.0.6` 失败标签。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |

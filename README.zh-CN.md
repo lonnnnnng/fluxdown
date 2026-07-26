@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 `1.0.6`，最新发布见 [FluxDown 1.0.6](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.6)。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 `1.0.7`，最新发布见 [FluxDown 1.0.7](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.7)。
 
 ## 当前状态
 
@@ -89,7 +89,7 @@ LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
 
 ## 发布产物
 
-`v1.0.6` Release 包含：
+`v1.0.7` Release 包含：
 
 - Android debug APK、release APK、release AAB
 - iOS simulator app、unsigned device app
@@ -98,7 +98,7 @@ LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
 - Linux CLI、桌面可执行文件、deb、rpm
 - release manifest、LICENSE、第三方许可证清单
 
-Release 页面：[FluxDown 1.0.6](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.6)
+Release 页面：[FluxDown 1.0.7](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.7)
 
 ## 文档
 
