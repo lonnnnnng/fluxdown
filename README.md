@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 `1.0.7`，最新发布见 [FluxDown 1.0.7](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.7)。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 `1.0.8`，最新发布见 [FluxDown 1.0.8](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.8)。
 
 ## 当前状态
 
@@ -10,7 +10,7 @@ FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版�
 - 移动端支持 Android 和 iPhone，使用 Flutter App。
 - 桌面端 GUI 收敛为下载列表和设置两页，并采用紧凑的状态侧栏、传输指标栏和任务表格；移动端首页保留任务队列和设置入口。
 - 桌面任务行支持点击开始/暂停，右键、长按或三点按钮打开操作菜单；菜单集中提供复制、打开、分享、属性、重新下载和删除。
-- 新建任务支持粘贴链接、保存文件名、保存位置和 SHA-256 校验；移动端额外支持二维码扫描。
+- 新建任务支持输入链接、自动识别协议、自动命名、另存文件名和保存位置；桌面端额外支持 SHA-256 校验。
 - 设置项包含下载保存位置、并发下载数、下载线程数、自动重试数和最大下载网速。
 - 支持 HTTP/HTTPS、WebDAV/WebDAVS、FTP/FTPS、m3u8/HLS、SFTP、SMB、`.torrent`、Magnet 和 ed2k 移交。
 - Torrent/Magnet 获取 metadata 后会展示真实文件名；Android 支持多文件选择，桌面 CLI/Tauri command 支持按文件编号选择。
@@ -26,11 +26,11 @@ FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版�
 | --- | --- | --- |
 | <img src="docs/artifacts/readme/macos/queue.png" alt="macOS 下载列表" width="320"> | <img src="docs/artifacts/readme/macos/new-task.png" alt="macOS 新建任务" width="320"> | <img src="docs/artifacts/readme/macos/settings.png" alt="macOS 设置" width="320"> |
 
-### Android 模拟器（Pixel_9）
+### Android 真机（Redmi Note 8 Pro）
 
 | 下载列表 | 新建任务 | 设置 |
 | --- | --- | --- |
-| <img src="docs/artifacts/readme/android-emulator/queue.png" alt="Android 模拟器下载列表" width="220"> | <img src="docs/artifacts/readme/android-emulator/new-task.png" alt="Android 模拟器新建任务" width="220"> | <img src="docs/artifacts/readme/android-emulator/settings.png" alt="Android 模拟器设置" width="220"> |
+| <img src="docs/artifacts/readme/android-real-device/queue.png" alt="Android 真机下载列表" width="220"> | <img src="docs/artifacts/readme/android-real-device/new-task.png" alt="Android 真机新建任务" width="220"> | <img src="docs/artifacts/readme/android-real-device/settings.png" alt="Android 真机设置" width="220"> |
 
 ## 验证边界
 
@@ -39,7 +39,7 @@ FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版�
 | macOS 桌面/CLI | release CLI 覆盖 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet 和队列控制；桌面 GUI 前台覆盖 HTTP/HLS/Torrent/Magnet；Tauri command 覆盖 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet。 | 纯 GUI 的 FTP/FTPS/SFTP/SMB/WebDAV 点击闭环后续单独补。 |
 | Windows 桌面/CLI | CI 产物已发布；Windows 开发机完成 CLI 12 协议真实用例验证和原生 Tauri GUI 前台 12 协议验证，ed2k 按产品定义完成系统移交验证。 | ed2k 不是 FluxDown 内建下载完成；GUI 验证使用 E2E 专用窗口和隔离队列。 |
 | Linux 桌面/CLI | CI 已生成 Linux CLI、GUI 可执行文件、`.deb`、`.rpm` 并做非空检查。 | 尚未在 Linux 桌面环境安装 GUI 并完成真实下载。 |
-| Android App | Redmi Note 8 Pro 真机已覆盖本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单/多文件 torrent 和 magnet。Pixel_9 模拟器已更新当前界面截图。 | 商店分发前还需签名、许可证和后台策略复验。 |
+| Android App | 历史 `1.0.4` 真机验证已覆盖本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单/多文件 torrent 和 magnet；当前 `1.0.8+9` release APK 已在 Redmi Note 8 Pro 真机完成启动和任务页、新建弹框、设置页操作及截图复验。 | 当前版本仍需重跑协议下载；商店分发前还需签名、许可证和后台策略复验。 |
 | iOS App | CI 已生成 iOS simulator app 和 unsigned device app；iOS simulator 已完成 HTTP、fMP4 HLS、BYTERANGE HLS、TS HLS 下载 smoke。 | 签名 IPA、iPhone 真机安装、扫码、文件选择、分享/打开等真机能力仍待补。 |
 
 完整证据见 [下载验证状态](docs/download-verification.md)。
@@ -89,7 +89,7 @@ LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
 
 ## 发布产物
 
-`v1.0.7` Release 包含：
+`v1.0.8` Release 包含：
 
 - Android debug APK、release APK、release AAB
 - iOS simulator app、unsigned device app
@@ -98,7 +98,7 @@ LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
 - Linux CLI、桌面可执行文件、deb、rpm
 - release manifest、LICENSE、第三方许可证清单
 
-Release 页面：[FluxDown 1.0.7](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.7)
+Release 页面：[FluxDown 1.0.8](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.8)
 
 ## 文档
 

@@ -545,16 +545,17 @@ class _FluxDownMobileAppState extends State<FluxDownMobileApp> {
           : const Locale('en'),
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xff147c7f),
-          primary: const Color(0xff147c7f),
-          secondary: const Color(0xffc46332),
-          tertiary: const Color(0xff4068a7),
-          surface: const Color(0xfff3f8f7),
+          seedColor: const Color(0xff2f9ee6),
+          primary: const Color(0xff168bd1),
+          secondary: const Color(0xff0f6fa8),
+          tertiary: const Color(0xff52b6e8),
+          surface: const Color(0xfff5faff),
+          brightness: Brightness.light,
         ),
         useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xfff3f8f7),
+        scaffoldBackgroundColor: const Color(0xfff5faff),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.transparent,
+          backgroundColor: Color(0xfff5faff),
           elevation: 0,
           scrolledUnderElevation: 0,
           centerTitle: false,
@@ -565,7 +566,7 @@ class _FluxDownMobileAppState extends State<FluxDownMobileApp> {
           color: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: Color(0x1f1c9d8d)),
+            side: const BorderSide(color: Color(0x2a168bd1)),
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
@@ -573,15 +574,15 @@ class _FluxDownMobileAppState extends State<FluxDownMobileApp> {
           fillColor: Colors.white,
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: Color(0xffd7d0c2)),
+            borderSide: const BorderSide(color: Color(0xffcfe5f3)),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: Color(0xffd7d0c2)),
+            borderSide: const BorderSide(color: Color(0xffcfe5f3)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: Color(0xff147c7f), width: 1.6),
+            borderSide: const BorderSide(color: Color(0xff168bd1), width: 1.6),
           ),
         ),
         snackBarTheme: const SnackBarThemeData(
@@ -589,30 +590,28 @@ class _FluxDownMobileAppState extends State<FluxDownMobileApp> {
         ),
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xff169f93),
+            backgroundColor: const Color(0xff168bd1),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
-            textStyle: const TextStyle(fontWeight: FontWeight.w800),
+            textStyle: const TextStyle(fontWeight: FontWeight.w400),
           ),
         ),
         floatingActionButtonTheme: const FloatingActionButtonThemeData(
-          backgroundColor: Color(0xff169f93),
+          backgroundColor: Color(0xff168bd1),
           foregroundColor: Colors.white,
           shape: CircleBorder(),
         ),
         navigationBarTheme: NavigationBarThemeData(
           backgroundColor: Colors.white,
           elevation: 0,
+          indicatorColor: Color(0xffdff2fd),
+          surfaceTintColor: Colors.white,
           indicatorShape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
           ),
           labelTextStyle: WidgetStateProperty.resolveWith(
-            (states) => TextStyle(
-              fontWeight: states.contains(WidgetState.selected)
-                  ? FontWeight.w900
-                  : FontWeight.w700,
-            ),
+            (states) => TextStyle(fontWeight: FontWeight.w400),
           ),
         ),
       ),
@@ -1133,7 +1132,7 @@ class QueueView extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontSize: 22,
                     height: 1.1,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ),
@@ -1389,7 +1388,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                             style: textTheme.titleMedium?.copyWith(
                               fontSize: 17,
                               height: 1.1,
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w400,
                             ),
                           ),
                           const SizedBox(height: 3),
@@ -1401,7 +1400,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                               color: colorScheme.onSurfaceVariant,
                               fontSize: 11,
                               height: 1.25,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w400,
                             ),
                           ),
                         ],
@@ -1431,7 +1430,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                   style: const TextStyle(
                     fontSize: 12,
                     height: 1.16,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w400,
                   ),
                   decoration: InputDecoration(
                     labelText: strings.sourceLink,
@@ -1471,7 +1470,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                         vertical: 9,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xffedf6f3),
+                        color: const Color(0xffeaf6fd),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: colorScheme.primary.withValues(alpha: 0.16),
@@ -1486,7 +1485,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                             style: textTheme.labelSmall?.copyWith(
                               color: colorScheme.onSurfaceVariant,
                               fontSize: 10.5,
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w400,
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -1498,7 +1497,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                               style: textTheme.labelMedium?.copyWith(
                                 color: colorScheme.primary,
                                 fontSize: 11.5,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w400,
                               ),
                             ),
                           ),
@@ -1570,7 +1569,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                   style: FilledButton.styleFrom(
                     textStyle: const TextStyle(
                       fontSize: 13,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w400,
                     ),
                     minimumSize: const Size.fromHeight(44),
                     shape: RoundedRectangleBorder(
@@ -1657,7 +1656,7 @@ class _TorrentFileSelectionDialogState
                         overflow: TextOverflow.ellipsis,
                         style: textTheme.titleMedium?.copyWith(
                           fontSize: 14,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w400,
                         ),
                       ),
                     ),
@@ -1665,7 +1664,7 @@ class _TorrentFileSelectionDialogState
                       strings.torrentSelectedCount(selectedIndexes.length),
                       style: textTheme.labelSmall?.copyWith(
                         color: colorScheme.primary,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                   ],
@@ -1677,7 +1676,7 @@ class _TorrentFileSelectionDialogState
                   overflow: TextOverflow.ellipsis,
                   style: textTheme.bodySmall?.copyWith(
                     color: colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1742,7 +1741,7 @@ class _TorrentFileSelectionDialogState
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 12.5,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w400,
                             ),
                           ),
                           subtitle: Text(
@@ -1752,7 +1751,7 @@ class _TorrentFileSelectionDialogState
                             style: TextStyle(
                               fontSize: 11,
                               color: colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w400,
                             ),
                           ),
                         );
@@ -1786,7 +1785,7 @@ class _TorrentFileSelectionDialogState
                         style: FilledButton.styleFrom(
                           textStyle: const TextStyle(
                             fontSize: 12,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w400,
                           ),
                           minimumSize: const Size.fromHeight(42),
                           shape: RoundedRectangleBorder(
@@ -1899,7 +1898,7 @@ class _StorageMessage extends StatelessWidget {
             style: TextStyle(
               color: colorScheme.onSurfaceVariant,
               fontSize: 11.5,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w400,
             ),
           ),
         ),
@@ -1936,7 +1935,7 @@ class StorageStatItem extends StatelessWidget {
             style: TextStyle(
               color: colorScheme.onSurfaceVariant,
               fontSize: 9.5,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w400,
             ),
           ),
           const SizedBox(height: 2),
@@ -1949,7 +1948,7 @@ class StorageStatItem extends StatelessWidget {
               style: TextStyle(
                 color: colorScheme.onSurface,
                 fontSize: 12,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w400,
               ),
             ),
           ),
@@ -2037,7 +2036,7 @@ class ProtocolsView extends StatelessWidget {
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                   fontSize: 10.5,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w400,
                 ),
               ),
             ),
@@ -2076,7 +2075,7 @@ class ProtocolsPage extends StatelessWidget {
         toolbarHeight: 44,
         title: Text(
           strings.protocolSupport,
-          style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w900),
+          style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w400),
         ),
       ),
       body: SafeArea(
@@ -2170,7 +2169,7 @@ class _QrScannerPageState extends State<QrScannerPage> {
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 16,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w400,
                 ),
               ),
             ),
@@ -2211,9 +2210,9 @@ class QueueFilterTabs extends StatelessWidget {
       height: 42,
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.72),
+        color: const Color(0xffe8f5fc),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: colorScheme.outlineVariant),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
@@ -2292,7 +2291,7 @@ class QueueFilterTabButton extends StatelessWidget {
                   style: TextStyle(
                     color: foreground,
                     fontSize: 10.5,
-                    fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
+                    fontWeight: selected ? FontWeight.w400 : FontWeight.w400,
                   ),
                 ),
               ),
@@ -2321,7 +2320,7 @@ class SettingsPage extends StatelessWidget {
         toolbarHeight: 44,
         title: Text(
           strings.settings,
-          style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w900),
+          style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w400),
         ),
       ),
       body: SafeArea(
@@ -2382,7 +2381,7 @@ class SettingsView extends StatelessWidget {
           style: textTheme.titleLarge?.copyWith(
             fontSize: 22,
             height: 1.1,
-            fontWeight: FontWeight.w900,
+            fontWeight: FontWeight.w400,
           ),
         ),
         const SizedBox(height: 12),
@@ -2519,7 +2518,7 @@ class SettingsCompactRow extends StatelessWidget {
                     color: colorScheme.onSurfaceVariant,
                     fontSize: 10,
                     height: 1.05,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ],
@@ -2544,11 +2543,16 @@ class SettingsGroupCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerLow,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.72),
-        ),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.16)),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.045),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -2688,7 +2692,7 @@ class _SettingsNumberInputState extends State<SettingsNumberInput> {
               style: const TextStyle(
                 fontSize: 12,
                 height: 1.1,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w400,
               ),
               decoration: InputDecoration(
                 hintText: widget.hintText,
@@ -2696,7 +2700,7 @@ class _SettingsNumberInputState extends State<SettingsNumberInput> {
                 suffixStyle: TextStyle(
                   color: colorScheme.onSurfaceVariant,
                   fontSize: 9.5,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w400,
                 ),
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(
@@ -2752,7 +2756,7 @@ class SettingsSwitchTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: textTheme.titleSmall?.copyWith(
                       fontSize: 11.5,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w400,
                       height: 1.1,
                     ),
                   ),
@@ -2844,7 +2848,7 @@ class ProtocolDetailCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         fontSize: 11.8,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w400,
                         height: 1.08,
                       ),
                     ),
@@ -2857,7 +2861,7 @@ class ProtocolDetailCard extends StatelessWidget {
                         color: colorScheme.onSurfaceVariant,
                         fontSize: 10,
                         height: 1.05,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                   ],
@@ -2933,7 +2937,7 @@ class LanguageMenu extends StatelessWidget {
               style: TextStyle(
                 color: colorScheme.onSurfaceVariant,
                 fontSize: 11,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w400,
               ),
             ),
           ],
@@ -2988,10 +2992,10 @@ class SectionHeader extends StatelessWidget {
             style: dense
                 ? textTheme.titleSmall?.copyWith(
                     fontSize: 11.8,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w400,
                     height: 1.08,
                   )
-                : textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                : textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w400),
           ),
         ),
         if (trailingWidget != null)
@@ -3005,7 +3009,7 @@ class SectionHeader extends StatelessWidget {
                 ?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                   fontSize: dense ? 10.5 : null,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w400,
                 ),
           ),
       ],
@@ -3053,7 +3057,7 @@ class StatusPill extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: foreground,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w400,
                 fontSize: dense ? 11 : 12,
               ),
             ),
@@ -3113,11 +3117,16 @@ class EmptyQueueCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 22),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerLow,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.7),
-        ),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.16)),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.045),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
       child: Column(
         children: [
@@ -3136,7 +3145,7 @@ class EmptyQueueCard extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             strings.noQueuedTasks,
-            style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w400),
           ),
           const SizedBox(height: 4),
           Text(
@@ -3188,7 +3197,7 @@ class ProtocolChip extends StatelessWidget {
             label,
             style: TextStyle(
               color: foreground,
-              fontWeight: active ? FontWeight.w800 : FontWeight.w700,
+              fontWeight: active ? FontWeight.w400 : FontWeight.w400,
               fontSize: 12,
             ),
           ),
@@ -3304,7 +3313,7 @@ class DownloadTaskCard extends StatelessWidget {
                                     fontSize: 12,
                                     height: 1.05,
                                     color: colorScheme.onSurface,
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w400,
                                   ),
                                 ),
                               ),
@@ -3328,7 +3337,7 @@ class DownloadTaskCard extends StatelessWidget {
                                     color: colorScheme.onSurfaceVariant,
                                     fontSize: 8.5,
                                     height: 1,
-                                    fontWeight: FontWeight.w800,
+                                    fontWeight: FontWeight.w400,
                                   ),
                                 ),
                               ),
@@ -3339,7 +3348,7 @@ class DownloadTaskCard extends StatelessWidget {
                                 style: textTheme.labelSmall?.copyWith(
                                   color: colorScheme.onSurface,
                                   fontSize: 9,
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w400,
                                 ),
                               ),
                             ],
@@ -3357,7 +3366,7 @@ class DownloadTaskCard extends StatelessWidget {
                                     color: colorScheme.onSurfaceVariant,
                                     fontSize: 8.5,
                                     height: 1,
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: FontWeight.w400,
                                   ),
                                 ),
                               ),
@@ -3372,7 +3381,7 @@ class DownloadTaskCard extends StatelessWidget {
                                     color: colorScheme.onSurfaceVariant,
                                     fontSize: 8.5,
                                     height: 1,
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: FontWeight.w400,
                                   ),
                                 ),
                               ),
@@ -3388,7 +3397,7 @@ class DownloadTaskCard extends StatelessWidget {
                                     color: colorScheme.onSurface,
                                     fontSize: 8.8,
                                     height: 1,
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w400,
                                   ),
                                 ),
                               ),
@@ -3450,7 +3459,7 @@ class DownloadTaskCard extends StatelessWidget {
                 style: TextStyle(
                   color: foreground,
                   fontSize: 11,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w400,
                 ),
               ),
             ),
@@ -3558,7 +3567,7 @@ class _TaskStatePill extends StatelessWidget {
           color: color,
           fontSize: 9,
           height: 1,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w400,
         ),
       ),
     );
@@ -3648,7 +3657,7 @@ class TaskActionsSheet extends StatelessWidget {
             Text(
               strings.taskActions,
               style: textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w400,
               ),
             ),
             const SizedBox(height: 4),
@@ -3658,7 +3667,7 @@ class TaskActionsSheet extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: textTheme.bodySmall?.copyWith(
                 color: colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w400,
               ),
             ),
             const SizedBox(height: 14),
@@ -3786,7 +3795,7 @@ class TaskActionButton extends StatelessWidget {
                     style: TextStyle(
                       color: foreground,
                       fontSize: 13,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
                 ),
@@ -3959,7 +3968,7 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
                                             fontSize: 12,
                                             height: 1.05,
                                             color: colorScheme.onSurface,
-                                            fontWeight: FontWeight.w900,
+                                            fontWeight: FontWeight.w400,
                                           ),
                                         ),
                                       ),
@@ -3983,7 +3992,7 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
                                             color: colorScheme.onSurfaceVariant,
                                             fontSize: 8.5,
                                             height: 1,
-                                            fontWeight: FontWeight.w800,
+                                            fontWeight: FontWeight.w400,
                                           ),
                                         ),
                                       ),
@@ -3996,7 +4005,7 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
                                         style: textTheme.labelSmall?.copyWith(
                                           color: colorScheme.onSurface,
                                           fontSize: 9,
-                                          fontWeight: FontWeight.w900,
+                                          fontWeight: FontWeight.w400,
                                         ),
                                       ),
                                     ],
@@ -4013,7 +4022,7 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
                                             color: colorScheme.onSurface,
                                             fontSize: 8.8,
                                             height: 1,
-                                            fontWeight: FontWeight.w900,
+                                            fontWeight: FontWeight.w400,
                                           ),
                                         ),
                                       ),
@@ -4025,7 +4034,7 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
                                           color: colorScheme.onSurfaceVariant,
                                           fontSize: 8.5,
                                           height: 1,
-                                          fontWeight: FontWeight.w800,
+                                          fontWeight: FontWeight.w400,
                                         ),
                                       ),
                                     ],
@@ -4157,7 +4166,7 @@ class _TorrentFileRow extends StatelessWidget {
                                     color: foreground,
                                     fontSize: 11.5,
                                     height: 1.05,
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w400,
                                   ),
                                 ),
                               ),
@@ -4168,7 +4177,7 @@ class _TorrentFileRow extends StatelessWidget {
                                 style: textTheme.labelSmall?.copyWith(
                                   color: foreground,
                                   fontSize: 9,
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w400,
                                 ),
                               ),
                             ],
@@ -4185,7 +4194,7 @@ class _TorrentFileRow extends StatelessWidget {
                                     color: colorScheme.onSurfaceVariant,
                                     fontSize: 8.5,
                                     height: 1,
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: FontWeight.w400,
                                   ),
                                 ),
                               ),
@@ -4196,7 +4205,7 @@ class _TorrentFileRow extends StatelessWidget {
                                 style: textTheme.labelSmall?.copyWith(
                                   color: foreground,
                                   fontSize: 9,
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w400,
                                 ),
                               ),
                             ],
@@ -4215,7 +4224,7 @@ class _TorrentFileRow extends StatelessWidget {
                                     color: foreground,
                                     fontSize: 8.8,
                                     height: 1,
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w400,
                                   ),
                                 ),
                               ),
@@ -4329,7 +4338,7 @@ class TaskPropertiesSheet extends StatelessWidget {
             strings.properties,
             style: Theme.of(
               context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w400),
           ),
           const SizedBox(height: 12),
           PropertyRow(
@@ -4387,7 +4396,7 @@ class PropertyRow extends StatelessWidget {
             label,
             style: textTheme.labelMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w400,
             ),
           ),
           const SizedBox(height: 3),
@@ -4395,7 +4404,7 @@ class PropertyRow extends StatelessWidget {
             value,
             style: textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurface,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w400,
             ),
           ),
         ],
@@ -4451,16 +4460,16 @@ String _compactTaskSource(String source) {
 
 Color _taskStateBackground(DownloadState state, ColorScheme colorScheme) {
   return switch (state) {
-    DownloadState.running => const Color(0xffe3f3f1),
+    DownloadState.running => const Color(0xffe4f4fd),
     DownloadState.finished => const Color(0xffe8f4ec),
     DownloadState.failed => const Color(0xffffece7),
     DownloadState.paused => const Color(0xfffff3d8),
-    DownloadState.queued => colorScheme.surfaceContainerLow,
+    DownloadState.queued => const Color(0xfff4f9fd),
   };
 }
 
 Color _taskProgressFill(ColorScheme colorScheme) {
-  return colorScheme.primaryContainer.withValues(alpha: 0.72);
+  return const Color(0xff9dd8f5).withValues(alpha: 0.72);
 }
 
 Color _taskStateBorder(DownloadState state, ColorScheme colorScheme) {

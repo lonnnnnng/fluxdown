@@ -1,32 +1,32 @@
 :root {
-  --ink: #17202a;
-  --ink-soft: #334155;
-  --muted: #66727f;
-  --paper: #f3f5f6;
+  --ink: #123047;
+  --ink-soft: #31536c;
+  --muted: #6b8799;
+  --paper: #f3f9fd;
   --panel: #ffffff;
-  --panel-soft: #f8fafb;
-  --rail: #101820;
-  --rail-soft: #18232d;
-  --line: #dce2e7;
-  --line-strong: #cbd4da;
-  --primary: #1e3a5f;
-  --primary-soft: #e8eef5;
-  --accent: #16877a;
-  --accent-ink: #0d5149;
-  --accent-soft: #e2f2ef;
+  --panel-soft: #f6fbff;
+  --rail: #0877b6;
+  --rail-soft: #0d86c8;
+  --line: #d7e8f3;
+  --line-strong: #b9d8e9;
+  --primary: #1688cf;
+  --primary-soft: #e6f4fd;
+  --accent: #1595dc;
+  --accent-ink: #075d91;
+  --accent-soft: #e2f3fd;
   --amber: #a96f18;
   --amber-soft: #f7ecd8;
   --coral: #b8473b;
   --coral-soft: #f7e6e3;
-  --blue: #3567a6;
-  --blue-soft: #e8eff8;
+  --blue: #248ed2;
+  --blue-soft: #e2f2fc;
   --sage: #4e765f;
   --sage-soft: #e8f0eb;
-  --violet-soft: #eeebf8;
-  --shadow: 0 14px 34px rgba(24, 35, 45, 0.09);
-  --shadow-tight: 0 6px 18px rgba(24, 35, 45, 0.07);
-  --sidebar-width: 220px;
-  --radius: 7px;
+  --violet-soft: #e9f1fb;
+  --shadow: 0 14px 34px rgba(31, 111, 153, 0.11);
+  --shadow-tight: 0 6px 18px rgba(31, 111, 153, 0.08);
+  --sidebar-width: 236px;
+  --radius: 10px;
   --ease: 180ms ease;
 }
 
@@ -34,6 +34,17 @@ button,
 input,
 textarea {
   font: inherit;
+}
+
+strong,
+b,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: 400;
 }
 
 button {
@@ -60,7 +71,7 @@ textarea {
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
-  outline: 3px solid rgba(53, 103, 166, 0.24);
+  outline: 3px solid rgba(22, 139, 209, 0.24);
   outline-offset: 2px;
 }
 
@@ -74,7 +85,9 @@ textarea:focus-visible {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   overflow: hidden;
   color: var(--ink);
-  background: var(--paper);
+  background:
+    radial-gradient(circle at 90% -10%, rgba(83, 184, 235, 0.16), transparent 32%),
+    var(--paper);
 }
 
 .sidebar,
@@ -83,8 +96,10 @@ textarea:focus-visible {
   min-height: 0;
   padding: 16px 12px;
   color: #f7fafc;
-  background: var(--rail);
-  border-right: 1px solid #26313a;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.12), transparent 42%),
+    var(--rail);
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .sidebar {
@@ -98,8 +113,8 @@ textarea:focus-visible {
   grid-template-columns: 36px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
-  min-height: 54px;
-  padding: 4px 7px 14px;
+  min-height: 58px;
+  padding: 4px 8px 15px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -110,7 +125,7 @@ textarea:focus-visible {
   place-items: center;
   overflow: hidden;
   border-radius: 8px;
-  background: #d6ff62;
+  background: #ffffff;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
 }
 
@@ -124,7 +139,7 @@ textarea:focus-visible {
   display: block;
   overflow: hidden;
   color: #ffffff;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -134,7 +149,7 @@ textarea:focus-visible {
   display: block;
   margin-top: 2px;
   overflow: hidden;
-  color: rgba(236, 243, 247, 0.52);
+  color: rgba(255, 255, 255, 0.74);
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -142,9 +157,9 @@ textarea:focus-visible {
 
 .sidebarSectionTitle {
   margin: 16px 9px 7px;
-  color: rgba(236, 243, 247, 0.44);
+  color: rgba(255, 255, 255, 0.72);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .statusNav {
@@ -155,15 +170,15 @@ textarea:focus-visible {
 .statusButton {
   position: relative;
   width: 100%;
-  height: 38px;
+  height: 42px;
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) auto;
   gap: 9px;
   align-items: center;
   padding: 0 9px;
   border: 0;
-  border-radius: 5px;
-  color: rgba(236, 243, 247, 0.64);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.92);
   background: transparent;
   text-align: left;
 }
@@ -180,22 +195,22 @@ textarea:focus-visible {
 
 .statusButton:hover {
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .statusButton.active {
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .statusButton.active::before {
-  background: #d6ff62;
+  background: #bde9ff;
 }
 
 .statusButton span {
   overflow: hidden;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -204,18 +219,18 @@ textarea:focus-visible {
   min-width: 24px;
   padding: 2px 6px;
   border-radius: 999px;
-  color: rgba(255, 255, 255, 0.72);
-  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.14);
   font-size: 10px;
   font-style: normal;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 400;
   text-align: center;
 }
 
 .statusButton.active em {
-  color: #17202a;
-  background: #d6ff62;
+  color: #075d91;
+  background: #dff3ff;
 }
 
 .protocolPanel,
@@ -223,9 +238,9 @@ textarea:focus-visible {
   display: grid;
   gap: 8px;
   padding: 11px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: var(--radius);
-  background: var(--rail-soft);
+  background: rgba(4, 61, 98, 0.24);
 }
 
 .protocolPanel strong,
@@ -236,7 +251,7 @@ textarea:focus-visible {
 
 .protocolPanel small,
 .settingsSidebarFoot span {
-  color: rgba(236, 243, 247, 0.48);
+  color: rgba(255, 255, 255, 0.76);
   font-size: 10px;
   line-height: 1.45;
 }
@@ -245,7 +260,7 @@ textarea:focus-visible {
   height: 4px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .protocolMeter span {
@@ -253,7 +268,7 @@ textarea:focus-visible {
   width: var(--coverage);
   height: 100%;
   border-radius: inherit;
-  background: #d6ff62;
+  background: #bde9ff;
 }
 
 .protocolChips {
@@ -265,10 +280,10 @@ textarea:focus-visible {
 .protocolChips span {
   padding: 3px 5px;
   border-radius: 4px;
-  color: rgba(244, 248, 250, 0.66);
-  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.13);
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .workspace,
@@ -279,19 +294,19 @@ textarea:focus-visible {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
-  padding: 0 18px 18px;
+  padding: 0 22px 22px;
 }
 
 .workspaceHeader,
 .settingsDetailHead {
   min-width: 0;
-  min-height: 86px;
+  min-height: 82px;
   display: grid;
   grid-template-columns: minmax(150px, 1fr) auto;
   gap: 18px;
   align-items: center;
   border-bottom: 1px solid var(--line);
-  background: rgba(243, 245, 246, 0.96);
+  background: rgba(243, 249, 253, 0.96);
 }
 
 .titleBlock {
@@ -306,9 +321,9 @@ textarea:focus-visible {
 .pageEyebrow {
   grid-column: 1 / -1;
   margin-bottom: 2px;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 400;
 }
 
 .titleBlock h1,
@@ -338,7 +353,7 @@ textarea:focus-visible {
   flex: 0 0 auto;
   border-radius: 999px;
   background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(22, 135, 122, 0.11);
+  box-shadow: 0 0 0 3px rgba(22, 139, 209, 0.12);
 }
 
 .toolbar,
@@ -359,14 +374,14 @@ textarea:focus-visible {
   align-items: center;
   padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 999px;
   background: var(--panel);
   color: #84909b;
 }
 
 .searchBox:focus-within {
-  border-color: #88a8c9;
-  box-shadow: 0 0 0 3px rgba(53, 103, 166, 0.11);
+  border-color: #83c4e8;
+  box-shadow: 0 0 0 3px rgba(22, 139, 209, 0.11);
 }
 
 .searchBox input {
@@ -392,11 +407,11 @@ textarea:focus-visible {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 9px;
   background: var(--panel);
   color: var(--ink-soft);
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 400;
 }
 
 .actionButton {
@@ -422,14 +437,14 @@ textarea:focus-visible {
 .actionButton.primary,
 .iconButton.primary {
   border-color: var(--primary);
-  background: var(--primary);
+  background: linear-gradient(135deg, #1d98df, #1377ba);
   color: #ffffff;
 }
 
 .actionButton.primary:hover,
 .iconButton.primary:hover {
-  border-color: #152f50;
-  background: #152f50;
+  border-color: #0d6fae;
+  background: #0d6fae;
   color: #ffffff;
 }
 
@@ -442,8 +457,8 @@ textarea:focus-visible {
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
-  padding-top: 12px;
+  gap: 12px;
+  padding-top: 14px;
 }
 
 .insights {
@@ -452,7 +467,7 @@ textarea:focus-visible {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 12px;
   background: var(--panel);
   box-shadow: var(--shadow-tight);
 }
@@ -475,7 +490,7 @@ textarea:focus-visible {
 }
 
 .metric.accent {
-  background: #173a42;
+  background: linear-gradient(135deg, #168bd1, #0b6ea9);
   color: #ffffff;
 }
 
@@ -487,13 +502,13 @@ textarea:focus-visible {
   overflow: hidden;
   color: var(--muted);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .metric.accent > span {
-  color: rgba(255, 255, 255, 0.68);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .metric strong {
@@ -518,7 +533,7 @@ textarea:focus-visible {
 }
 
 .metric.accent small {
-  color: rgba(255, 255, 255, 0.58);
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .taskBoard {
@@ -527,7 +542,7 @@ textarea:focus-visible {
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 12px;
   background: var(--panel);
   box-shadow: var(--shadow);
 }
@@ -544,10 +559,10 @@ textarea:focus-visible {
   min-height: 38px;
   padding: 0 13px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel-soft);
+  background: linear-gradient(180deg, #fbfdff, #f1f8fc);
   color: var(--muted);
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 400;
 }
 
 .taskList {
@@ -571,13 +586,13 @@ textarea:focus-visible {
   position: absolute;
   inset: 0 auto 0 0;
   width: var(--value);
-  background: rgba(22, 135, 122, 0.07);
+  background: rgba(22, 139, 209, 0.09);
   content: "";
   pointer-events: none;
 }
 
 .taskRow.queued::before {
-  background: rgba(53, 103, 166, 0.055);
+  background: rgba(36, 142, 210, 0.065);
 }
 
 .taskRow.paused::before {
@@ -598,11 +613,11 @@ textarea:focus-visible {
 }
 
 .taskRow:hover {
-  background: #fbfcfd;
+  background: #f8fcff;
 }
 
 .taskRow:focus-visible {
-  outline: 2px solid rgba(53, 103, 166, 0.42);
+  outline: 2px solid rgba(22, 139, 209, 0.42);
   outline-offset: -2px;
 }
 
@@ -660,7 +675,7 @@ textarea:focus-visible {
 .taskName strong {
   color: var(--ink);
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 400;
 }
 
 .taskName span,
@@ -683,7 +698,7 @@ textarea:focus-visible {
   color: var(--accent-ink);
   background: var(--accent-soft);
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 400;
   text-align: center;
 }
 
@@ -750,7 +765,7 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 9px;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .rowActions {
@@ -824,13 +839,13 @@ textarea:focus-visible {
 .emptyNote span {
   color: var(--ink);
   font-size: 15px;
-  font-weight: 750;
+  font-weight: 400;
 }
 
 .emptyNote strong {
   max-width: 420px;
   font-size: 10px;
-  font-weight: 550;
+  font-weight: 400;
 }
 
 .settingsSidebar {
@@ -854,7 +869,7 @@ textarea:focus-visible {
 
 .settingsTitleBlock p {
   margin: 4px 0 0;
-  color: rgba(236, 243, 247, 0.48);
+  color: rgba(255, 255, 255, 0.74);
   font-size: 10px;
 }
 
@@ -876,20 +891,20 @@ textarea:focus-visible {
   padding: 6px 9px;
   border: 0;
   border-radius: 5px;
-  color: rgba(236, 243, 247, 0.62);
+  color: rgba(255, 255, 255, 0.92);
   background: transparent;
   text-align: left;
 }
 
 .settingsNavButton:hover {
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .settingsNavButton.active {
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.1);
-  box-shadow: inset 3px 0 #d6ff62;
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 3px 0 #bde9ff;
 }
 
 .settingsNavButton strong,
@@ -908,7 +923,7 @@ textarea:focus-visible {
   margin-top: 1px;
   color: currentColor;
   font-size: 9px;
-  opacity: 0.58;
+  opacity: 0.78;
 }
 
 .settingsDetail {
@@ -936,7 +951,7 @@ textarea:focus-visible {
   background: var(--accent-soft);
   color: var(--accent-ink);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .settingsLayout {
@@ -950,7 +965,7 @@ textarea:focus-visible {
 .settingsBlock {
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 12px;
   background: var(--panel);
   box-shadow: var(--shadow);
 }
@@ -984,7 +999,7 @@ textarea:focus-visible {
   color: #574d87;
   background: var(--violet-soft);
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 400;
 }
 
 .settingRow {
@@ -1043,8 +1058,8 @@ textarea:focus-visible {
 }
 
 .settingControl input:focus {
-  border-color: #88a8c9;
-  box-shadow: 0 0 0 3px rgba(53, 103, 166, 0.11);
+  border-color: #83c4e8;
+  box-shadow: 0 0 0 3px rgba(22, 139, 209, 0.11);
 }
 
 .settingValue {
@@ -1057,7 +1072,7 @@ textarea:focus-visible {
   background: #eef2f4;
   color: #44515c;
   font-size: 9px;
-  font-weight: 750;
+  font-weight: 400;
 }
 
 .toggle {
@@ -1112,7 +1127,7 @@ textarea:focus-visible {
 
 .backendItem span {
   color: var(--ink-soft);
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .backendItem strong {
@@ -1137,7 +1152,7 @@ textarea:focus-visible {
   color: var(--accent-ink);
   background: var(--accent-soft);
   font-size: 9px;
-  font-weight: 750;
+  font-weight: 400;
 }
 
 .protocolGrid span.blocked {
@@ -1165,7 +1180,7 @@ textarea:focus-visible {
   background: #ffffff;
   font-size: 14px;
   font-variant-numeric: tabular-nums;
-  font-weight: 850;
+  font-weight: 400;
 }
 
 .healthPanel strong {
@@ -1186,7 +1201,7 @@ textarea:focus-visible {
   display: grid;
   place-items: center;
   padding: 18px;
-  background: rgba(12, 18, 24, 0.54);
+  background: rgba(8, 47, 72, 0.48);
   backdrop-filter: blur(8px);
 }
 
@@ -1247,7 +1262,7 @@ textarea:focus-visible {
   margin-bottom: 9px;
   color: #53606b;
   font-size: 10px;
-  font-weight: 750;
+  font-weight: 400;
 }
 
 .fieldBlock input,
@@ -1276,8 +1291,8 @@ textarea:focus-visible {
 
 .fieldBlock input:focus,
 .fieldBlock textarea:focus {
-  border-color: #88a8c9;
-  box-shadow: 0 0 0 3px rgba(53, 103, 166, 0.11);
+  border-color: #83c4e8;
+  box-shadow: 0 0 0 3px rgba(22, 139, 209, 0.11);
 }
 
 .supportPreview {
@@ -1300,7 +1315,7 @@ textarea:focus-visible {
   padding: 3px 5px;
   border-radius: 4px;
   background: #e9efef;
-  font-weight: 750;
+  font-weight: 400;
 }
 
 .supportPreview strong {
@@ -1336,7 +1351,7 @@ textarea:focus-visible {
   color: var(--ink-soft);
   background: #ffffff;
   font-size: 10px;
-  font-weight: 750;
+  font-weight: 400;
 }
 
 .dialogFooter .primary {
@@ -1383,7 +1398,7 @@ textarea:focus-visible {
   color: var(--ink-soft);
   background: transparent;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 400;
   text-align: left;
 }
 
@@ -1408,7 +1423,7 @@ textarea:focus-visible {
 
 .propertyDialog dt {
   color: var(--muted);
-  font-weight: 750;
+  font-weight: 400;
 }
 
 .propertyDialog dd {

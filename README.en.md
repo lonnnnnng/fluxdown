@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is `1.0.7`; see the latest release at [FluxDown 1.0.7](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.7).
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is `1.0.8`; see the latest release at [FluxDown 1.0.8](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.8).
 
 ## Current Status
 
@@ -10,7 +10,7 @@ FluxDown is a multi-protocol downloader for desktop and mobile. The current vers
 - Mobile supports Android and iPhone through a Flutter app.
 - The desktop GUI is focused on two pages, download queue and settings, with a compact state rail, transfer metrics, and task table. The mobile home screen keeps the queue and settings entry.
 - Desktop task rows start or pause on click; right-click, long press, or the overflow button opens actions for copy, open, share, properties, redownload, and delete.
-- New task creation supports pasted links, save-as file names, output location selection, and SHA-256 verification. Mobile additionally supports QR scanning.
+- New task creation supports link input, automatic protocol detection, automatic naming, save-as file names, and output location selection. Desktop additionally supports SHA-256 verification.
 - Settings cover download location, concurrent downloads, download thread count, auto retry count, and max download speed.
 - Supported protocols include HTTP/HTTPS, WebDAV/WebDAVS, FTP/FTPS, m3u8/HLS, SFTP, SMB, `.torrent`, Magnet, and ed2k handoff.
 - Torrent and Magnet tasks switch to the real file name after metadata is available. Android supports multi-file selection, while desktop CLI/Tauri commands support selecting files by torrent file index.
@@ -26,11 +26,11 @@ FluxDown is a multi-protocol downloader for desktop and mobile. The current vers
 | --- | --- | --- |
 | <img src="docs/artifacts/readme/macos/queue.png" alt="macOS queue" width="320"> | <img src="docs/artifacts/readme/macos/new-task.png" alt="macOS new task" width="320"> | <img src="docs/artifacts/readme/macos/settings.png" alt="macOS settings" width="320"> |
 
-### Android Emulator (Pixel_9)
+### Android Real Device (Redmi Note 8 Pro)
 
 | Queue | New Task | Settings |
 | --- | --- | --- |
-| <img src="docs/artifacts/readme/android-emulator/queue.png" alt="Android emulator queue" width="220"> | <img src="docs/artifacts/readme/android-emulator/new-task.png" alt="Android emulator new task" width="220"> | <img src="docs/artifacts/readme/android-emulator/settings.png" alt="Android emulator settings" width="220"> |
+| <img src="docs/artifacts/readme/android-real-device/queue.png" alt="Android real-device queue" width="220"> | <img src="docs/artifacts/readme/android-real-device/new-task.png" alt="Android real-device new task" width="220"> | <img src="docs/artifacts/readme/android-real-device/settings.png" alt="Android real-device settings" width="220"> |
 
 ## Verification Boundary
 
@@ -39,7 +39,7 @@ FluxDown is a multi-protocol downloader for desktop and mobile. The current vers
 | macOS Desktop/CLI | Release CLI covers HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet plus queue controls. Foreground desktop GUI covers HTTP/HLS/Torrent/Magnet. Tauri commands cover HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet. | Pure GUI click-through coverage for FTP/FTPS/SFTP/SMB/WebDAV still needs a separate pass. |
 | Windows Desktop/CLI | CI artifacts have been published. A Windows development machine completed CLI real-download validation for 12 protocol cases and native Tauri GUI foreground validation for 12 protocol cases. ed2k completed the product-defined system handoff flow. | ed2k is not completed by FluxDown's own internal downloader. GUI verification used a dedicated E2E window and isolated queue. |
 | Linux Desktop/CLI | CI builds Linux CLI, GUI executable, `.deb`, and `.rpm` artifacts and checks that they are non-empty. | Installing the Linux GUI in a desktop environment and completing a real download is still pending. |
-| Android App | Redmi Note 8 Pro real-device coverage includes local HTTP/HTTPS/FTP/FTPS/SFTP/SMB, small HLS, small torrent, small magnet, media-sized HLS, single/multi-file torrent, and magnet. Pixel_9 emulator screenshots are current. | Store distribution still needs signing, license, and background-behavior checks. |
+| Android App | Historical `1.0.4` real-device coverage includes local HTTP/HTTPS/FTP/FTPS/SFTP/SMB, small HLS, small torrent, small magnet, media-sized HLS, single/multi-file torrent, and magnet. The current `1.0.8+9` release APK was launched on a Redmi Note 8 Pro and its queue, new-task dialog, and settings interactions were rechecked for the README screenshots. | Protocol downloads still need to be rerun on the current version. Store distribution also needs signing, license, and background-behavior checks. |
 | iOS App | CI builds the iOS simulator app and unsigned device app. iOS simulator smoke covers HTTP, fMP4 HLS, BYTERANGE HLS, and TS HLS downloads. | Signed IPA, iPhone installation, QR scanning, file picking, share/open flows, and physical-device capabilities are still pending. |
 
 See [Download verification status](docs/download-verification.md) for detailed evidence.
@@ -89,7 +89,7 @@ A signed IPA requires an Apple certificate, provisioning profile, Team ID, and k
 
 ## Release Assets
 
-The `v1.0.7` release includes:
+The `v1.0.8` release includes:
 
 - Android debug APK, release APK, and release AAB
 - iOS simulator app and unsigned device app
@@ -98,7 +98,7 @@ The `v1.0.7` release includes:
 - Linux CLI, desktop executable, deb, and rpm
 - Release manifest, LICENSE, and third-party license notices
 
-Release page: [FluxDown 1.0.7](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.7)
+Release page: [FluxDown 1.0.8](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.8)
 
 ## Documentation
 
