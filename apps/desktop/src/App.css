@@ -1,32 +1,29 @@
 :root {
-  --ink: #123047;
-  --ink-soft: #31536c;
-  --muted: #6b8799;
-  --paper: #f3f9fd;
+  --ink: #183448;
+  --ink-soft: #36566a;
+  --muted: #577184;
+  --paper: #f4f8fb;
   --panel: #ffffff;
-  --panel-soft: #f6fbff;
-  --rail: #0877b6;
-  --rail-soft: #0d86c8;
-  --line: #d7e8f3;
-  --line-strong: #b9d8e9;
-  --primary: #1688cf;
-  --primary-soft: #e6f4fd;
-  --accent: #1595dc;
-  --accent-ink: #075d91;
-  --accent-soft: #e2f3fd;
-  --amber: #a96f18;
-  --amber-soft: #f7ecd8;
-  --coral: #b8473b;
-  --coral-soft: #f7e6e3;
-  --blue: #248ed2;
-  --blue-soft: #e2f2fc;
-  --sage: #4e765f;
-  --sage-soft: #e8f0eb;
-  --violet-soft: #e9f1fb;
-  --shadow: 0 14px 34px rgba(31, 111, 153, 0.11);
-  --shadow-tight: 0 6px 18px rgba(31, 111, 153, 0.08);
-  --sidebar-width: 236px;
-  --radius: 10px;
+  --panel-soft: #f8fbfd;
+  --panel-blue: #eef8fe;
+  --line: #dbe7ee;
+  --line-strong: #b8d1df;
+  --primary: #0b7fbd;
+  --primary-hover: #086b9e;
+  --primary-soft: #e5f4fc;
+  --primary-ink: #075d88;
+  --success: #3d7759;
+  --success-soft: #edf7f1;
+  --warning: #9b671d;
+  --warning-soft: #fbf4e8;
+  --danger: #b1454b;
+  --danger-soft: #fbedee;
+  --queued: #416f96;
+  --queued-soft: #edf5fb;
+  --shadow: 0 10px 28px rgba(36, 76, 100, 0.08);
+  --shadow-tight: 0 4px 14px rgba(36, 76, 100, 0.07);
+  --sidebar-width: 224px;
+  --radius: 8px;
   --ease: 180ms ease;
 }
 
@@ -53,7 +50,7 @@ button {
 
 button:disabled {
   cursor: default;
-  opacity: 0.5;
+  opacity: 0.48;
 }
 
 button,
@@ -70,8 +67,9 @@ textarea {
 
 button:focus-visible,
 input:focus-visible,
-textarea:focus-visible {
-  outline: 3px solid rgba(22, 139, 209, 0.24);
+textarea:focus-visible,
+[tabindex="0"]:focus-visible {
+  outline: 2px solid rgba(11, 127, 189, 0.42);
   outline-offset: 2px;
 }
 
@@ -85,21 +83,17 @@ textarea:focus-visible {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   overflow: hidden;
   color: var(--ink);
-  background:
-    radial-gradient(circle at 90% -10%, rgba(83, 184, 235, 0.16), transparent 32%),
-    var(--paper);
+  background: var(--paper);
 }
 
 .sidebar,
 .settingsSidebar {
   height: 100vh;
   min-height: 0;
-  padding: 16px 12px;
-  color: #f7fafc;
-  background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.12), transparent 42%),
-    var(--rail);
-  border-right: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 14px 12px;
+  color: var(--ink);
+  background: var(--panel);
+  border-right: 1px solid var(--line);
 }
 
 .sidebar {
@@ -109,24 +103,25 @@ textarea:focus-visible {
 }
 
 .brand {
+  min-height: 58px;
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
+  grid-template-columns: 38px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
-  min-height: 58px;
-  padding: 4px 8px 15px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 4px 8px 14px;
+  border-bottom: 1px solid var(--line);
 }
 
 .brandMark {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
   overflow: hidden;
+  border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+  box-shadow: var(--shadow-tight);
 }
 
 .brandMark img {
@@ -138,8 +133,8 @@ textarea:focus-visible {
 .brand strong {
   display: block;
   overflow: hidden;
-  color: #ffffff;
-  font-size: 16px;
+  color: var(--ink);
+  font-size: 17px;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -147,24 +142,23 @@ textarea:focus-visible {
 
 .brand div > span {
   display: block;
-  margin-top: 2px;
+  margin-top: 3px;
   overflow: hidden;
-  color: rgba(255, 255, 255, 0.74);
-  font-size: 10px;
+  color: var(--muted);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .sidebarSectionTitle {
-  margin: 16px 9px 7px;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 10px;
-  font-weight: 400;
+  margin: 17px 10px 8px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .statusNav {
   display: grid;
-  gap: 2px;
+  gap: 3px;
 }
 
 .statusButton {
@@ -172,65 +166,68 @@ textarea:focus-visible {
   width: 100%;
   height: 42px;
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
+  grid-template-columns: 19px minmax(0, 1fr) auto;
   gap: 9px;
   align-items: center;
   padding: 0 9px;
-  border: 0;
-  border-radius: 8px;
-  color: rgba(255, 255, 255, 0.92);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--ink-soft);
   background: transparent;
   text-align: left;
 }
 
 .statusButton::before {
   position: absolute;
-  left: 0;
+  top: 8px;
+  bottom: 8px;
+  left: -1px;
   width: 3px;
-  height: 18px;
   border-radius: 0 3px 3px 0;
   background: transparent;
   content: "";
 }
 
 .statusButton:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.12);
+  border-color: #e1edf3;
+  background: var(--panel-soft);
+  color: var(--ink);
 }
 
 .statusButton.active {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.18);
+  border-color: #cde6f4;
+  background: var(--primary-soft);
+  color: var(--primary-ink);
 }
 
 .statusButton.active::before {
-  background: #bde9ff;
+  background: var(--primary);
 }
 
 .statusButton span {
   overflow: hidden;
-  font-size: 12px;
-  font-weight: 400;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .statusButton em {
-  min-width: 24px;
-  padding: 2px 6px;
+  min-width: 26px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
   border-radius: 999px;
-  color: rgba(255, 255, 255, 0.94);
-  background: rgba(255, 255, 255, 0.14);
+  color: var(--muted);
+  background: #ffffff;
   font-size: 10px;
   font-style: normal;
   font-variant-numeric: tabular-nums;
-  font-weight: 400;
   text-align: center;
 }
 
 .statusButton.active em {
-  color: #075d91;
-  background: #dff3ff;
+  border-color: #b9dcec;
+  color: var(--primary-ink);
+  background: #ffffff;
 }
 
 .protocolPanel,
@@ -238,20 +235,20 @@ textarea:focus-visible {
   display: grid;
   gap: 8px;
   padding: 11px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: rgba(4, 61, 98, 0.24);
+  background: var(--panel-soft);
 }
 
 .protocolPanel strong,
 .settingsSidebarFoot strong {
-  color: #f6f9fb;
-  font-size: 11px;
+  color: var(--ink);
+  font-size: 12px;
 }
 
 .protocolPanel small,
 .settingsSidebarFoot span {
-  color: rgba(255, 255, 255, 0.76);
+  color: var(--muted);
   font-size: 10px;
   line-height: 1.45;
 }
@@ -260,7 +257,7 @@ textarea:focus-visible {
   height: 4px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.18);
+  background: #dfeaf0;
 }
 
 .protocolMeter span {
@@ -268,7 +265,7 @@ textarea:focus-visible {
   width: var(--coverage);
   height: 100%;
   border-radius: inherit;
-  background: #bde9ff;
+  background: var(--primary);
 }
 
 .protocolChips {
@@ -278,12 +275,12 @@ textarea:focus-visible {
 }
 
 .protocolChips span {
-  padding: 3px 5px;
+  padding: 3px 6px;
+  border: 1px solid #d5e7f0;
   border-radius: 4px;
-  color: rgba(255, 255, 255, 0.9);
-  background: rgba(255, 255, 255, 0.13);
+  color: var(--primary-ink);
+  background: #ffffff;
   font-size: 9px;
-  font-weight: 400;
 }
 
 .workspace,
@@ -294,19 +291,19 @@ textarea:focus-visible {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
-  padding: 0 22px 22px;
+  padding: 0 20px 20px;
 }
 
 .workspaceHeader,
 .settingsDetailHead {
   min-width: 0;
-  min-height: 82px;
+  min-height: 78px;
   display: grid;
   grid-template-columns: minmax(150px, 1fr) auto;
   gap: 18px;
   align-items: center;
   border-bottom: 1px solid var(--line);
-  background: rgba(243, 249, 253, 0.96);
+  background: var(--paper);
 }
 
 .titleBlock {
@@ -321,28 +318,27 @@ textarea:focus-visible {
 .pageEyebrow {
   grid-column: 1 / -1;
   margin-bottom: 2px;
-  color: var(--accent-ink);
-  font-size: 10px;
-  font-weight: 400;
+  color: var(--primary-ink);
+  font-size: 11px;
 }
 
 .titleBlock h1,
 .settingsDetailHead h2 {
   margin: 0;
   color: var(--ink);
-  font-size: 21px;
-  line-height: 1.15;
+  font-size: 22px;
+  line-height: 1.16;
 }
 
 .systemMessage {
   min-width: 0;
   display: flex;
-  gap: 6px;
+  gap: 7px;
   align-items: center;
   margin: 2px 0 0;
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -352,36 +348,36 @@ textarea:focus-visible {
   height: 6px;
   flex: 0 0 auto;
   border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(22, 139, 209, 0.12);
+  background: var(--primary);
+  box-shadow: 0 0 0 3px rgba(11, 127, 189, 0.12);
 }
 
 .toolbar,
 .settingsDetailActions {
   min-width: 0;
   display: flex;
-  gap: 6px;
+  gap: 7px;
   align-items: center;
   justify-content: flex-end;
 }
 
 .searchBox {
-  width: 248px;
-  height: 36px;
+  width: 260px;
+  height: 38px;
   display: grid;
   grid-template-columns: 17px minmax(0, 1fr);
-  gap: 7px;
+  gap: 8px;
   align-items: center;
-  padding: 0 10px;
+  padding: 0 11px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 7px;
   background: var(--panel);
-  color: #84909b;
+  color: var(--muted);
 }
 
 .searchBox:focus-within {
-  border-color: #83c4e8;
-  box-shadow: 0 0 0 3px rgba(22, 139, 209, 0.11);
+  border-color: #79badc;
+  box-shadow: 0 0 0 3px rgba(11, 127, 189, 0.1);
 }
 
 .searchBox input {
@@ -390,37 +386,36 @@ textarea:focus-visible {
   outline: 0;
   background: transparent;
   color: var(--ink);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .searchBox input::placeholder {
-  color: #909aa4;
+  color: #6f8594;
 }
 
 .actionButton,
 .iconButton,
 .iconActions button {
-  height: 36px;
+  height: 38px;
   display: inline-grid;
   grid-auto-flow: column;
   gap: 7px;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 6px;
   background: var(--panel);
   color: var(--ink-soft);
-  font-size: 11px;
-  font-weight: 400;
+  font-size: 12px;
 }
 
 .actionButton {
-  padding: 0 11px;
+  padding: 0 12px;
 }
 
 .iconButton,
 .iconActions button {
-  width: 36px;
+  width: 38px;
   padding: 0;
 }
 
@@ -428,23 +423,30 @@ textarea:focus-visible {
 .iconButton:hover,
 .iconActions button:hover {
   border-color: var(--line-strong);
-  background: #ffffff;
+  background: var(--panel-soft);
   color: var(--ink);
-  transform: translateY(-1px);
   box-shadow: var(--shadow-tight);
+}
+
+.actionButton:active,
+.iconButton:active,
+.iconActions button:active,
+.rowActions button:active,
+.taskMenu > button:active {
+  transform: scale(0.97);
 }
 
 .actionButton.primary,
 .iconButton.primary {
   border-color: var(--primary);
-  background: linear-gradient(135deg, #1d98df, #1377ba);
+  background: var(--primary);
   color: #ffffff;
 }
 
 .actionButton.primary:hover,
 .iconButton.primary:hover {
-  border-color: #0d6fae;
-  background: #0d6fae;
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
   color: #ffffff;
 }
 
@@ -457,8 +459,8 @@ textarea:focus-visible {
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
-  padding-top: 14px;
+  gap: 10px;
+  padding-top: 12px;
 }
 
 .insights {
@@ -467,20 +469,20 @@ textarea:focus-visible {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--panel);
-  box-shadow: var(--shadow-tight);
 }
 
 .metric {
+  position: relative;
   min-width: 0;
-  min-height: 66px;
+  min-height: 68px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
-  gap: 2px 8px;
+  gap: 3px 8px;
   align-content: center;
-  padding: 11px 13px;
+  padding: 11px 14px;
   border-right: 1px solid var(--line);
   background: var(--panel);
 }
@@ -490,32 +492,32 @@ textarea:focus-visible {
 }
 
 .metric.accent {
-  background: linear-gradient(135deg, #168bd1, #0b6ea9);
-  color: #ffffff;
+  background: var(--panel-blue);
+  box-shadow: inset 3px 0 var(--primary);
 }
 
 .metric > span {
   min-width: 0;
   display: flex;
-  gap: 5px;
+  gap: 6px;
   align-items: center;
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 400;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .metric.accent > span {
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--primary-ink);
 }
 
 .metric strong {
   grid-column: 1;
   min-width: 0;
   overflow: hidden;
-  font-size: 19px;
+  color: var(--ink);
+  font-size: 20px;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
   text-overflow: ellipsis;
@@ -527,13 +529,9 @@ textarea:focus-visible {
   grid-row: 1 / 3;
   align-self: center;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   text-align: right;
   white-space: nowrap;
-}
-
-.metric.accent small {
-  color: rgba(255, 255, 255, 0.82);
 }
 
 .taskBoard {
@@ -542,69 +540,88 @@ textarea:focus-visible {
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--panel);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-tight);
 }
 
 .boardHead,
 .taskRow {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 78px minmax(136px, 0.7fr) 86px 36px;
+  grid-template-columns: minmax(270px, 1fr) 78px minmax(150px, 0.72fr) 88px 36px;
   gap: 10px;
   align-items: center;
 }
 
 .boardHead {
-  min-height: 38px;
-  padding: 0 13px;
+  min-height: 40px;
+  padding: 0 14px;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, #fbfdff, #f1f8fc);
+  background: var(--panel-soft);
   color: var(--muted);
-  font-size: 9px;
-  font-weight: 400;
+  font-size: 10px;
 }
 
 .taskList {
   min-height: 0;
   overflow: auto;
-  scrollbar-color: #bdc7ce transparent;
+  scrollbar-color: #b8c9d3 transparent;
   scrollbar-width: thin;
 }
 
 .taskRow {
   position: relative;
-  min-height: 66px;
+  min-height: 64px;
   overflow: hidden;
-  padding: 9px 13px;
-  border-bottom: 1px solid #edf0f2;
+  padding: 9px 14px;
+  border-bottom: 1px solid #e8eff3;
   background: var(--panel);
   cursor: pointer;
+}
+
+.taskRow:last-child {
+  border-bottom: 0;
 }
 
 .taskRow::before {
   position: absolute;
   inset: 0 auto 0 0;
   width: var(--value);
-  background: rgba(22, 139, 209, 0.09);
+  background: rgba(11, 127, 189, 0.1);
   content: "";
   pointer-events: none;
 }
 
+.taskRow.queued {
+  background: #ffffff;
+}
+
 .taskRow.queued::before {
-  background: rgba(36, 142, 210, 0.065);
+  background: rgba(65, 111, 150, 0.07);
+}
+
+.taskRow.paused {
+  background: var(--warning-soft);
 }
 
 .taskRow.paused::before {
-  background: rgba(169, 111, 24, 0.065);
+  background: rgba(155, 103, 29, 0.08);
+}
+
+.taskRow.finished {
+  background: var(--success-soft);
 }
 
 .taskRow.finished::before {
-  background: rgba(78, 118, 95, 0.06);
+  background: rgba(61, 119, 89, 0.04);
+}
+
+.taskRow.failed {
+  background: var(--danger-soft);
 }
 
 .taskRow.failed::before {
-  background: rgba(184, 71, 59, 0.06);
+  background: rgba(177, 69, 75, 0.05);
 }
 
 .taskRow > * {
@@ -613,19 +630,18 @@ textarea:focus-visible {
 }
 
 .taskRow:hover {
-  background: #f8fcff;
+  box-shadow: inset 0 0 0 1px #c6dce8;
 }
 
 .taskRow:focus-visible {
-  outline: 2px solid rgba(22, 139, 209, 0.42);
-  outline-offset: -2px;
+  outline-offset: -3px;
 }
 
 .taskFile {
   min-width: 0;
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
-  gap: 9px;
+  gap: 10px;
   align-items: center;
 }
 
@@ -634,29 +650,34 @@ textarea:focus-visible {
   height: 34px;
   display: grid;
   place-items: center;
+  border: 1px solid #cde4f0;
   border-radius: 6px;
-  color: var(--accent-ink);
-  background: var(--accent-soft);
+  color: var(--primary-ink);
+  background: var(--primary-soft);
 }
 
 .taskRow.queued .fileMark {
-  color: #244f82;
-  background: var(--blue-soft);
+  border-color: #d4e1ea;
+  color: var(--queued);
+  background: var(--queued-soft);
 }
 
 .taskRow.finished .fileMark {
-  color: #315e43;
-  background: var(--sage-soft);
+  border-color: #cfe4d7;
+  color: var(--success);
+  background: #ffffff;
 }
 
 .taskRow.paused .fileMark {
-  color: #7b5014;
-  background: var(--amber-soft);
+  border-color: #ead9b9;
+  color: var(--warning);
+  background: #ffffff;
 }
 
 .taskRow.failed .fileMark {
-  color: #8a3028;
-  background: var(--coral-soft);
+  border-color: #eccfd2;
+  color: var(--danger);
+  background: #ffffff;
 }
 
 .taskName {
@@ -674,66 +695,65 @@ textarea:focus-visible {
 
 .taskName strong {
   color: var(--ink);
-  font-size: 12px;
-  font-weight: 400;
+  font-size: 13px;
 }
 
 .taskName span,
 .taskName em {
-  margin-top: 3px;
+  margin-top: 4px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   font-style: normal;
 }
 
 .taskName em {
-  color: var(--coral);
+  color: var(--danger);
 }
 
 .statusPill {
   width: max-content;
   min-width: 58px;
   padding: 4px 7px;
+  border: 1px solid #cce4f1;
   border-radius: 999px;
-  color: var(--accent-ink);
-  background: var(--accent-soft);
-  font-size: 9px;
-  font-weight: 400;
+  color: var(--primary-ink);
+  background: #ffffff;
+  font-size: 10px;
   text-align: center;
 }
 
 .taskRow.queued .statusPill {
-  color: #315b87;
-  background: var(--blue-soft);
+  border-color: #d3e1ea;
+  color: var(--queued);
 }
 
 .taskRow.paused .statusPill {
-  color: #7b5014;
-  background: var(--amber-soft);
+  border-color: #e8d5b3;
+  color: var(--warning);
 }
 
 .taskRow.finished .statusPill {
-  color: #315e43;
-  background: var(--sage-soft);
+  border-color: #cae1d3;
+  color: var(--success);
 }
 
 .taskRow.failed .statusPill {
-  color: #8a3028;
-  background: var(--coral-soft);
+  border-color: #eac9cd;
+  color: var(--danger);
 }
 
 .progressCell {
   min-width: 0;
   display: grid;
-  gap: 5px;
+  gap: 6px;
 }
 
 .progressTrack {
   width: 100%;
-  height: 4px;
+  height: 5px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e4e9ec;
+  background: #dfe8ed;
 }
 
 .progressTrack span {
@@ -741,45 +761,47 @@ textarea:focus-visible {
   width: var(--value);
   height: 100%;
   border-radius: inherit;
-  background: var(--accent);
+  background: var(--primary);
 }
 
 .taskRow.paused .progressTrack span {
-  background: var(--amber);
+  background: var(--warning);
 }
 
 .taskRow.queued .progressTrack span {
-  background: var(--blue);
+  background: var(--queued);
 }
 
 .taskRow.finished .progressTrack span {
-  background: var(--sage);
+  background: var(--success);
 }
 
 .taskRow.failed .progressTrack span {
-  background: var(--coral);
+  background: var(--danger);
 }
 
 .progressCell small,
 .speedCell {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
-  font-weight: 400;
+}
+
+.speedCell {
+  white-space: nowrap;
 }
 
 .rowActions {
   display: flex;
   justify-content: flex-end;
-  gap: 4px;
 }
 
 .rowActions button,
 .dialogTools button,
 .dialogHeader > button,
 .taskMenu header button {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
   border: 1px solid transparent;
@@ -794,7 +816,7 @@ textarea:focus-visible {
 .dialogHeader > button:hover,
 .taskMenu header button:hover {
   border-color: var(--line);
-  background: var(--panel-soft);
+  background: #ffffff;
   color: var(--ink);
 }
 
@@ -805,7 +827,8 @@ textarea:focus-visible {
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--primary);
+  box-shadow: 0 0 0 3px rgba(11, 127, 189, 0.12);
 }
 
 .emptyNote {
@@ -813,39 +836,38 @@ textarea:focus-visible {
   display: grid;
   place-items: center;
   align-content: center;
-  gap: 5px;
+  gap: 6px;
   padding: 24px;
   color: var(--muted);
   text-align: center;
 }
 
 .emptyNote .emptyGlyph {
-  width: 38px;
-  height: 38px;
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
-  margin-bottom: 4px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  color: var(--accent);
-  background: var(--panel-soft);
+  margin-bottom: 5px;
+  border: 1px solid #cfe4ef;
+  border-radius: 8px;
+  color: var(--primary);
+  background: var(--primary-soft);
 }
 
 .emptyNote .emptyGlyph .uiIcon {
-  width: 19px;
-  height: 19px;
+  width: 20px;
+  height: 20px;
 }
 
-.emptyNote span {
+.emptyNote > span:not(.emptyGlyph) {
   color: var(--ink);
   font-size: 15px;
-  font-weight: 400;
 }
 
 .emptyNote strong {
-  max-width: 420px;
-  font-size: 10px;
-  font-weight: 400;
+  max-width: 440px;
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .settingsSidebar {
@@ -855,56 +877,59 @@ textarea:focus-visible {
 }
 
 .settingsBrand {
-  padding-bottom: 11px;
+  padding-bottom: 12px;
 }
 
 .settingsTitleBlock {
-  padding: 7px;
+  padding: 6px 8px 8px;
 }
 
 .settingsTitleBlock h1 {
   margin: 0;
+  color: var(--ink);
   font-size: 20px;
 }
 
 .settingsTitleBlock p {
   margin: 4px 0 0;
-  color: rgba(255, 255, 255, 0.74);
-  font-size: 10px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .settingsNav {
   min-height: 0;
   display: grid;
   align-content: start;
-  gap: 2px;
+  gap: 3px;
   overflow: auto;
 }
 
 .settingsNavButton {
   width: 100%;
-  min-height: 42px;
+  min-height: 46px;
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 19px minmax(0, 1fr);
+  gap: 9px;
   align-items: center;
-  padding: 6px 9px;
-  border: 0;
-  border-radius: 5px;
-  color: rgba(255, 255, 255, 0.92);
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--ink-soft);
   background: transparent;
   text-align: left;
 }
 
 .settingsNavButton:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.12);
+  border-color: #e1edf3;
+  background: var(--panel-soft);
+  color: var(--ink);
 }
 
 .settingsNavButton.active {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.18);
-  box-shadow: inset 3px 0 #bde9ff;
+  border-color: #cde6f4;
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+  box-shadow: inset 3px 0 var(--primary);
 }
 
 .settingsNavButton strong,
@@ -916,14 +941,17 @@ textarea:focus-visible {
 }
 
 .settingsNavButton strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .settingsNavButton > span > span {
-  margin-top: 1px;
-  color: currentColor;
-  font-size: 9px;
-  opacity: 0.78;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.settingsNavButton.active > span > span {
+  color: #49758e;
 }
 
 .settingsDetail {
@@ -931,43 +959,42 @@ textarea:focus-visible {
 }
 
 .settingsDetailHead h2 {
-  font-size: 20px;
+  font-size: 21px;
 }
 
 .settingsDetailHead p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .settingsNotice {
-  min-height: 30px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   margin-top: 10px;
   padding: 0 10px;
-  border: 1px solid #cce5df;
+  border: 1px solid #c9e3ef;
   border-radius: 6px;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font-size: 10px;
-  font-weight: 400;
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+  font-size: 11px;
 }
 
 .settingsLayout {
   min-height: 0;
   overflow: auto;
   padding-top: 10px;
-  scrollbar-color: #bdc7ce transparent;
+  scrollbar-color: #b8c9d3 transparent;
   scrollbar-width: thin;
 }
 
 .settingsBlock {
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--panel);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-tight);
 }
 
 .settingsBlock > header {
@@ -983,33 +1010,34 @@ textarea:focus-visible {
 
 .settingsBlock h3 {
   margin: 0;
+  color: var(--ink);
   font-size: 14px;
 }
 
 .settingsBlock header span {
   display: block;
-  margin-top: 2px;
+  margin-top: 3px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .settingsBadge {
   padding: 4px 7px;
+  border: 1px solid #cfe4ef;
   border-radius: 999px;
-  color: #574d87;
-  background: var(--violet-soft);
-  font-size: 9px;
-  font-weight: 400;
+  color: var(--primary-ink);
+  background: #ffffff;
+  font-size: 10px;
 }
 
 .settingRow {
-  min-height: 58px;
+  min-height: 60px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(190px, 35%);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 34%);
+  gap: 18px;
   align-items: center;
   padding: 9px 14px;
-  border-bottom: 1px solid #edf0f2;
+  border-bottom: 1px solid #e8eff3;
 }
 
 .settingRow:last-child {
@@ -1017,24 +1045,24 @@ textarea:focus-visible {
 }
 
 .settingRow.readOnly {
-  background: #fbfcfc;
+  background: #fafcfd;
 }
 
 .settingRow > div:first-child {
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: 3px;
 }
 
 .settingRow strong {
   color: var(--ink);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .settingRow span {
   overflow: hidden;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1047,32 +1075,32 @@ textarea:focus-visible {
 
 .settingControl input {
   width: 100%;
-  height: 34px;
+  height: 36px;
   border: 1px solid var(--line);
   border-radius: 6px;
   outline: 0;
-  padding: 0 9px;
+  padding: 0 10px;
   background: #ffffff;
   color: var(--ink);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .settingControl input:focus {
-  border-color: #83c4e8;
-  box-shadow: 0 0 0 3px rgba(22, 139, 209, 0.11);
+  border-color: #79badc;
+  box-shadow: 0 0 0 3px rgba(11, 127, 189, 0.1);
 }
 
 .settingValue {
-  min-height: 30px;
+  min-height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  padding: 0 8px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
   border-radius: 5px;
-  background: #eef2f4;
-  color: #44515c;
-  font-size: 9px;
-  font-weight: 400;
+  background: var(--panel-soft);
+  color: var(--ink-soft);
+  font-size: 10px;
 }
 
 .toggle {
@@ -1081,7 +1109,7 @@ textarea:focus-visible {
   border: 0;
   border-radius: 999px;
   padding: 3px;
-  background: #cbd4d9;
+  background: #c7d3da;
 }
 
 .toggle span {
@@ -1090,11 +1118,12 @@ textarea:focus-visible {
   height: 18px;
   border-radius: 999px;
   background: #ffffff;
+  box-shadow: 0 1px 3px rgba(24, 52, 72, 0.2);
   transition: transform var(--ease);
 }
 
 .toggle.on {
-  background: var(--accent);
+  background: var(--primary);
 }
 
 .toggle.on span {
@@ -1103,7 +1132,7 @@ textarea:focus-visible {
 
 .toggle.locked {
   cursor: default;
-  opacity: 0.72;
+  opacity: 0.7;
 }
 
 .backendList {
@@ -1111,14 +1140,14 @@ textarea:focus-visible {
 }
 
 .backendItem {
-  min-height: 38px;
+  min-height: 42px;
   display: flex;
   gap: 12px;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 14px;
-  border-bottom: 1px solid #edf0f2;
-  font-size: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid #e8eff3;
+  font-size: 11px;
 }
 
 .backendItem:last-child {
@@ -1127,70 +1156,69 @@ textarea:focus-visible {
 
 .backendItem span {
   color: var(--ink-soft);
-  font-weight: 400;
 }
 
 .backendItem strong {
-  color: var(--accent);
+  color: var(--success);
 }
 
 .backendItem.warn strong {
-  color: var(--amber);
+  color: var(--warning);
 }
 
 .protocolGrid {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  padding: 11px 14px 13px;
-  border-top: 1px solid #edf0f2;
+  gap: 6px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid #e8eff3;
 }
 
 .protocolGrid span {
-  padding: 4px 6px;
+  padding: 4px 7px;
+  border: 1px solid #cfe4ef;
   border-radius: 5px;
-  color: var(--accent-ink);
-  background: var(--accent-soft);
-  font-size: 9px;
-  font-weight: 400;
+  color: var(--primary-ink);
+  background: var(--primary-soft);
+  font-size: 10px;
 }
 
 .protocolGrid span.blocked {
-  color: #7b5014;
-  background: var(--amber-soft);
+  border-color: #ead8b8;
+  color: var(--warning);
+  background: var(--warning-soft);
 }
 
 .healthPanel {
   display: grid;
-  grid-template-columns: 54px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 13px;
   align-items: center;
   padding: 14px;
-  border-bottom: 1px solid #edf0f2;
+  border-bottom: 1px solid #e8eff3;
 }
 
 .healthScore {
-  width: 50px;
-  height: 50px;
+  width: 54px;
+  height: 54px;
   display: grid;
   place-items: center;
-  border: 4px solid #b9dcd5;
+  border: 4px solid #9ed0e5;
   border-radius: 999px;
-  color: var(--accent-ink);
+  color: var(--primary-ink);
   background: #ffffff;
-  font-size: 14px;
+  font-size: 15px;
   font-variant-numeric: tabular-nums;
-  font-weight: 400;
 }
 
 .healthPanel strong {
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .healthPanel p {
-  margin: 3px 0 0;
+  margin: 4px 0 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .modalBackdrop,
@@ -1201,25 +1229,25 @@ textarea:focus-visible {
   display: grid;
   place-items: center;
   padding: 18px;
-  background: rgba(8, 47, 72, 0.48);
-  backdrop-filter: blur(8px);
+  background: rgba(19, 48, 68, 0.42);
+  backdrop-filter: blur(4px);
 }
 
 .taskDialog,
 .propertyDialog,
 .taskMenu {
-  width: min(650px, 100%);
+  width: min(680px, 100%);
   max-height: calc(100vh - 36px);
   overflow: auto;
-  border: 1px solid rgba(255, 255, 255, 0.36);
-  border-radius: 8px;
+  border: 1px solid #c8dbe6;
+  border-radius: var(--radius);
   background: #ffffff;
-  box-shadow: 0 26px 72px rgba(10, 18, 26, 0.32);
+  box-shadow: 0 24px 64px rgba(19, 48, 68, 0.24);
 }
 
 .taskDialog,
 .propertyDialog {
-  padding: 17px;
+  padding: 18px;
 }
 
 .dialogHeader {
@@ -1227,42 +1255,42 @@ textarea:focus-visible {
   gap: 12px;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 13px;
+  margin-bottom: 14px;
 }
 
 .dialogHeader > div {
   display: flex;
-  gap: 8px;
+  gap: 9px;
   align-items: center;
 }
 
 .dialogHeader h2 {
   margin: 0;
-  font-size: 15px;
+  color: var(--ink);
+  font-size: 16px;
 }
 
 .dialogMark {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   border-radius: 6px;
-  color: #ffffff;
-  background: var(--primary);
+  color: var(--primary-ink);
+  background: var(--primary-soft);
 }
 
 .dialogTools {
   display: flex;
-  gap: 3px;
+  gap: 4px;
 }
 
 .fieldBlock {
   display: grid;
-  gap: 5px;
-  margin-bottom: 9px;
-  color: #53606b;
-  font-size: 10px;
-  font-weight: 400;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: var(--ink-soft);
+  font-size: 11px;
 }
 
 .fieldBlock input,
@@ -1276,54 +1304,55 @@ textarea:focus-visible {
 }
 
 .fieldBlock input {
-  height: 35px;
-  padding: 0 9px;
-  font-size: 10px;
+  height: 38px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .fieldBlock textarea {
-  min-height: 82px;
+  min-height: 92px;
   resize: vertical;
-  padding: 9px;
-  font-size: 10px;
-  line-height: 1.5;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .fieldBlock input:focus,
 .fieldBlock textarea:focus {
-  border-color: #83c4e8;
-  box-shadow: 0 0 0 3px rgba(22, 139, 209, 0.11);
+  border-color: #79badc;
+  box-shadow: 0 0 0 3px rgba(11, 127, 189, 0.1);
 }
 
 .supportPreview {
-  min-height: 32px;
+  min-height: 34px;
   display: flex;
-  gap: 5px;
+  gap: 6px;
   align-items: center;
-  margin: -1px 0 9px;
-  padding: 6px 8px;
+  margin: 0 0 10px;
+  padding: 7px 9px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  color: #4d5a64;
+  color: var(--ink-soft);
   background: var(--panel-soft);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .supportPreview span,
 .supportPreview strong {
   flex: 0 0 auto;
-  padding: 3px 5px;
+  padding: 3px 6px;
   border-radius: 4px;
-  background: #e9efef;
-  font-weight: 400;
+  background: #e8f0f4;
 }
 
 .supportPreview strong {
-  color: var(--accent-ink);
+  color: var(--primary-ink);
+  background: var(--primary-soft);
 }
 
 .supportPreview.blocked strong {
-  color: var(--coral);
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .supportPreview em {
@@ -1336,22 +1365,26 @@ textarea:focus-visible {
 
 .dialogFooter {
   display: flex;
-  gap: 7px;
+  gap: 8px;
   justify-content: flex-end;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #edf0f2;
+  margin-top: 13px;
+  padding-top: 13px;
+  border-top: 1px solid #e8eff3;
 }
 
 .dialogFooter button {
-  min-width: 82px;
-  height: 36px;
+  min-width: 84px;
+  height: 38px;
   border: 1px solid var(--line);
   border-radius: 6px;
   color: var(--ink-soft);
   background: #ffffff;
-  font-size: 10px;
-  font-weight: 400;
+  font-size: 12px;
+}
+
+.dialogFooter button:hover {
+  border-color: var(--line-strong);
+  background: var(--panel-soft);
 }
 
 .dialogFooter .primary {
@@ -1360,12 +1393,17 @@ textarea:focus-visible {
   background: var(--primary);
 }
 
+.dialogFooter .primary:hover {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+}
+
 .menuBackdrop {
-  place-items: end center;
+  place-items: center;
 }
 
 .taskMenu {
-  width: min(430px, 100%);
+  width: min(380px, 100%);
   padding: 7px;
 }
 
@@ -1374,31 +1412,31 @@ textarea:focus-visible {
   gap: 10px;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 8px 9px;
+  padding: 8px 9px 10px;
   border-bottom: 1px solid var(--line);
 }
 
 .taskMenu header strong {
   overflow: hidden;
-  font-size: 11px;
+  color: var(--ink);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .taskMenu > button {
   width: 100%;
-  height: 34px;
+  height: 38px;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
-  gap: 8px;
+  gap: 9px;
   align-items: center;
   border: 0;
   border-radius: 5px;
-  padding: 0 9px;
+  padding: 0 10px;
   color: var(--ink-soft);
   background: transparent;
-  font-size: 10px;
-  font-weight: 400;
+  font-size: 11px;
   text-align: left;
 }
 
@@ -1408,27 +1446,27 @@ textarea:focus-visible {
 }
 
 .taskMenu .danger {
-  margin-top: 4px;
-  color: var(--coral);
+  margin-top: 5px;
+  color: var(--danger);
   box-shadow: inset 0 1px var(--line);
 }
 
 .propertyDialog dl {
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
-  gap: 7px 11px;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 8px 12px;
   margin: 0;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .propertyDialog dt {
   color: var(--muted);
-  font-weight: 400;
 }
 
 .propertyDialog dd {
   min-width: 0;
   margin: 0;
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
@@ -1462,7 +1500,7 @@ textarea:focus-visible {
   }
 
   .searchBox {
-    width: 206px;
+    width: 208px;
   }
 
   .actionButton {
@@ -1479,12 +1517,12 @@ textarea:focus-visible {
 
   .boardHead,
   .taskRow {
-    grid-template-columns: minmax(210px, 1fr) 65px minmax(108px, 0.62fr) 72px 34px;
+    grid-template-columns: minmax(220px, 1fr) 66px minmax(112px, 0.62fr) 72px 34px;
     gap: 7px;
   }
 
   .settingRow {
-    grid-template-columns: minmax(0, 1fr) minmax(170px, 36%);
+    grid-template-columns: minmax(0, 1fr) minmax(176px, 36%);
   }
 }
 
@@ -1496,7 +1534,7 @@ textarea:focus-visible {
 
   .workspaceHeader,
   .settingsDetailHead {
-    min-height: 74px;
+    min-height: 72px;
   }
 
   .contentView,
@@ -1505,7 +1543,7 @@ textarea:focus-visible {
   }
 
   .metric {
-    min-height: 58px;
+    min-height: 60px;
   }
 }
 
