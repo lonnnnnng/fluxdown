@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is `1.0.8`; see the latest release at [FluxDown 1.0.8](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.8).
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is `1.0.9`; see the latest release at [FluxDown 1.0.9](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.9).
 
 ## Current Status
 
@@ -36,10 +36,10 @@ FluxDown is a multi-protocol downloader for desktop and mobile. The current vers
 
 | Platform | Verified | Still Needed |
 | --- | --- | --- |
-| macOS Desktop/CLI | Release CLI covers HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet plus queue controls. Foreground desktop GUI covers HTTP/HLS/Torrent/Magnet. Tauri commands cover HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet. | Pure GUI click-through coverage for FTP/FTPS/SFTP/SMB/WebDAV still needs a separate pass. |
+| macOS Desktop/CLI | Release CLI covers HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet plus queue controls. Foreground desktop GUI has completed real validation for 12 protocol cases. Tauri commands cover HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet. | ed2k is handed off to an external client by product definition; WebDAV/WebDAVS transport mapping is verified, while full directory traversal still needs a separate pass. |
 | Windows Desktop/CLI | CI artifacts have been published. A Windows development machine completed CLI real-download validation for 12 protocol cases and native Tauri GUI foreground validation for 12 protocol cases. ed2k completed the product-defined system handoff flow. | ed2k is not completed by FluxDown's own internal downloader. GUI verification used a dedicated E2E window and isolated queue. |
 | Linux Desktop/CLI | CI builds Linux CLI, GUI executable, `.deb`, and `.rpm` artifacts and checks that they are non-empty. | Installing the Linux GUI in a desktop environment and completing a real download is still pending. |
-| Android App | Historical `1.0.4` real-device coverage includes local HTTP/HTTPS/FTP/FTPS/SFTP/SMB, small HLS, small torrent, small magnet, media-sized HLS, single/multi-file torrent, and magnet. The current `1.0.8+9` release APK was launched on a Redmi Note 8 Pro and its queue, new-task dialog, and settings interactions were rechecked for the README screenshots. | Protocol downloads still need to be rerun on the current version. Store distribution also needs signing, license, and background-behavior checks. |
+| Android App | Historical `1.0.4` real-device coverage includes local HTTP/HTTPS/FTP/FTPS/SFTP/SMB, small HLS, small torrent, small magnet, media-sized HLS, single/multi-file torrent, and magnet. The `1.0.8+9` release APK was launched on a Redmi Note 8 Pro and its queue, new-task dialog, and settings interactions were rechecked for the README screenshots. | Protocol downloads still need to be rerun on the current version. Store distribution also needs signing, license, and background-behavior checks. |
 | iOS App | CI builds the iOS simulator app and unsigned device app. iOS simulator smoke covers HTTP, fMP4 HLS, BYTERANGE HLS, and TS HLS downloads. | Signed IPA, iPhone installation, QR scanning, file picking, share/open flows, and physical-device capabilities are still pending. |
 
 See [Download verification status](docs/download-verification.md) for detailed evidence.
@@ -89,7 +89,7 @@ A signed IPA requires an Apple certificate, provisioning profile, Team ID, and k
 
 ## Release Assets
 
-The `v1.0.8` release includes:
+The `v1.0.9` release includes:
 
 - Android debug APK, release APK, and release AAB
 - iOS simulator app and unsigned device app
@@ -98,7 +98,7 @@ The `v1.0.8` release includes:
 - Linux CLI, desktop executable, deb, and rpm
 - Release manifest, LICENSE, and third-party license notices
 
-Release page: [FluxDown 1.0.8](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.8)
+Release page: [FluxDown 1.0.9](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.9)
 
 ## Documentation
 

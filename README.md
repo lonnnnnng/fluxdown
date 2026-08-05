@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 `1.0.8`，最新发布见 [FluxDown 1.0.8](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.8)。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 `1.0.9`，最新发布见 [FluxDown 1.0.9](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.9)。
 
 ## 当前状态
 
@@ -36,10 +36,10 @@ FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版�
 
 | 平台 | 已验证 | 仍需补充 |
 | --- | --- | --- |
-| macOS 桌面/CLI | release CLI 覆盖 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet 和队列控制；桌面 GUI 前台覆盖 HTTP/HLS/Torrent/Magnet；Tauri command 覆盖 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet。 | 纯 GUI 的 FTP/FTPS/SFTP/SMB/WebDAV 点击闭环后续单独补。 |
+| macOS 桌面/CLI | release CLI 覆盖 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet 和队列控制；桌面 GUI 前台已完成 12 类协议真实验证；Tauri command 覆盖 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet。 | ed2k 仍按产品定义移交外部客户端；WebDAV/WebDAVS 已验证传输映射，完整目录遍历仍需单独补。 |
 | Windows 桌面/CLI | CI 产物已发布；Windows 开发机完成 CLI 12 协议真实用例验证和原生 Tauri GUI 前台 12 协议验证，ed2k 按产品定义完成系统移交验证。 | ed2k 不是 FluxDown 内建下载完成；GUI 验证使用 E2E 专用窗口和隔离队列。 |
 | Linux 桌面/CLI | CI 已生成 Linux CLI、GUI 可执行文件、`.deb`、`.rpm` 并做非空检查。 | 尚未在 Linux 桌面环境安装 GUI 并完成真实下载。 |
-| Android App | 历史 `1.0.4` 真机验证已覆盖本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单/多文件 torrent 和 magnet；当前 `1.0.8+9` release APK 已在 Redmi Note 8 Pro 真机完成启动和任务页、新建弹框、设置页操作及截图复验。 | 当前版本仍需重跑协议下载；商店分发前还需签名、许可证和后台策略复验。 |
+| Android App | 历史 `1.0.4` 真机验证已覆盖本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单/多文件 torrent 和 magnet；`1.0.8+9` release APK 已在 Redmi Note 8 Pro 真机完成启动和任务页、新建弹框、设置页操作及截图复验。 | 当前版本仍需重跑协议下载；商店分发前还需签名、许可证和后台策略复验。 |
 | iOS App | CI 已生成 iOS simulator app 和 unsigned device app；iOS simulator 已完成 HTTP、fMP4 HLS、BYTERANGE HLS、TS HLS 下载 smoke。 | 签名 IPA、iPhone 真机安装、扫码、文件选择、分享/打开等真机能力仍待补。 |
 
 完整证据见 [下载验证状态](docs/download-verification.md)。
@@ -89,7 +89,7 @@ LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
 
 ## 发布产物
 
-`v1.0.8` Release 包含：
+`v1.0.9` Release 包含：
 
 - Android debug APK、release APK、release AAB
 - iOS simulator app、unsigned device app
@@ -98,7 +98,7 @@ LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
 - Linux CLI、桌面可执行文件、deb、rpm
 - release manifest、LICENSE、第三方许可证清单
 
-Release 页面：[FluxDown 1.0.8](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.8)
+Release 页面：[FluxDown 1.0.9](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.9)
 
 ## 文档
 

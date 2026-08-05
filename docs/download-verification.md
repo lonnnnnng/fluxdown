@@ -1,6 +1,6 @@
 # 下载验证状态
 
-截至 2026-08-05，FluxDown 已完成 macOS、Windows、Android、iOS 当前阶段的界面截图和验证记录，但还不能表述为“所有平台、所有协议、所有前台 GUI/App 路径都已完成真实下载验证”。Android 真机已经补过一轮正常 App 下载验证；macOS CLI 已补充可重复脚本化多协议验证，macOS 原生 Tauri GUI 本轮又通过真实前台操作覆盖 HTTP、HTTPS、WebDAV transport、WebDAVS transport、FTP、FTPS、SFTP、SMB、m3u8/HLS、Torrent、Magnet 和 ed2k 共 12 类任务，其中前 11 类均完成真实文件落盘、大小和 SHA-256 校验，ed2k 只完成向迅雷的系统移交。iOS 已在 simulator 中跑通 App 内 HTTP/fMP4 HLS/fMP4 BYTERANGE HLS/TS HLS 下载 smoke；Windows CLI 和原生 Tauri GUI 已完成 12 协议真实用例验证；Linux 目前仍只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。
+截至 2026-08-06，FluxDown 已完成 macOS、Windows、Android、iOS 当前阶段的界面截图和验证记录，但还不能表述为“所有平台、所有协议、所有前台 GUI/App 路径都已完成真实下载验证”。Android 真机已经补过一轮正常 App 下载验证；macOS CLI 已补充可重复脚本化多协议验证，macOS 原生 Tauri GUI 本轮又通过真实前台操作覆盖 HTTP、HTTPS、WebDAV transport、WebDAVS transport、FTP、FTPS、SFTP、SMB、m3u8/HLS、Torrent、Magnet 和 ed2k 共 12 类任务，其中前 11 类均完成真实文件落盘、大小和 SHA-256 校验，ed2k 只完成向迅雷的系统移交。iOS 已在 simulator 中跑通 App 内 HTTP/fMP4 HLS/fMP4 BYTERANGE HLS/TS HLS 下载 smoke；Windows CLI 和原生 Tauri GUI 已完成 12 协议真实用例验证；Linux 目前仍只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。
 
 本页用于区分两类容易混淆的结论：
 
@@ -76,6 +76,8 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 2026-08-04 为发布 `1.0.8` 完成本地发布前复验：版本已同步到根/桌面 npm 包、Rust workspace、Tauri 配置和 Flutter `1.0.8+9`；`npm run verify:macos`、`npm run verify:ios`、Android release APK/AAB 构建、桌面 lint、`npm run verify:artifacts` 和 `git diff --check` 均通过。macOS 验证覆盖 fmt、严格 Clippy、Rust/CLI/desktop 测试、release CLI HTTP/HLS/HLS BYTERANGE/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制 fixture、桌面 command FTPS/SFTP/SMB/Torrent/Magnet fixture、`FluxDown.app` ad-hoc 签名、`FluxDown_1.0.8_aarch64.dmg` checksum、许可证和 CI 手动触发策略；iOS 验证覆盖 analyze、38 项 Flutter 测试、debug frameworks、simulator app、unsigned device app 和 URL scheme。`npm run audit:release` 的本机代码与 macOS/Android/iOS 产物检查通过，剩余 `8 failed, 1 warning` 仅为本机没有 Linux/Windows 产物、跨平台 release manifest 和可选签名 IPA，这些由手动 GitHub Actions release workflow 或外部签名材料补齐。
 
 2026-08-05 新增并运行 `npm run verify:macos-desktop-gui-protocols` 通过：使用隔离队列和 macOS 辅助功能操作真实 `FluxDown.app`，逐项前台新建并启动 HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、m3u8/HLS、SFTP、SMB、Torrent、Magnet、ed2k 共 12 类任务。除 ed2k 为向迅雷的系统移交外，其余 11 类均完成真实落盘、大小和 SHA-256 校验。原始 JSON、截图和详细结论见 [macOS 原生桌面端 12 协议验证报告](macos-desktop-protocol-e2e-report-20260805.md)，后续各端复用地址见 [跨平台协议测试资源清单](protocol-test-resources.md)。
+
+2026-08-06 为发布 `1.0.9` 完成本地发版前复验：版本已同步到根/桌面 npm 包、Rust workspace、Tauri 配置和 Flutter `1.0.9+10`；README 的 macOS 下载列表图替换为新版 `2560×1640` Retina 截图。桌面 lint/build、`npm run verify:ci-config`、`npm run verify:macos`、`npm run verify:ios`、Android release APK/AAB 构建、`npm run verify:artifacts` 和 `git diff --check` 均通过；生成并校验 `FluxDown_1.0.9_aarch64.dmg`、Android release APK/AAB、iOS debug frameworks、simulator app 和 unsigned device app。`npm run audit:release` 返回预期的 `8 failed, 1 warning`：失败项仅为本机未生成的 Linux 四项、Windows 三项和跨平台 release manifest，警告为缺少 Apple 签名材料的可选 IPA；这些产物由手动 GitHub Actions release workflow 或外部签名材料补齐。
 
 ## 分端结论
 
