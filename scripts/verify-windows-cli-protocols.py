@@ -188,6 +188,12 @@ def content_type_for(path: str) -> str:
     return "application/octet-stream"
 
 
+class ThreadingFixtureHTTPServer(http.server.ThreadingHTTPServer):
+    # long: 桌面默认会同时建立 8 个 Range 连接；标准库默认 backlog 只有 5，会把正常多线程下载误报成 Connection reset by peer。
+    request_queue_size = 64
+    daemon_threads = True
+
+
 def start_http_fixture(
     ctx: Context,
     *,
@@ -197,7 +203,7 @@ def start_http_fixture(
     cert_file: pathlib.Path | None = None,
     key_file: pathlib.Path | None = None,
 ) -> None:
-    server = http.server.ThreadingHTTPServer((host, port), make_static_handler(routes))
+    server = ThreadingFixtureHTTPServer((host, port), make_static_handler(routes))
     if cert_file and key_file:
         tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         tls_context.load_cert_chain(str(cert_file), str(key_file))
@@ -215,10 +221,12 @@ class FtpFixture:
         port: int,
         payload: bytes,
         tls_context: ssl.SSLContext | None = None,
+        bind_host: str = "127.0.0.1",
     ) -> None:
         self.port = port
         self.payload = payload
         self.tls_context = tls_context
+        self.bind_host = bind_host
         self._stop = threading.Event()
         self._listener: socket.socket | None = None
         self._thread: threading.Thread | None = None
@@ -226,7 +234,7 @@ class FtpFixture:
     def start(self) -> None:
         self._listener = socket.socket()
         self._listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._listener.bind(("127.0.0.1", self.port))
+        self._listener.bind((self.bind_host, self.port))
         self._listener.listen(8)
         self._listener.settimeout(0.5)
         self._thread = threading.Thread(target=self._serve, daemon=True)
@@ -299,7 +307,7 @@ class FtpFixture:
                 elif upper == "EPSV":
                     passive_listener = socket.socket()
                     passive_listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    passive_listener.bind(("127.0.0.1", 0))
+                    passive_listener.bind((self.bind_host, 0))
                     passive_listener.listen(1)
                     port = int(passive_listener.getsockname()[1])
                     send_line(file, f"229 Entering Extended Passive Mode (|||{port}|)")
@@ -379,6 +387,7 @@ def bencode(value: Any) -> bytes:
 class TrackerHandler(http.server.BaseHTTPRequestHandler):
     peers: dict[bytes, dict[bytes, tuple[str, int, float]]] = {}
     lock = threading.Lock()
+    advertised_ip = "127.0.0.1"
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlsplit(self.path)
@@ -408,8 +417,8 @@ class TrackerHandler(http.server.BaseHTTPRequestHandler):
             if event == b"stopped":
                 bucket.pop(peer_id, None)
             else:
-                # long: seeder 运行在 Docker 内，但 peer 端口映射到 Windows host；tracker 固定把本地 fixture peer 暴露为 127.0.0.1，保证 host 上的 FluxDown 能连到做种端口。
-                bucket[peer_id] = ("127.0.0.1", port, now)
+                # long: seeder 运行在 Docker 内，但 peer 端口映射到宿主机；Windows 默认回环地址，跨设备实验室可显式发布局域网地址。
+                bucket[peer_id] = (self.advertised_ip, port, now)
             compact = b"".join(
                 socket.inet_aton(ip) + struct.pack("!H", peer_port)
                 for key, (ip, peer_port, _) in bucket.items()
@@ -440,9 +449,10 @@ def parse_raw_query(query: str) -> dict[bytes, bytes]:
     return result
 
 
-def start_tracker(ctx: Context, port: int) -> None:
+def start_tracker(ctx: Context, port: int, *, advertised_ip: str = "127.0.0.1") -> None:
     TrackerHandler.peers.clear()
-    server = http.server.ThreadingHTTPServer(("0.0.0.0", port), TrackerHandler)
+    TrackerHandler.advertised_ip = advertised_ip
+    server = ThreadingFixtureHTTPServer(("0.0.0.0", port), TrackerHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     ctx.http_servers.append(server)

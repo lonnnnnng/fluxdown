@@ -7,7 +7,7 @@
 | 目标项 | 当前状态 | 已有证据 | 剩余缺口 |
 | --- | --- | --- | --- |
 | macOS CLI | 非前台验收已通过 | `npm run verify:apple` 已串联 `npm run verify:macos`；release CLI 覆盖 HTTP/HLS、HLS BYTERANGE、FTP/FTPS、SFTP、SMB、Torrent/Magnet、队列控制和 artifact 校验。 | 真实公网边界资源仍可继续扩展，但当前本地可重复 fixture 已覆盖主要协议闭环。 |
-| macOS 桌面端 | 非前台 command/artifact 验收已通过，既有前台 GUI 最小闭环已记录 | `npm run verify:apple` 已串联桌面 Tauri command fixture、`.app`/DMG 构建、ad-hoc 签名和 checksum；桌面 command 已覆盖 HLS BYTERANGE；历史前台 GUI 已覆盖 HTTP、HLS、Torrent、Magnet。 | 纯 GUI 前台的 FTP/FTPS、SFTP、SMB、WebDAV 点击下载闭环仍按当前阶段暂缓。 |
+| macOS 桌面端 | 非前台 command/artifact 验收已通过，原生 GUI 12 类前台路径已记录 | `npm run verify:apple` 已串联桌面 Tauri command fixture、`.app`/DMG 构建、ad-hoc 签名和 checksum；2026-08-05 又通过 `npm run verify:macos-desktop-gui-protocols` 在真实窗口验证 11 类协议落盘和 ed2k 系统移交。 | WebDAV(S) 当前只覆盖 transport 映射；ed2k 不由 FluxDown 掌控最终下载。 |
 | iOS 构建与静态验证 | 已通过 | `npm run verify:apple` 已串联 `flutter analyze`、`flutter test`、iOS framework build、simulator build、unsigned device build、artifact 校验和 URL scheme 校验；`npm run verify:ios:signing-readiness` 已能独立检查签名输入。 | 签名 IPA 需要 Apple 证书、provisioning profile、Team ID 和 keychain 密码输入；当前本机没有 codesigning identity 和匹配 profile。 |
 | iOS App 内下载 | simulator smoke 已通过 | `npm run verify:ios:integration` 已在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 上完成 App 内 HTTP、fMP4 HLS 和 fMP4 BYTERANGE HLS 下载；显式设置 `FLUXDOWN_IOS_INCLUDE_TS_HLS=1` 后，TS HLS 也已通过同一 simulator 下载并输出 MP4。HTTP 输出 `29` bytes，fMP4 HLS 输出 `4815` bytes，TS HLS 输出 `19884` bytes，文件头均符合预期。脚本默认不自动启动模拟器，显式设置 `FLUXDOWN_IOS_BOOT_SIMULATOR=1` 时才会尝试通过 `simctl` 启动可用 iPhone simulator。 | iPhone 真机、签名 IPA、扫码/文件选择/分享打开等真机能力仍待证书和设备窗口补验；TS HLS 当前先覆盖 H.264/AAC VOD 主流路径，仍需更多公网和编码边界验证。 |
 
@@ -114,4 +114,4 @@ npm run verify:ios:physical-integration
 
 ## 完成判定
 
-当前目标还不能标记为完全完成：iOS simulator 已补 HTTP/fMP4 HLS/fMP4 BYTERANGE HLS/TS HLS App 内下载 smoke，但 iPhone 真机、签名 IPA 和真机专属能力仍未验证。若继续坚持不占用前台 GUI，macOS 桌面剩余纯 GUI 协议点击项应继续保持为“暂缓，不作为当前非前台验收阻塞项”；如果恢复前台 GUI 验证，则需要逐项记录点击、下载完成、落盘路径和 hash 证据。
+当前目标还不能标记为完全完成：macOS 原生 GUI 12 类前台路径已于 2026-08-05 补齐，但 iOS simulator 目前只覆盖 HTTP/fMP4 HLS/fMP4 BYTERANGE HLS/TS HLS App 内下载 smoke，iPhone 真机、签名 IPA 和真机专属能力仍未验证。macOS 本轮详细点击、下载完成、落盘路径和 hash 证据见 [macOS 原生桌面端 12 协议验证报告](macos-desktop-protocol-e2e-report-20260805.md)。

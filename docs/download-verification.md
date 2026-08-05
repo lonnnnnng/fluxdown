@@ -1,6 +1,6 @@
 # 下载验证状态
 
-截至 2026-08-04，FluxDown 已完成 macOS、Windows、Android、iOS 当前阶段的界面截图和验证记录，但还不能表述为“所有平台、所有协议、所有前台 GUI/App 路径都已完成真实下载验证”。Android 真机已经补过一轮正常 App 下载验证；macOS CLI 已补充可重复脚本化 HTTP/HLS/HLS BYTERANGE/FTP/FTPS/SFTP/SMB/Torrent/Magnet、本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP、本地自签 HTTPS/WebDAVS/FTPS 真实下载验证；macOS GUI 已完成本地构建、启动、基础界面渲染、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，Tauri command 级真实 HTTP/HLS/HLS BYTERANGE/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet 下载验证，以及 1.0.5 发版前非 GUI 总验收复跑；1.0.6 重新完成桌面队列、新建任务、设置和任务菜单的视觉与交互验收；1.0.8+9 又完成蓝白主题、常规字重和侧栏可读性的 macOS 原生窗口及 Android 真机 release UI 复验，但这两轮 UI 预览都没有替代历史真实协议下载证据。iOS 已在 Flutter 3.41.9 / Xcode 16.2 上完成 analyze、Flutter 测试、framework build、simulator build、unsigned device build、artifact 校验、URL scheme 配置校验，并在 iOS simulator 中跑通 App 内 HTTP/fMP4 HLS/fMP4 BYTERANGE HLS/TS HLS 下载 smoke。Windows 已完成本机 release 构建、CLI 12 协议真实用例验证、原生 Tauri GUI 前台 12 协议真实用例验证、设置页各菜单项验证和截图证据；Linux 目前只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。按当前安排，本阶段保留已覆盖的 GUI/App 前台验证证据，剩余平台差距继续通过后续专项验证收口。
+截至 2026-08-05，FluxDown 已完成 macOS、Windows、Android、iOS 当前阶段的界面截图和验证记录，但还不能表述为“所有平台、所有协议、所有前台 GUI/App 路径都已完成真实下载验证”。Android 真机已经补过一轮正常 App 下载验证；macOS CLI 已补充可重复脚本化多协议验证，macOS 原生 Tauri GUI 本轮又通过真实前台操作覆盖 HTTP、HTTPS、WebDAV transport、WebDAVS transport、FTP、FTPS、SFTP、SMB、m3u8/HLS、Torrent、Magnet 和 ed2k 共 12 类任务，其中前 11 类均完成真实文件落盘、大小和 SHA-256 校验，ed2k 只完成向迅雷的系统移交。iOS 已在 simulator 中跑通 App 内 HTTP/fMP4 HLS/fMP4 BYTERANGE HLS/TS HLS 下载 smoke；Windows CLI 和原生 Tauri GUI 已完成 12 协议真实用例验证；Linux 目前仍只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。
 
 本页用于区分两类容易混淆的结论：
 
@@ -9,7 +9,7 @@
 
 macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收清单](apple-verification.md)。
 
-当前可以确认的是构建和自动化测试覆盖较多，Android 真机覆盖了一批真实下载场景，macOS CLI/GUI 覆盖了更多协议的下载闭环，Windows CLI 和原生 Tauri GUI 都已完成 12 种协议真实用例验证；但 Linux GUI、iPhone 真机、签名 IPA 和部分 macOS 纯 GUI 协议点击路径仍未完成，因此仍不能表述为“所有端、所有协议都下载验证通过”。
+当前可以确认的是构建和自动化测试覆盖较多，Android 真机覆盖了一批真实下载场景，macOS 原生 GUI 和 Windows 原生 GUI 均已走过当前 12 类协议前台路径；但 ed2k 只属于外部客户端移交，Linux GUI、iPhone 真机和签名 IPA 仍未完成，因此仍不能表述为“所有端、所有协议都下载验证通过”。
 
 ## 当前进度
 
@@ -19,7 +19,7 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 - `606eac2`：验证报告已记录上述删除入口修复、测试计数和 macOS 非 GUI 总验收结果。
 - `3137027`：合并 Windows 端依赖/前端修复、Windows CLI/GUI 构建与下载验证，以及 Windows README 截图。
 
-当前 macOS 阶段已完成非 GUI 验证收口：`cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、release CLI 真实协议 fixture、桌面 Tauri command fixture、macOS artifact 校验、许可证检查和 CI 手动触发策略检查均已通过。Windows 阶段已完成本机 release 构建、CLI 12 协议真实用例验证、原生 Tauri GUI 前台 12 协议真实用例验证、Tauri command HTTP 队列、设置页验证和截图证据。后续重点是 Linux GUI、iPhone 真机/签名 IPA，以及 macOS 剩余 GUI 前台协议点击验证。
+当前 macOS 阶段已完成非 GUI 验证收口，并于 2026-08-05 补齐原生 Tauri GUI 12 类协议前台验证；Windows 阶段已完成本机 release 构建、CLI 12 协议真实用例验证、原生 Tauri GUI 前台 12 协议真实用例验证、Tauri command HTTP 队列、设置页验证和截图证据。后续重点是 Linux GUI、iPhone 真机/签名 IPA，以及各端对公网兼容性和异常场景的补充验证。
 
 2026-06-23 复验发现并修复了 macOS 验证脚本顺序问题：`verify:macos-cli-release` 原本会在桌面 DMG 构建前执行完整 `verify:macos-artifacts`，导致 1.0.3 环境下缺少 `FluxDown_1.0.3_aarch64.dmg` 时失败；现在 release CLI 阶段改为 `verify:macos-cli-artifact`，只校验刚构建出的 CLI，完整 `.app`/DMG 校验仍在 `verify:macos-desktop-command` 生成桌面产物后执行。
 
@@ -75,12 +75,14 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 2026-08-04 为发布 `1.0.8` 完成本地发布前复验：版本已同步到根/桌面 npm 包、Rust workspace、Tauri 配置和 Flutter `1.0.8+9`；`npm run verify:macos`、`npm run verify:ios`、Android release APK/AAB 构建、桌面 lint、`npm run verify:artifacts` 和 `git diff --check` 均通过。macOS 验证覆盖 fmt、严格 Clippy、Rust/CLI/desktop 测试、release CLI HTTP/HLS/HLS BYTERANGE/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制 fixture、桌面 command FTPS/SFTP/SMB/Torrent/Magnet fixture、`FluxDown.app` ad-hoc 签名、`FluxDown_1.0.8_aarch64.dmg` checksum、许可证和 CI 手动触发策略；iOS 验证覆盖 analyze、38 项 Flutter 测试、debug frameworks、simulator app、unsigned device app 和 URL scheme。`npm run audit:release` 的本机代码与 macOS/Android/iOS 产物检查通过，剩余 `8 failed, 1 warning` 仅为本机没有 Linux/Windows 产物、跨平台 release manifest 和可选签名 IPA，这些由手动 GitHub Actions release workflow 或外部签名材料补齐。
 
+2026-08-05 新增并运行 `npm run verify:macos-desktop-gui-protocols` 通过：使用隔离队列和 macOS 辅助功能操作真实 `FluxDown.app`，逐项前台新建并启动 HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、m3u8/HLS、SFTP、SMB、Torrent、Magnet、ed2k 共 12 类任务。除 ed2k 为向迅雷的系统移交外，其余 11 类均完成真实落盘、大小和 SHA-256 校验。原始 JSON、截图和详细结论见 [macOS 原生桌面端 12 协议验证报告](macos-desktop-protocol-e2e-report-20260805.md)，后续各端复用地址见 [跨平台协议测试资源清单](protocol-test-resources.md)。
+
 ## 分端结论
 
 | 端 | 当前验证情况 | 是否完成真实下载 E2E |
 | --- | --- | --- |
 | 桌面 CLI | Rust 单元测试、CLI 集成测试、队列测试、本地 HTTP/HLS/HLS BYTERANGE/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP、本地自签 HTTPS/WebDAVS/FTPS、限速、失败重试、暂停继续、运行中删除和并发排队均已验证；其中小体积 FTP/FTPS/SFTP/SMB/Torrent/Magnet 已补充可重复脚本化验证。 | 部分完成 |
-| macOS GUI | 已完成 Tauri `.app` 构建、本地启动、窗口渲染、设置/任务操作 Tauri command 回归测试、纯 GUI HTTP/HLS/Torrent/Magnet 新建任务下载闭环，以及 Tauri command 级 HTTP/HLS/HLS BYTERANGE/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet 单任务真实下载和队列真实下载。纯 GUI 的 FTP/FTPS/SFTP/SMB/WebDAV 点击验证按当前阶段安排暂缓，不作为本阶段阻塞。 | 部分完成 |
+| macOS GUI | 2026-08-05 已通过真实 Tauri 前台窗口逐项验证 12 类任务：HTTP、HTTPS、WebDAV transport、WebDAVS transport、FTP、FTPS、SFTP、SMB、m3u8/HLS、Torrent、Magnet 均完成真实落盘和 SHA-256 校验；ed2k 完成向迅雷的系统移交，但占位 hash 资源未下载。 | 部分完成 |
 | Windows CLI/GUI | 已在 Windows 开发机完成本机 release 构建，生成 `target/release/fluxdown-desktop.exe`、MSI 和 NSIS installer；CLI 已完成当前支持的 12 种协议真实用例验证；原生 Tauri GUI 前台也已完成 HTTP/HTTPS/WebDAV/WebDAVS/FTP/FTPS/m3u8/SFTP/SMB/Torrent/Magnet 真实落盘和 SHA-256 校验，ed2k 完成系统移交通路验证；设置页六个菜单和主要设置项已通过前台操作验证。 | 部分完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
 | Android App | 已在 Redmi Note 8 Pro 真机安装并通过正常 App 队列完成本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及 2026-06-14 媒体级 HLS、单文件 torrent、单文件 magnet、多文件 torrent 和多文件 magnet 选择下载验证。 | 部分完成 |
@@ -90,12 +92,12 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 
 | 协议/能力 | 当前验证情况 | 备注 |
 | --- | --- | --- |
-| HTTP/HTTPS | CLI 和核心层有本地下载验证；2026-06-18 macOS CLI 已验证直接下载、队列下载、限速、失败重试、暂停继续、运行中删除、并发排队，以及本地自签 HTTPS opt-in；macOS GUI 已通过真实界面点击完成 HTTP 新建任务、自动下载和文件落盘校验；Windows CLI 与原生 Tauri GUI 均已验证 HTTP/HTTPS 前台或命令路径真实落盘和 SHA-256。 | 证据最充分。 |
-| WebDAV/WebDAVS | 核心层验证了 URL 到 HTTP/HTTPS 传输的映射；2026-06-18 macOS CLI 已验证公网 WebDAVS transport 和本地自签 WebDAVS transport，CLI/桌面 command 均有队列回归覆盖。 | 仍未覆盖完整 WebDAV 方法，例如 PROPFIND/目录遍历。 |
+| HTTP/HTTPS | CLI 和核心层有本地下载验证；macOS GUI、Windows GUI 均已通过真实前台操作完成 HTTP/HTTPS 新建任务、自动下载、文件落盘和 SHA-256 校验；macOS HTTPS 使用本地自签证书及显式 opt-in。 | 证据最充分。 |
+| WebDAV/WebDAVS | 核心层和 macOS/Windows 原生 GUI 均验证了 URL 到 HTTP/HTTPS transport 的映射和真实落盘。 | 仍未覆盖完整 WebDAV 方法，例如 `PROPFIND` 和目录遍历。 |
 | m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片、master playlist 首个变体和 TS BYTERANGE 分片；Android 真机和 macOS CLI 均已验证媒体级 HLS 可生成最终 `.mp4`，CLI 直连/队列、桌面 command 和 macOS 纯 GUI 均有本地 HLS fixture 回归；macOS CLI release 与桌面 command 已验证 HLS BYTERANGE 真实落盘；纯 GUI 真实媒体 HLS 输出 `index.mp4` 并通过 `ffprobe` 识别为 MP4 容器；iOS simulator 已通过 App 内 fMP4 HLS、fMP4 BYTERANGE HLS 和 TS HLS smoke，输出文件头均包含 `ftyp`。 | iOS TS HLS 当前先覆盖 H.264/AAC VOD 主流路径，仍需要更多公网、长视频、多音轨、B 帧和异常 playlist 验证。 |
-| FTP/FTPS | 2026-06-18 macOS CLI 已验证公网 FTP、本地 FTP 直连/队列和本地自签 FTPS 直连/队列下载闭环；macOS GUI command 层已验证本地 FTP 队列、单任务启动下载和本地自签 FTPS 队列下载闭环。 | Rebex 公网 FTPS 仍失败，错误为 `InvalidContentType`；本地可控 FTPS fixture 已通过。 |
-| SFTP | 2026-06-18 macOS CLI 已验证公网 SFTP、本地 Docker SFTP 直连下载和队列下载；macOS GUI command 层已通过本地 Docker SFTP fixture 验证队列下载。 | 公网 Rebex 仍作为兼容性 smoke；可重复脚本已不依赖公网源。 |
-| SMB | 2026-06-18 macOS CLI 已通过 Docker Samba fixture 验证直连下载和队列下载；macOS GUI command 层已通过同类 Samba fixture 验证队列下载。Android 真机也已验证过局域网 SMB 小文件下载；Windows 原生 Tauri GUI 已通过 Docker Samba fixture 完成前台新建任务、开始队列、真实落盘和 SHA-256。 | 仍未覆盖 Linux 桌面真实运行；macOS 纯 GUI SMB 点击闭环仍待补。 |
+| FTP/FTPS | macOS CLI 已验证公网 FTP、本地 FTP/FTPS；2026-08-05 macOS 原生 GUI 又通过前台操作完成局域网 FTP 和显式 FTPS 真实落盘及 SHA-256 校验。 | Rebex 公网 FTPS 仍失败，错误为 `InvalidContentType`；本地可控 FTPS fixture 已通过。 |
+| SFTP | macOS CLI 已验证公网 SFTP 和本地 Docker SFTP；2026-08-05 macOS 原生 GUI 已通过 Docker SFTP 完成前台真实落盘和 SHA-256 校验。 | 公网 Rebex 仍作为兼容性 smoke；可重复脚本不依赖公网源。 |
+| SMB | macOS CLI、Android 真机、Windows GUI 均已有局域网 SMB 证据；2026-08-05 macOS 原生 GUI 又通过 Docker Samba 完成前台新建任务、下载、真实落盘和 SHA-256 校验。 | 仍未覆盖 Linux 桌面真实运行。 |
 | BitTorrent `.torrent` | Android 真机已验证本地小种子、媒体级单文件种子和多文件种子选择下载；macOS CLI 已验证单文件、多文件本地种子和按文件编号选择下载，包含真实文件名/目录名和 SHA-256，并通过 `scripts/verify-macos-cli-p2p.sh` 验证小 torrent 队列下载和多文件 torrent 单文件选择；macOS GUI command 层和纯 GUI 均已通过临时本地 tracker/seeder 验证小 torrent 下载、真实文件名回写和 SHA-256，Tauri command 层已补充多文件 torrent 单文件选择和真实落盘路径定位；Windows 原生 Tauri GUI 已通过 Docker Transmission seeder 完成前台 torrent 下载闭环。 | Linux GUI 仍需要 torrent 前台真实下载验证；桌面前台 GUI metadata 文件列表交互本阶段跳过。 |
 | Magnet | Android 真机已验证本地小磁力、媒体级单文件 magnet 和多文件 magnet 选择下载；macOS CLI 已验证本地 magnet metadata 获取、真实文件名、SHA-256 和按文件编号选择下载，并通过 `scripts/verify-macos-cli-p2p.sh` 验证小 magnet 单任务启动和多文件 magnet 单文件选择；macOS GUI command 层和纯 GUI 均已通过临时本地 tracker/seeder 验证小 magnet 下载、metadata 文件名回写和 SHA-256，Tauri command 层已补充多文件 magnet 单文件选择和真实落盘路径定位；Windows 原生 Tauri GUI 已通过同一 Docker Transmission seeder 完成前台 magnet 下载闭环。 | Linux GUI 仍需要 magnet 前台真实下载验证；桌面前台 GUI metadata 文件列表交互本阶段跳过。 |
 | ed2k | 核心层验证了 aMule `ed2k` CLI 移交路径。 | FluxDown 不掌控外部客户端的实际下载完成状态。 |
@@ -109,7 +111,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 ## 后续验证建议
 
 1. 先建立可重复测试资源：本地 HTTP/WebDAV、FTP、SFTP、SMB 服务和小体积 HLS playlist。
-2. 逐端验证最小闭环：Linux GUI、iPhone App、macOS 剩余 GUI 前台协议点击验证；后续在不影响本机使用时再补。
+2. 逐端验证最小闭环：Linux GUI 和 iPhone App；macOS 原生 GUI 12 类前台路径已于 2026-08-05 补齐。
 3. 每次验证记录：平台、版本、安装方式、下载源、输出路径、文件大小、校验和、失败日志。
 4. 再补真实公网协议：torrent、magnet、ed2k 外部客户端移交。
 5. 发布前补齐自动化许可证扫描和随包许可证文本，当前人工清单见 [第三方许可证清单](third-party-licenses.md)。
@@ -295,8 +297,8 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | Tauri command SFTP 下载 | 通过，`npm run verify:macos-desktop-sftp` 启动临时 Docker SFTP 服务，创建队列任务并运行，输出 `desktop-sftp.txt`，SHA-256 为 `3ebbcf6008be2428d11747c8ab05b55b4518a591d96ec188d5aa9df76a5f3a0f`。 |
 | Tauri command SMB 下载 | 通过，`npm run verify:macos-desktop-smb` 启动临时 Docker Samba 共享，创建队列任务并运行，输出 `desktop-smb.txt`，SHA-256 为 `9511a9c1777dcaaf7652c0b8090a9c71a8b1dbd8f11e520141afdcef244c1929`。 |
 | Tauri command Torrent/Magnet 下载 | 通过，`npm run verify:macos-desktop-p2p` 创建临时 `fluxdown-p2p-sample.txt` 和双文件 torrent/magnet，生成 tracker 为 `127.0.0.1` 的 `.torrent` 和 magnet，启动本地 tracker 与 Transmission seeder；ignored 测试确认 `.torrent` 队列下载会把任务名从 `queued-sample.torrent` 回写为真实 `fluxdown-p2p-sample.txt`，magnet 单任务启动会把任务名从 `magnet-download` 回写为真实文件名，两者输出 SHA-256 均为 `112be889b60bcb800675ca97f2dfd42a2394f80c0176c11cbd4456cacf25faa7`；多文件 torrent 和多文件 magnet 均通过文件编号 `0` 只下载 `a-selected.bin`，任务卡片名回写为真实文件名，`task_output_path` 可在保存目录下递归定位真实落盘文件。 |
-| 纯 GUI 其他协议下载闭环 | 本阶段暂缓。当前纯 GUI 点击已验证 HTTP、HLS、Torrent、Magnet；FTP、FTPS、SFTP、SMB、WebDAV 仍停留在 Tauri command 或 CLI 层真实下载验证。为避免占用本机前台操作，剩余纯 GUI 点击验证先不继续执行，后续单独安排。 |
-| 剩余前台 GUI 点击验证阶段 | 已按当前安排跳过。该阶段不是本轮阻塞项；后续如果恢复 GUI 验证，需要单独打开前台 App 并重新记录每个协议的点击、下载、落盘和 hash 证据。 |
+| 纯 GUI 12 类协议下载闭环 | 2026-08-05 已补齐。HTTP、HTTPS、WebDAV transport、WebDAVS transport、FTP、FTPS、SFTP、SMB、m3u8/HLS、Torrent、Magnet 均通过真实前台新建任务并完成落盘和 SHA-256 校验；ed2k 成功移交迅雷，但占位 hash 被迅雷判定为链接失效。详细证据见 [macOS 原生桌面端 12 协议验证报告](macos-desktop-protocol-e2e-report-20260805.md)。 |
+| 前台 GUI 自动化入口 | `npm run verify:macos-desktop-gui-protocols`。需要 macOS 辅助功能权限和 Docker Desktop，会占用前台窗口；动态测试服务结束后自动清理。 |
 
 ### 清理状态
 

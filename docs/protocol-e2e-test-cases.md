@@ -273,6 +273,27 @@ Android 设备在同一 Wi-Fi 下应使用 `http://<lan-ip>:8766/...` 和包含 
 - 已安装外部 ed2k 客户端，并且能收到 intent。
 - 未安装外部客户端时，FluxDown 给出清晰的 no-handler 错误。
 
+## macOS 原生桌面 GUI 自动化
+
+macOS 可以通过真实 `FluxDown.app` 前台窗口复跑当前 12 类协议用例：
+
+```sh
+npm --workspace apps/desktop run build
+npm run desktop:build
+npm run verify:macos-desktop-gui-protocols
+```
+
+执行前需要启动 Docker Desktop，并给当前终端或自动化宿主授予 macOS“辅助功能”权限。脚本会使用隔离的 `XDG_DATA_HOME`，动态启动局域网 HTTP(S)、FTP(S)、SFTP、SMB、tracker 和 seeder，通过前台界面逐项新建任务，再校验队列状态、落盘文件大小和 SHA-256；结束后自动清理动态服务。
+
+2026-08-05 的完整结果见：
+
+- [macOS 原生桌面端 12 协议验证报告](macos-desktop-protocol-e2e-report-20260805.md)
+- [结构化 JSON 证据](artifacts/macos-desktop-gui-protocol-e2e-20260805.json)
+- [完成队列截图](artifacts/macos-desktop-gui-queue-20260805.png)
+- [跨平台协议测试资源清单](protocol-test-resources.md)
+
+每次运行都会选择新的随机端口，后续移动端或其他电脑必须使用新 JSON 中的 `source`，不能直接复用历史局域网端口。ed2k 只验证系统移交；若外部客户端收到的是占位 hash 或失效链接，不得记录为真实下载成功。
+
 ## Android / iOS 移动端自动化
 
 移动端 integration test 通过 `FLUXDOWN_E2E_CASES_JSON` 接收 JSON 测试用例。
