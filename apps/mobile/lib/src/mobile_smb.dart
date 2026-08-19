@@ -95,16 +95,35 @@ class MobileSmbClient {
     required String remotePath,
     required File outputFile,
     required bool Function() isCancelled,
+    FutureOr<void> Function(int byteCount)? throttleBytes,
     required FutureOr<void> Function(int downloaded, int total) onProgress,
   }) async {
-    return _pool.downloadToFile(
-      remotePath,
-      outputFile,
-      onProgress: (downloaded, total) {
-        onProgress(downloaded, total);
-      },
-      isCanceled: isCancelled,
-    );
+    final sink = outputFile.openWrite();
+    var downloaded = 0;
+    var total = 0;
+    try {
+      await for (final chunk in _pool.streamFile(
+        remotePath,
+        chunkSize: 64 * 1024,
+        onProgress: (_, remoteTotal) => total = remoteTotal,
+        isCanceled: isCancelled,
+      )) {
+        if (isCancelled()) {
+          throw const SmbDownloadCancelled();
+        }
+        await throttleBytes?.call(chunk.length);
+        if (isCancelled()) {
+          throw const SmbDownloadCancelled();
+        }
+        sink.add(chunk);
+        downloaded += chunk.length;
+        await onProgress(downloaded, total);
+      }
+      return downloaded;
+    } finally {
+      await sink.flush();
+      await sink.close();
+    }
   }
 
   Future<void> close() => _pool.disconnect();
@@ -112,6 +131,7 @@ class MobileSmbClient {
 
 Future<DownloadTask> downloadSmbTask(
   DownloadTask task, {
+  int speedLimitKbps = 0,
   required FutureOr<void> Function(DownloadTask task) onProgress,
   required bool Function() isCancelled,
 }) async {
@@ -123,6 +143,7 @@ Future<DownloadTask> downloadSmbTask(
   await outputDir.create(recursive: true);
   final outputFile = File(p.join(outputDir.path, spec.fileName));
   final client = await MobileSmbClient.connect(spec);
+  final speedLimiter = DownloadSpeedLimiter.fromKbps(speedLimitKbps);
 
   var current = task.copyWith(
     state: DownloadState.running,
@@ -139,6 +160,8 @@ Future<DownloadTask> downloadSmbTask(
       remotePath: spec.remotePath,
       outputFile: outputFile,
       isCancelled: isCancelled,
+      throttleBytes: (bytes) =>
+          speedLimiter.throttle(bytes, isCancelled: isCancelled),
       onProgress: (bytes, total) async {
         current = current.copyWith(
           downloadedBytes: bytes,

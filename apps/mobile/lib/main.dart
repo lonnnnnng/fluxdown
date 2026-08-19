@@ -86,7 +86,7 @@ const _storageChannel = MethodChannel('dev.fluxdown.mobile/storage');
 
 enum AppLanguage { zh, en }
 
-enum QueueFilter { all, running, queued, paused, finished, failed }
+enum QueueFilter { all, running, queued, paused, handedOff, finished, failed }
 
 enum MobileHomeTab { tasks, settings }
 
@@ -213,6 +213,9 @@ class AppStrings {
   String get storageUnavailable => language == AppLanguage.zh
       ? '无法读取这个路径的存储容量。'
       : 'Storage size is unavailable for this path.';
+  String get torrentFileMetricsUnavailable => language == AppLanguage.zh
+      ? '下载中数据由 libtorrent 管理'
+      : 'Managed by libtorrent while downloading';
   String get detected => language == AppLanguage.zh ? '识别结果' : 'Detected';
   String get protocolSupport =>
       language == AppLanguage.zh ? '协议能力' : 'Protocols';
@@ -296,6 +299,8 @@ class AppStrings {
   String get queueDownloading =>
       language == AppLanguage.zh ? '下载中' : 'Downloading';
   String get queuePaused => language == AppLanguage.zh ? '暂停' : 'Paused';
+  String get queueHandedOff =>
+      language == AppLanguage.zh ? '已移交' : 'Handed off';
   String get queueFailed => language == AppLanguage.zh ? '失败' : 'Failed';
   String get noQueuedTasks =>
       language == AppLanguage.zh ? '等待添加任务' : 'Waiting for tasks';
@@ -420,6 +425,8 @@ class AppStrings {
       DownloadState.queued => language == AppLanguage.zh ? '排队中' : 'queued',
       DownloadState.running => language == AppLanguage.zh ? '下载中' : 'running',
       DownloadState.paused => language == AppLanguage.zh ? '已暂停' : 'paused',
+      DownloadState.handedOff =>
+        language == AppLanguage.zh ? '已移交' : 'handed off',
       DownloadState.finished => language == AppLanguage.zh ? '已完成' : 'finished',
       DownloadState.failed => language == AppLanguage.zh ? '失败' : 'failed',
     };
@@ -652,6 +659,10 @@ class _DownloadHomeState extends State<DownloadHome> {
   var downloadThreadCount = _defaultDownloadThreadCount;
   var retryAttempts = _defaultRetryAttempts;
   var speedLimitKbps = 0;
+  StorageStats? settingsStorageStats;
+  var settingsStorageLoading = false;
+  var settingsStorageUnavailable = false;
+  var settingsStorageRequestId = 0;
   var queueFilter = QueueFilter.all;
   var currentTab = MobileHomeTab.tasks;
 
@@ -676,6 +687,7 @@ class _DownloadHomeState extends State<DownloadHome> {
     outputController.text =
         preferences.getString(_outputFolderPreferenceKey) ??
         '${documents.path}/downloads';
+    unawaited(refreshSettingsStorageStats());
     final savedConcurrency = preferences.getInt(_queueConcurrencyPreferenceKey);
     final savedThreadCount = preferences.getInt(
       _downloadThreadCountPreferenceKey,
@@ -761,8 +773,23 @@ class _DownloadHomeState extends State<DownloadHome> {
         strings: strings,
         defaultOutputFolder: outputController.text,
         onPickOutputFolder: pickOutputFolderForNewTask,
+        onReadClipboard: readClipboardSource,
+        onScanQr: scanQrSource,
+        onLoadStorageStats: loadStorageStats,
         onCreate: createTask,
       ),
+    );
+  }
+
+  Future<String?> readClipboardSource() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final value = data?.text?.trim();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  Future<String?> scanQrSource() {
+    return Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => QrScannerPage(strings: strings)),
     );
   }
 
@@ -793,12 +820,31 @@ class _DownloadHomeState extends State<DownloadHome> {
       outputController.text = normalized;
       final preferences = await SharedPreferences.getInstance();
       await preferences.setString(_outputFolderPreferenceKey, normalized);
+      await refreshSettingsStorageStats();
       _showSnack(strings.folderSelected);
     } catch (_) {
       if (mounted) {
         _showSnack(strings.folderSelectionFailed);
       }
     }
+  }
+
+  Future<void> refreshSettingsStorageStats() async {
+    final requestId = ++settingsStorageRequestId;
+    final path = outputController.text.trim();
+    if (mounted) {
+      setState(() {
+        settingsStorageLoading = true;
+        settingsStorageUnavailable = false;
+      });
+    }
+    final stats = path.isEmpty ? null : await loadStorageStats(path);
+    if (!mounted || requestId != settingsStorageRequestId) return;
+    setState(() {
+      settingsStorageStats = stats;
+      settingsStorageLoading = false;
+      settingsStorageUnavailable = stats == null;
+    });
   }
 
   Future<void> setQueueConcurrency(int value) async {
@@ -1018,6 +1064,9 @@ class _DownloadHomeState extends State<DownloadHome> {
       onSpeedLimitChanged: setSpeedLimitKbps,
       onPickOutputFolder: pickOutputFolder,
       onOpenProtocols: openProtocols,
+      storageStats: settingsStorageStats,
+      storageLoading: settingsStorageLoading,
+      storageUnavailable: settingsStorageUnavailable,
     );
 
     return Scaffold(
@@ -1191,6 +1240,7 @@ class QueueView extends StatelessWidget {
       QueueFilter.running => task.state == DownloadState.running,
       QueueFilter.queued => task.state == DownloadState.queued,
       QueueFilter.paused => task.state == DownloadState.paused,
+      QueueFilter.handedOff => task.state == DownloadState.handedOff,
       QueueFilter.finished => task.state == DownloadState.finished,
       QueueFilter.failed => task.state == DownloadState.failed,
     };
@@ -1202,6 +1252,9 @@ class NewTaskDialog extends StatefulWidget {
     required this.strings,
     required this.defaultOutputFolder,
     required this.onPickOutputFolder,
+    required this.onReadClipboard,
+    required this.onScanQr,
+    required this.onLoadStorageStats,
     required this.onCreate,
     super.key,
   });
@@ -1209,6 +1262,9 @@ class NewTaskDialog extends StatefulWidget {
   final AppStrings strings;
   final String defaultOutputFolder;
   final Future<String?> Function() onPickOutputFolder;
+  final Future<String?> Function() onReadClipboard;
+  final Future<String?> Function() onScanQr;
+  final Future<StorageStats?> Function(String path) onLoadStorageStats;
   final Future<bool> Function({
     required String source,
     required String outputFolder,
@@ -1230,6 +1286,10 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
   var busy = false;
   String? errorText;
   var fileNameEdited = false;
+  StorageStats? storageStats;
+  var storageLoading = false;
+  var storageUnavailable = false;
+  var storageRequestId = 0;
 
   AppStrings get strings => widget.strings;
 
@@ -1237,6 +1297,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
   void initState() {
     super.initState();
     outputFolderController.text = widget.defaultOutputFolder;
+    unawaited(refreshStorageStats());
   }
 
   @override
@@ -1256,6 +1317,51 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
     if (!mounted || selected == null || selected.trim().isEmpty) return;
     setState(() {
       outputFolderController.text = selected.trim();
+    });
+    await refreshStorageStats();
+  }
+
+  Future<void> pasteSource() async {
+    final source = await widget.onReadClipboard();
+    if (!mounted) return;
+    if (source == null || source.trim().isEmpty) {
+      setState(() => errorText = strings.clipboardEmpty);
+      return;
+    }
+    setSource(source);
+  }
+
+  Future<void> scanSource() async {
+    final source = await widget.onScanQr();
+    if (!mounted || source == null || source.trim().isEmpty) return;
+    setSource(source);
+  }
+
+  void setSource(String source) {
+    final normalized = source.trim();
+    sourceController.value = TextEditingValue(
+      text: normalized,
+      selection: TextSelection.collapsed(offset: normalized.length),
+    );
+    syncSuggestedFileName(normalized);
+    setState(() => errorText = null);
+  }
+
+  Future<void> refreshStorageStats() async {
+    final requestId = ++storageRequestId;
+    final path = outputFolderController.text.trim();
+    if (mounted) {
+      setState(() {
+        storageLoading = true;
+        storageUnavailable = false;
+      });
+    }
+    final stats = path.isEmpty ? null : await widget.onLoadStorageStats(path);
+    if (!mounted || requestId != storageRequestId) return;
+    setState(() {
+      storageStats = stats;
+      storageLoading = false;
+      storageUnavailable = stats == null;
     });
   }
 
@@ -1407,6 +1513,28 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                       ),
                     ),
                     IconButton(
+                      key: const ValueKey('new-task-paste'),
+                      tooltip: strings.createFromClipboard,
+                      onPressed: busy ? null : pasteSource,
+                      icon: const Icon(Icons.content_paste_outlined, size: 17),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 34,
+                      ),
+                    ),
+                    IconButton(
+                      key: const ValueKey('new-task-scan'),
+                      tooltip: strings.scanQr,
+                      onPressed: busy ? null : scanSource,
+                      icon: const Icon(Icons.qr_code_scanner, size: 17),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 34,
+                      ),
+                    ),
+                    IconButton(
                       tooltip: strings.close,
                       onPressed: busy
                           ? null
@@ -1422,6 +1550,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                 ),
                 const SizedBox(height: 8),
                 TextField(
+                  key: const ValueKey('new-task-source'),
                   controller: sourceController,
                   minLines: 3,
                   maxLines: 5,
@@ -1513,6 +1642,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                 ),
                 const SizedBox(height: 8),
                 TextField(
+                  key: const ValueKey('new-task-file-name'),
                   controller: fileNameController,
                   enabled: !busy,
                   textInputAction: TextInputAction.next,
@@ -1531,6 +1661,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                 ),
                 const SizedBox(height: 8),
                 TextField(
+                  key: const ValueKey('new-task-output-folder'),
                   controller: outputFolderController,
                   enabled: !busy,
                   textInputAction: TextInputAction.done,
@@ -1539,6 +1670,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                     labelText: strings.outputFolder,
                     labelStyle: const TextStyle(fontSize: 12),
                     suffixIcon: IconButton(
+                      key: const ValueKey('new-task-pick-folder'),
                       tooltip: strings.chooseFolder,
                       onPressed: busy ? null : pickOutputFolder,
                       icon: const Icon(
@@ -1551,9 +1683,19 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                       vertical: 8,
                     ),
                   ),
+                  onChanged: (_) => unawaited(refreshStorageStats()),
+                ),
+                const SizedBox(height: 8),
+                StorageStatsPanel(
+                  key: const ValueKey('new-task-storage-stats'),
+                  strings: strings,
+                  stats: storageStats,
+                  loading: storageLoading,
+                  unavailable: storageUnavailable,
                 ),
                 const SizedBox(height: 12),
                 FilledButton.icon(
+                  key: const ValueKey('new-task-submit'),
                   onPressed: busy ? null : createFromInput,
                   icon: busy
                       ? const SizedBox(
@@ -2202,6 +2344,7 @@ class QueueFilterTabs extends StatelessWidget {
       QueueFilter.running: _count(DownloadState.running),
       QueueFilter.queued: _count(DownloadState.queued),
       QueueFilter.paused: _count(DownloadState.paused),
+      QueueFilter.handedOff: _count(DownloadState.handedOff),
       QueueFilter.finished: _count(DownloadState.finished),
       QueueFilter.failed: _count(DownloadState.failed),
     };
@@ -2243,6 +2386,7 @@ class QueueFilterTabs extends StatelessWidget {
       QueueFilter.running => strings.queueDownloading,
       QueueFilter.queued => strings.queueQueued,
       QueueFilter.paused => strings.queuePaused,
+      QueueFilter.handedOff => strings.queueHandedOff,
       QueueFilter.finished => strings.queueCompleted,
       QueueFilter.failed => strings.queueFailed,
     };
@@ -2351,6 +2495,9 @@ class SettingsView extends StatelessWidget {
     required this.onSpeedLimitChanged,
     required this.onPickOutputFolder,
     required this.onOpenProtocols,
+    required this.storageStats,
+    required this.storageLoading,
+    required this.storageUnavailable,
     super.key,
   });
 
@@ -2368,6 +2515,9 @@ class SettingsView extends StatelessWidget {
   final ValueChanged<int> onSpeedLimitChanged;
   final VoidCallback onPickOutputFolder;
   final VoidCallback onOpenProtocols;
+  final StorageStats? storageStats;
+  final bool storageLoading;
+  final bool storageUnavailable;
 
   @override
   Widget build(BuildContext context) {
@@ -2409,6 +2559,16 @@ class SettingsView extends StatelessWidget {
                   ),
                 );
               },
+            ),
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: outputFolderListenable,
+              builder: (context, value, _) => StorageStatsPanel(
+                key: const ValueKey('settings-storage-stats'),
+                strings: strings,
+                stats: storageStats,
+                loading: storageLoading,
+                unavailable: storageUnavailable,
+              ),
             ),
             SettingsNumberInput(
               icon: Icons.download_outlined,
@@ -2471,6 +2631,23 @@ class SettingsView extends StatelessWidget {
                 final parsed = parseSpeedLimitInputKbps(value);
                 if (parsed != null) onSpeedLimitChanged(parsed);
               },
+            ),
+            SettingsCompactRow(
+              key: const ValueKey('settings-protocols'),
+              icon: Icons.info_outline,
+              title: strings.protocolSupport,
+              subtitle: strings.protocolListHint,
+              trailing: IconButton(
+                key: const ValueKey('settings-protocol-open'),
+                tooltip: strings.protocolSupport,
+                onPressed: onOpenProtocols,
+                icon: const Icon(Icons.chevron_right, size: 18),
+                constraints: const BoxConstraints.tightFor(
+                  width: 38,
+                  height: 38,
+                ),
+                padding: EdgeInsets.zero,
+              ),
             ),
           ],
         ),
@@ -3472,12 +3649,14 @@ class DownloadTaskCard extends StatelessWidget {
         ? strings.pause
         : task.state == DownloadState.paused
         ? strings.resume
-        : task.state == DownloadState.failed
+        : task.state == DownloadState.failed ||
+              task.state == DownloadState.handedOff
         ? strings.redownload
         : strings.start;
     final primaryIcon = task.canPause
         ? Icons.pause
-        : task.state == DownloadState.failed
+        : task.state == DownloadState.failed ||
+              task.state == DownloadState.handedOff
         ? Icons.refresh
         : Icons.play_arrow;
 
@@ -4120,13 +4299,11 @@ class _TorrentFileRow extends StatelessWidget {
           onTap: onTap,
           child: Stack(
             children: [
-              if (selected && metrics.progress > 0)
+              if (selected && (metrics.progress ?? 0) > 0)
                 Positioned.fill(
                   child: FractionallySizedBox(
                     alignment: Alignment.centerLeft,
                     widthFactor: metrics.progress,
-                    // 作者: long
-                    // libtorrent_flutter 当前没有逐文件实时进度字段，文件行先按任务整体进度分摊展示，避免详情页没有进度反馈。
                     child: ColoredBox(color: _taskProgressFill(colorScheme)),
                   ),
                 ),
@@ -4172,7 +4349,9 @@ class _TorrentFileRow extends StatelessWidget {
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                '${(metrics.progress * 100).round()}%',
+                                metrics.progress == null
+                                    ? '--'
+                                    : '${(metrics.progress! * 100).round()}%',
                                 maxLines: 1,
                                 style: textTheme.labelSmall?.copyWith(
                                   color: foreground,
@@ -4200,7 +4379,7 @@ class _TorrentFileRow extends StatelessWidget {
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                _formatSpeed(metrics.speedBytesPerSecond),
+                                '--',
                                 maxLines: 1,
                                 style: textTheme.labelSmall?.copyWith(
                                   color: foreground,
@@ -4216,7 +4395,10 @@ class _TorrentFileRow extends StatelessWidget {
                               Expanded(
                                 child: Text(
                                   selected
-                                      ? '${formatBytes(metrics.downloadedBytes)} / ${formatBytes(file.size)}'
+                                      ? metrics.downloadedBytes == null
+                                            ? strings
+                                                  .torrentFileMetricsUnavailable
+                                            : '${formatBytes(metrics.downloadedBytes)} / ${formatBytes(file.size)}'
                                       : strings.notSelectedFile,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -4255,13 +4437,11 @@ class _TorrentFileRow extends StatelessWidget {
 class _TorrentFileMetrics {
   const _TorrentFileMetrics({
     required this.downloadedBytes,
-    required this.speedBytesPerSecond,
     required this.progress,
   });
 
-  final int downloadedBytes;
-  final int speedBytesPerSecond;
-  final double progress;
+  final int? downloadedBytes;
+  final double? progress;
 }
 
 _TorrentFileMetrics _torrentFileMetrics(
@@ -4270,39 +4450,15 @@ _TorrentFileMetrics _torrentFileMetrics(
   bool selected,
 ) {
   if (!selected || file.size <= 0) {
-    return const _TorrentFileMetrics(
-      downloadedBytes: 0,
-      speedBytesPerSecond: 0,
-      progress: 0,
-    );
+    return const _TorrentFileMetrics(downloadedBytes: 0, progress: 0);
   }
   if (task.state == DownloadState.finished) {
-    final selectedTotal = task.selectedTorrentTotalBytes ?? file.size;
-    final averageSpeed = selectedTotal <= 0
-        ? 0
-        : (task.averageSpeedBytesPerSecond * file.size / selectedTotal).round();
-    return _TorrentFileMetrics(
-      downloadedBytes: file.size,
-      speedBytesPerSecond: averageSpeed,
-      progress: 1,
-    );
+    return _TorrentFileMetrics(downloadedBytes: file.size, progress: 1);
   }
 
-  final selectedTotal = task.selectedTorrentTotalBytes ?? file.size;
-  final weightedBytes = selectedTotal <= 0
-      ? 0
-      : (task.downloadedBytes * file.size / selectedTotal).round();
-  final weightedSpeed = selectedTotal <= 0
-      ? 0
-      : (task.currentSpeedBytesPerSecond * file.size / selectedTotal).round();
-  final downloadedBytes = weightedBytes.clamp(0, file.size).toInt();
-  return _TorrentFileMetrics(
-    downloadedBytes: downloadedBytes,
-    speedBytesPerSecond: task.state == DownloadState.running
-        ? weightedSpeed.clamp(0, task.currentSpeedBytesPerSecond).toInt()
-        : 0,
-    progress: (downloadedBytes / file.size).clamp(0.0, 1.0).toDouble(),
-  );
+  // 作者: long
+  // libtorrent_flutter 2.0.0 仍只提供任务总进度，没有逐文件完成字节；此处保留未知值，避免把比例估算展示成真实数据。
+  return const _TorrentFileMetrics(downloadedBytes: null, progress: null);
 }
 
 String _torrentFileOutputPath(DownloadTask task, TorrentFileEntry file) {
@@ -4438,6 +4594,7 @@ double _taskProgressValue(DownloadTask task) {
 IconData _taskStateIcon(DownloadState state) {
   return switch (state) {
     DownloadState.running => Icons.download_outlined,
+    DownloadState.handedOff => Icons.open_in_new,
     DownloadState.finished => Icons.check,
     DownloadState.failed => Icons.warning_amber_rounded,
     DownloadState.paused => Icons.pause,
@@ -4461,6 +4618,7 @@ String _compactTaskSource(String source) {
 Color _taskStateBackground(DownloadState state, ColorScheme colorScheme) {
   return switch (state) {
     DownloadState.running => const Color(0xffe4f4fd),
+    DownloadState.handedOff => const Color(0xffeef2f6),
     DownloadState.finished => const Color(0xffe8f4ec),
     DownloadState.failed => const Color(0xffffece7),
     DownloadState.paused => const Color(0xfffff3d8),
@@ -4475,6 +4633,7 @@ Color _taskProgressFill(ColorScheme colorScheme) {
 Color _taskStateBorder(DownloadState state, ColorScheme colorScheme) {
   return switch (state) {
     DownloadState.running => colorScheme.primary.withValues(alpha: 0.45),
+    DownloadState.handedOff => colorScheme.outline.withValues(alpha: 0.5),
     DownloadState.finished => const Color(0xff80b991),
     DownloadState.failed => colorScheme.error.withValues(alpha: 0.42),
     DownloadState.paused => const Color(0xffd8a634),
@@ -4485,6 +4644,7 @@ Color _taskStateBorder(DownloadState state, ColorScheme colorScheme) {
 Color _taskStateAccent(DownloadState state, ColorScheme colorScheme) {
   return switch (state) {
     DownloadState.running => colorScheme.primary,
+    DownloadState.handedOff => colorScheme.onSurfaceVariant,
     DownloadState.finished => const Color(0xff1d7a3d),
     DownloadState.failed => colorScheme.error,
     DownloadState.paused => const Color(0xff946400),

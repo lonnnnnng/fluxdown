@@ -65,7 +65,7 @@ flowchart TD
 
 - 身份：`id`。
 - 来源：`source`、`protocol`、`support`。
-- 状态：`queued`、`running`、`finished`、`failed`、`paused`。
+- 状态：桌面 Rust core 使用 `queued`、`running`、`finished`、`failed`、`paused`；移动端额外使用 `handedOff` 表示 ed2k 已交给外部兼容 App，不能把外部 App 的传输结果当作 FluxDown 内建下载完成。
 - 输出：`output_dir`、`file_name`。
 - 校验：`expected_sha256`。
 - 进度：`total_bytes`、`downloaded_bytes`。
@@ -161,7 +161,7 @@ Flutter App 没有直接复用 Rust core。当前移动端在 Dart 层实现协�
 
 - 移动端任务 JSON 是数组，桌面端队列 JSON 是 `{ "tasks": [...] }`。
 - 移动端输出目录在 App 沙盒内由 UI 选择或默认生成。
-- 移动端 ed2k 只能移交给已安装兼容 App。
+- 移动端 ed2k 只能移交给已安装兼容 App；移交成功后任务状态为 `handedOff`。
 - 移动端 torrent 依赖 `libtorrent_flutter` 原生组件。
 
 ## 数据流

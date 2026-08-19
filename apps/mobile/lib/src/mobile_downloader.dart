@@ -23,37 +23,6 @@ class DownloadCancelled implements Exception {
 
 const _mediaChannel = MethodChannel('dev.fluxdown.mobile/media');
 
-class DownloadSpeedLimiter {
-  DownloadSpeedLimiter.fromKbps(int kilobytesPerSecond)
-    : bytesPerSecond = kilobytesPerSecond <= 0 ? 0 : kilobytesPerSecond * 1024;
-
-  final int bytesPerSecond;
-  final Stopwatch _stopwatch = Stopwatch()..start();
-  var _transferredBytes = 0;
-  Future<void> _scheduledDelay = Future.value();
-
-  bool get enabled => bytesPerSecond > 0;
-
-  Future<void> throttle(int byteCount) {
-    if (!enabled || byteCount <= 0) {
-      return Future.value();
-    }
-
-    _scheduledDelay = _scheduledDelay.then((_) async {
-      _transferredBytes += byteCount;
-      final expectedMicroseconds =
-          (_transferredBytes * Duration.microsecondsPerSecond) ~/
-          bytesPerSecond;
-      final delayMicroseconds =
-          expectedMicroseconds - _stopwatch.elapsedMicroseconds;
-      if (delayMicroseconds > 0) {
-        await Future<void>.delayed(Duration(microseconds: delayMicroseconds));
-      }
-    });
-    return _scheduledDelay;
-  }
-}
-
 class MobileDownloadRunner {
   MobileDownloadRunner({http.Client? client})
     : this.withLauncher(client: client);
@@ -107,13 +76,18 @@ class MobileDownloadRunner {
     if (task.protocol == 'torrent' || task.protocol == 'magnet') {
       return downloadTorrent(
         task,
+        speedLimitKbps: speedLimitKbps,
         onProgress: onProgress,
         onMetadata: onTorrentMetadata,
       );
     }
 
     if (task.protocol == 'smb') {
-      return downloadSmb(task, onProgress: onProgress);
+      return downloadSmb(
+        task,
+        speedLimitKbps: speedLimitKbps,
+        onProgress: onProgress,
+      );
     }
 
     if (task.protocol == 'ed2k') {
@@ -224,7 +198,10 @@ class MobileDownloadRunner {
             throw const DownloadCancelled();
           }
 
-          await speedLimiter.throttle(chunk.length);
+          await speedLimiter.throttle(
+            chunk.length,
+            isCancelled: () => _cancelled.contains(task.id),
+          );
           if (_cancelled.contains(task.id)) {
             throw const DownloadCancelled();
           }
@@ -372,7 +349,10 @@ class MobileDownloadRunner {
                 throw const DownloadCancelled();
               }
 
-              await speedLimiter.throttle(chunk.length);
+              await speedLimiter.throttle(
+                chunk.length,
+                isCancelled: () => rangeFailed || _cancelled.contains(task.id),
+              );
               if (rangeFailed || _cancelled.contains(task.id)) {
                 throw const DownloadCancelled();
               }
@@ -511,7 +491,10 @@ class MobileDownloadRunner {
           sink: sink,
           startingBytes: partialBytes,
           isCancelled: () => _cancelled.contains(task.id),
-          throttleBytes: speedLimiter.throttle,
+          throttleBytes: (bytes) => speedLimiter.throttle(
+            bytes,
+            isCancelled: () => _cancelled.contains(task.id),
+          ),
           onProgress: (bytes) async {
             current = current.copyWith(
               downloadedBytes: bytes,
@@ -770,7 +753,10 @@ class MobileDownloadRunner {
           sink: sink,
           startingBytes: partialBytes,
           isCancelled: () => _cancelled.contains(task.id),
-          throttleBytes: speedLimiter.throttle,
+          throttleBytes: (bytes) => speedLimiter.throttle(
+            bytes,
+            isCancelled: () => _cancelled.contains(task.id),
+          ),
           onProgress: (bytes) async {
             current = current.copyWith(
               downloadedBytes: bytes,
@@ -801,6 +787,7 @@ class MobileDownloadRunner {
 
   Future<DownloadTask> downloadTorrent(
     DownloadTask task, {
+    int speedLimitKbps = 0,
     required FutureOr<void> Function(DownloadTask task) onProgress,
     TorrentMetadataSelector? onMetadata,
   }) async {
@@ -809,6 +796,7 @@ class MobileDownloadRunner {
     try {
       final finished = await runner.download(
         task,
+        speedLimitKbps: speedLimitKbps,
         onProgress: onProgress,
         isCancelled: () => _cancelled.contains(task.id),
         onMetadata: onMetadata,
@@ -824,12 +812,14 @@ class MobileDownloadRunner {
 
   Future<DownloadTask> downloadSmb(
     DownloadTask task, {
+    int speedLimitKbps = 0,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
     _cancelled.remove(task.id);
     try {
       final finished = await downloadSmbTask(
         task,
+        speedLimitKbps: speedLimitKbps,
         onProgress: onProgress,
         isCancelled: () => _cancelled.contains(task.id),
       );
@@ -858,7 +848,10 @@ class MobileDownloadRunner {
       if (_cancelled.contains(taskId)) {
         throw const DownloadCancelled();
       }
-      await speedLimiter.throttle(chunk.length);
+      await speedLimiter.throttle(
+        chunk.length,
+        isCancelled: () => _cancelled.contains(taskId),
+      );
       if (_cancelled.contains(taskId)) {
         throw const DownloadCancelled();
       }

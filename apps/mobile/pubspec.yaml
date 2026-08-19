@@ -1,7 +1,7 @@
 name: fluxdown_mobile
 description: "FluxDown mobile downloader for Android and iOS."
 publish_to: 'none'
-version: 1.0.9+10
+version: 1.0.10+11
 
 environment:
   sdk: ^3.11.5

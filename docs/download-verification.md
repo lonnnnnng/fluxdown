@@ -1,5 +1,12 @@
 # 下载验证状态
 
+## 2026-08-20 `1.0.10` 发版前复验
+
+- 版本号已同步到根 `package.json`、桌面 npm 包、Rust workspace、Tauri 配置和 Flutter `1.0.10+11`。
+- `flutter analyze` 通过，`flutter test` 通过，当前移动端共 42 个测试全部通过；Android release APK 构建成功并安装到 Redmi Note 8 Pro 真机。
+- 真机复验覆盖启动、队列页、新建任务弹框、扫码/剪切板入口、保存位置、磁盘容量面板、设置保存和协议能力入口；未发现 `FATAL EXCEPTION`。
+- 本轮没有把历史协议下载结果改记为当前版本结果；Android 当前版本完整协议下载仍按验证边界待重跑。
+
 截至 2026-08-06，FluxDown 已完成 macOS、Windows、Android、iOS 当前阶段的界面截图和验证记录，但还不能表述为“所有平台、所有协议、所有前台 GUI/App 路径都已完成真实下载验证”。Android 真机已经补过一轮正常 App 下载验证；macOS CLI 已补充可重复脚本化多协议验证，macOS 原生 Tauri GUI 本轮又通过真实前台操作覆盖 HTTP、HTTPS、WebDAV transport、WebDAVS transport、FTP、FTPS、SFTP、SMB、m3u8/HLS、Torrent、Magnet 和 ed2k 共 12 类任务，其中前 11 类均完成真实文件落盘、大小和 SHA-256 校验，ed2k 只完成向迅雷的系统移交。iOS 已在 simulator 中跑通 App 内 HTTP/fMP4 HLS/fMP4 BYTERANGE HLS/TS HLS 下载 smoke；Windows CLI 和原生 Tauri GUI 已完成 12 协议真实用例验证；Linux 目前仍只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。
 
 本页用于区分两类容易混淆的结论：

@@ -29,9 +29,11 @@ Future<DownloadTask> handOffEd2kTask(
   }
 
   return running.copyWith(
-    state: DownloadState.finished,
+    // 作者: long
+    // 外部应用接收链接只代表移交成功，FluxDown 无法读取其下载进度，因此不能标记为已完成。
+    state: DownloadState.handedOff,
     downloadedBytes: 0,
-    totalBytes: 0,
+    clearTotalBytes: true,
     clearError: true,
   );
 }

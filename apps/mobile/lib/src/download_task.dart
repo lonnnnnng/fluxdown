@@ -3,7 +3,7 @@ import 'package:path/path.dart' as p;
 
 import 'protocol.dart';
 
-enum DownloadState { queued, running, paused, finished, failed }
+enum DownloadState { queued, running, paused, handedOff, finished, failed }
 
 class TorrentFileEntry {
   const TorrentFileEntry({
@@ -172,6 +172,7 @@ class DownloadTask {
     final end =
         finishedAt ??
         (state == DownloadState.paused ? pausedAt : null) ??
+        (state == DownloadState.handedOff ? updatedAt : null) ??
         DateTime.now().toUtc();
     if (end.isBefore(start)) return Duration.zero;
     return end.difference(start);

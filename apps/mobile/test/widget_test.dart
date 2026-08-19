@@ -320,9 +320,10 @@ void main() {
       await controller.start(task.id);
 
       expect(launchedUri, Uri.parse('ed2k://|file|example.iso|123|ABCDEF|/'));
-      expect(controller.tasks.single.state, DownloadState.finished);
+      expect(controller.tasks.single.state, DownloadState.handedOff);
       expect(controller.tasks.single.downloadedBytes, 0);
-      expect(controller.tasks.single.totalBytes, 0);
+      expect(controller.tasks.single.totalBytes, isNull);
+      expect(controller.tasks.single.finishedAt, isNull);
       expect(controller.tasks.single.error, isNull);
     } finally {
       await tempDir.delete(recursive: true);

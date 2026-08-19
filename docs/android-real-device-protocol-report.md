@@ -102,6 +102,8 @@ metadata 识别、自动命名、队列完成状态更新和文件落盘；落�
 
 ### 本轮结论
 
+> 状态口径修正：上方历史快照中的 ed2k 记录曾写作 `state=finished`。当前移动端实现已改为 `state=handedOff`；该状态只表示链接已成功交给外部客户端，不表示 FluxDown 内建下载完成。
+
 - 已完成真机真实下载成功：HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、SFTP、
   SMB、m3u8/HLS、Torrent，共 10 类。
 - 已完成真机外部 App 移交：ed2k。安装 `Mule on Android` 后，FluxDown 能把

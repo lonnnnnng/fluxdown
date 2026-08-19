@@ -225,7 +225,10 @@ class DownloadController {
         _replace(
           id,
           (_) => finished.copyWith(
-            finishedAt: DateTime.now().toUtc(),
+            finishedAt: finished.state == DownloadState.finished
+                ? DateTime.now().toUtc()
+                : null,
+            clearFinishedAt: finished.state != DownloadState.finished,
             clearPausedAt: true,
             currentSpeedBytesPerSecond: 0,
           ),

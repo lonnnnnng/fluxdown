@@ -50,6 +50,7 @@ class MobileTorrentRunner {
 
   Future<DownloadTask> download(
     DownloadTask task, {
+    int speedLimitKbps = 0,
     required FutureOr<void> Function(DownloadTask task) onProgress,
     required bool Function() isCancelled,
     TorrentMetadataSelector? onMetadata,
@@ -62,6 +63,9 @@ class MobileTorrentRunner {
       pollInterval: const Duration(milliseconds: 500),
     );
     final engine = LibtorrentFlutter.instance;
+    // 作者: long
+    // libtorrent 的下载上限作用于当前 session，0 明确恢复为不限速，避免沿用上一批任务的旧配置。
+    engine.setDownloadLimit(speedLimitKbps <= 0 ? 0 : speedLimitKbps * 1024);
     final torrentSource = await _torrentSourcePath(task);
     final torrentId = task.protocol == 'magnet'
         ? engine.addMagnet(
