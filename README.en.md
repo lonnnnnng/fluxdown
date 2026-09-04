@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is `1.0.10`; see the latest release at [FluxDown 1.0.10](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.10).
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is `1.0.11`; see the latest release at [FluxDown 1.0.11](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.11).
 
 ## Current Status
 
@@ -38,7 +38,7 @@ FluxDown is a multi-protocol downloader for desktop and mobile. The current vers
 | Platform | Verified | Still Needed |
 | --- | --- | --- |
 | macOS Desktop/CLI | Release CLI covers HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet plus queue controls. Foreground desktop GUI has completed real validation for 12 protocol cases. Tauri commands cover HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet. | ed2k is handed off to an external client by product definition; WebDAV/WebDAVS transport mapping is verified, while full directory traversal still needs a separate pass. |
-| Windows Desktop/CLI | CI artifacts have been published. A Windows development machine completed CLI real-download validation for 12 protocol cases and native Tauri GUI foreground validation for 12 protocol cases. ed2k completed the product-defined system handoff flow. | ed2k is not completed by FluxDown's own internal downloader. GUI verification used a dedicated E2E window and isolated queue. |
+| Windows Desktop/CLI | CI artifacts have been published. A Windows development machine completed CLI real-download validation for 12 protocol cases and native Tauri GUI foreground validation for 12 protocol cases. ed2k completed the product-defined system handoff flow. In `1.0.11`, CLI and native GUI were re-verified against real public internet resources (Cloudflare, curl.se, Apple BipBop, Rebex, Debian) covering HTTP/HTTPS, FTP, SFTP, HLS, queue controls, and speed limiting; see the [Windows real-resource verification report](docs/windows-real-resource-verification.md). | ed2k is not completed by FluxDown's own internal downloader. GUI verification used a dedicated E2E window and isolated queue. FTPS servers that enforce TLS session reuse (vsftpd default config, Rebex) are not supported for data transfer yet; this is an upstream suppaftp engine limitation ([suppaftp#93](https://github.com/veeso/suppaftp/issues/93)). |
 | Linux Desktop/CLI | CI builds Linux CLI, GUI executable, `.deb`, and `.rpm` artifacts and checks that they are non-empty. | Installing the Linux GUI in a desktop environment and completing a real download is still pending. |
 | Android App | Historical `1.0.4` real-device coverage includes local HTTP/HTTPS/FTP/FTPS/SFTP/SMB, small HLS, small torrent, small magnet, media-sized HLS, single/multi-file torrent, and magnet. The current `1.0.10+11` release APK was installed on a Redmi Note 8 Pro and its queue, new-task dialog, settings, QR/clipboard entry points, and storage-capacity panel were rechecked. | Full protocol downloads still need to be rerun on the current version. Store distribution also needs signing, license, and background-behavior checks. |
 | iOS App | CI builds the iOS simulator app and unsigned device app. iOS simulator smoke covers HTTP, fMP4 HLS, BYTERANGE HLS, and TS HLS downloads. | Signed IPA, iPhone installation, QR scanning, file picking, share/open flows, and physical-device capabilities are still pending. |

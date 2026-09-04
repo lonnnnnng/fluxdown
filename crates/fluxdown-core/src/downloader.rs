@@ -107,6 +107,10 @@ pub enum DownloadError {
     InvalidSmbUrl(String),
     #[error(transparent)]
     Ftp(#[from] suppaftp::FtpError),
+    #[error(
+        "FTPS data connection failed: {source}; this server likely requires TLS session reuse on the data connection (e.g. vsftpd require_ssl_reuse=YES, Rebex test server), which the FTPS engine does not support yet (upstream suppaftp issue #93)"
+    )]
+    FtpsDataTls { source: suppaftp::FtpError },
     #[error(transparent)]
     Sftp(#[from] ssh2::Error),
     #[error(transparent)]
@@ -677,7 +681,10 @@ impl DownloadEngine {
             ftp.resume_transfer(existing_bytes as usize).await?;
         }
 
-        let mut stream = ftp.retr_as_stream(&spec.remote_path).await?;
+        let mut stream = ftp
+            .retr_as_stream(&spec.remote_path)
+            .await
+            .map_err(|error| map_ftp_data_error(protocol, error))?;
         let mut file = if existing_bytes > 0 {
             let mut file = OpenOptions::new().append(true).open(&output_path).await?;
             file.seek(std::io::SeekFrom::End(0)).await?;
@@ -711,7 +718,9 @@ impl DownloadEngine {
         }
 
         file.flush().await?;
-        ftp.finalize_retr_stream(stream).await?;
+        ftp.finalize_retr_stream(stream)
+            .await
+            .map_err(|error| map_ftp_data_error(protocol, error))?;
         let _ = ftp.quit().await;
 
         Ok(DownloadSummary {
@@ -1894,6 +1903,16 @@ fn decrypt_hls_aes128(
         .map_err(|error| DownloadError::HlsDecrypt(error.to_string()))
 }
 
+// FTPS 数据连接建立阶段的 TLS 错误通常是服务器强制会话复用（vsftpd/Rebex 类）所致；
+// 上游 suppaftp 引擎暂不支持该能力，这里把底层晦涩的 SecureError 翻译成可操作的提示。
+fn map_ftp_data_error(protocol: Protocol, error: suppaftp::FtpError) -> DownloadError {
+    if protocol == Protocol::Ftps {
+        DownloadError::FtpsDataTls { source: error }
+    } else {
+        DownloadError::Ftp(error)
+    }
+}
+
 async fn connect_ftps(spec: &FtpDownloadSpec) -> Result<AsyncRustlsFtpStream, DownloadError> {
     let config = ftps_tls_config(spec.allow_bad_certificate);
     let connector = AsyncRustlsConnector::from(tokio_rustls::TlsConnector::from(Arc::new(config)));
@@ -2386,6 +2405,31 @@ mod tests {
     use tokio::sync::Mutex as AsyncMutex;
 
     type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
+
+    #[test]
+    fn ftps_data_tls_error_carries_guidance() {
+        let error = DownloadError::FtpsDataTls {
+            source: suppaftp::FtpError::SecureError("bad record".into()),
+        };
+        let text = error.to_string();
+        assert!(text.contains("TLS session reuse"), "unexpected: {text}");
+        assert!(text.contains("suppaftp issue #93"), "unexpected: {text}");
+    }
+
+    #[test]
+    fn ftp_data_errors_stay_transparent_for_plain_ftp() {
+        let error = map_ftp_data_error(
+            Protocol::Ftp,
+            suppaftp::FtpError::SecureError("bad record".into()),
+        );
+        assert!(matches!(error, DownloadError::Ftp(_)));
+        let error = map_ftp_data_error(
+            Protocol::Ftps,
+            suppaftp::FtpError::SecureError("bad record".into()),
+        );
+        assert!(matches!(error, DownloadError::FtpsDataTls { .. }));
+    }
+
 
     #[test]
     fn torrent_output_details_use_single_file_name() {

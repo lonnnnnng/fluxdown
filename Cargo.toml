@@ -9,7 +9,7 @@ resolver = "3"
 [workspace.package]
 edition = "2024"
 license = "MIT"
-version = "1.0.10"
+version = "1.0.11"
 
 [workspace.dependencies]
 aes = "0.8.4"
@@ -27,7 +27,7 @@ serde_json = "1.0.145"
 sha2 = "0.10.9"
 smb2 = "0.11.2"
 ssh2 = "0.9.5"
-suppaftp = { version = "8.0.3", features = ["tokio", "tokio-rustls-ring", "deprecated"] }
+suppaftp = { version = "11.0.0", features = ["tokio", "tokio-rustls-ring", "deprecated"] }
 tauri = { version = "2.9.5", features = [] }
 tauri-build = "2.5.3"
 thiserror = "2.0.17"

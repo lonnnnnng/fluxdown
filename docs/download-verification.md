@@ -1,5 +1,14 @@
 # 下载验证状态
 
+## 2026-09-05 Windows 端真实资源复验（`1.0.11`）
+
+- 用真实公网资源（Cloudflare、curl.se、Apple BipBop、Rebex 公网测试服务器、Debian 官方种子）复验 Windows CLI 与原生 Tauri GUI，本地不搭 fixture；完整用例表、证据和边界见 [Windows 真实资源验证报告](windows-real-resource-verification.md)。
+- CLI：HTTPS 多线程（10MB 分毫不差）、HTTPS SHA-256 官方校验、FTP、SFTP、HLS TS/fMP4（59MB/150MB）、队列并发/暂停恢复/限速/URL 脱敏全部通过。
+- 原生 GUI：HTTP、FTP、SFTP、HLS 四类真实公网资源经真实前台交互全部 `finished`。
+- 发现并修复：FTPS 数据连接对强制 TLS 会话复用的服务器（vsftpd 默认配置、Rebex）失败，根因在 suppaftp 引擎（上游 issue #93）；本次将 suppaftp 升级到 11.0.0（获得数据通道 close_notify 修复与 CR/LF 注入防护），并把此类错误翻译为可操作提示 `DownloadError::FtpsDataTls`。该硬性边界已记录在 README 验证边界。
+- Torrent/Magnet：metadata 拉取、piece 分配、peer 连接与 45s stall 保护行为验证通过；完整传输受本机网络（BT 入站/DHT 受限）限制，留待 P2P 友好网络复验。
+
+
 ## 2026-08-20 `1.0.10` 发版前复验
 
 - 版本号已同步到根 `package.json`、桌面 npm 包、Rust workspace、Tauri 配置和 Flutter `1.0.10+11`。
