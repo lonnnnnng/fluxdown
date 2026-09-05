@@ -1342,11 +1342,15 @@ dependencies = [
  "anyhow",
  "fluxdown-core",
  "open",
+ "reqwest 0.12.28",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
+ "tauri-plugin-window-state",
  "tempfile",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -4815,6 +4819,37 @@ dependencies = [
  "syn 2.0.117",
  "tauri-codegen",
  "tauri-utils",
+]
+
+[[package]]
+name = "tauri-plugin"
+version = "2.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e126abc9e84e35cdfd01596140a73a1850cdb0df0a23acf0185776c30b469a6e"
+dependencies = [
+ "anyhow",
+ "glob",
+ "plist",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tauri-utils",
+ "walkdir",
+]
+
+[[package]]
+name = "tauri-plugin-window-state"
+version = "2.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73736611e14142408d15353e21e3cca2f12a3cfb523ad0ce85999b6d2ef1a704"
+dependencies = [
+ "bitflags 2.11.1",
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

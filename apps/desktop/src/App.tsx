@@ -176,6 +176,49 @@ type Settings = {
   refreshIntervalMs: number;
 };
 
+type UpdateCheckReport = {
+  current_version: string;
+  latest_version: string;
+  has_update: boolean;
+  release_url: string;
+  release_notes?: string | null;
+  published_at?: string | null;
+  download_url?: string | null;
+  download_file_name?: string | null;
+  download_size_bytes?: number | null;
+};
+
+type UpdateDialogState =
+  | "closed"
+  | "checking"
+  | "upToDate"
+  | "available"
+  | "downloading"
+  | "installReady"
+  | "error";
+
+const updateIgnoredVersionKey = "fluxdown.desktop.ignoredUpdate";
+
+function loadIgnoredUpdateVersion(): string {
+  try {
+    return window.localStorage.getItem(updateIgnoredVersionKey) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function saveIgnoredUpdateVersion(version: string) {
+  try {
+    if (version) {
+      window.localStorage.setItem(updateIgnoredVersionKey, version);
+    } else {
+      window.localStorage.removeItem(updateIgnoredVersionKey);
+    }
+  } catch {
+    // Local storage can be unavailable in restricted web previews.
+  }
+}
+
 const settingsKey = "fluxdown.desktop.settings.v2";
 const defaultSettings: Settings = {
   outputDir: "",
@@ -367,6 +410,27 @@ function clampNumber(
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+function compareVersions(left: string, right: string): number {
+  const toParts = (version: string) =>
+    version
+      .trim()
+      .replace(/^v/i, "")
+      .split(".")
+      .map((part) => {
+        const parsed = Number.parseInt(part.trim(), 10);
+        return Number.isFinite(parsed) ? parsed : 0;
+      });
+  const leftParts = toParts(left);
+  const rightParts = toParts(right);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const l = leftParts[index] ?? 0;
+    const r = rightParts[index] ?? 0;
+    if (l !== r) return l - r;
+  }
+  return 0;
 }
 
 function taskTitle(task: DownloadTask) {
@@ -642,6 +706,12 @@ function App() {
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
   const [propertyTask, setPropertyTask] = useState<DownloadTask | null>(null);
   const [action, setAction] = useState<TaskAction>("idle");
+  const [updateDialogState, setUpdateDialogState] =
+    useState<UpdateDialogState>("closed");
+  const [updateReport, setUpdateReport] = useState<UpdateCheckReport | null>(
+    null,
+  );
+  const [updateError, setUpdateError] = useState("");
   const autoRunKeyRef = useRef("");
 
   const counts = useMemo(() => taskCounts(tasks), [tasks]);
@@ -715,6 +785,69 @@ function App() {
   useEffect(() => {
     saveSettings(settings);
   }, [settings]);
+
+  const runUpdateCheck = useCallback(async () => {
+    setUpdateDialogState("checking");
+    setUpdateError("");
+    try {
+      const report = await invoke<UpdateCheckReport>("check_update");
+      setUpdateReport(report);
+      const ignored = loadIgnoredUpdateVersion();
+      // 作者: long
+      // 用户对某个版本点过“忽略此版本”后，再次检查时不再按有更新打扰，按最新已忽略处理。
+      const suppressed =
+        ignored &&
+        !compareVersions(report.latest_version, ignored);
+      if (!report.has_update || suppressed) {
+        setUpdateDialogState("upToDate");
+      } else {
+        setUpdateDialogState("available");
+      }
+    } catch (error) {
+      setUpdateError(safeErrorText(error));
+      setUpdateDialogState("error");
+    }
+  }, []);
+
+  const closeUpdateDialog = useCallback(() => {
+    if (updateDialogState === "downloading") return;
+    setUpdateDialogState("closed");
+    setUpdateError("");
+  }, [updateDialogState]);
+
+  const ignoreUpdateVersion = useCallback(() => {
+    if (updateReport?.latest_version) {
+      saveIgnoredUpdateVersion(updateReport.latest_version);
+      setMessage(`已忽略 ${updateReport.latest_version}，此后检查更新不再提示该版本`);
+    }
+    setUpdateDialogState("closed");
+  }, [updateReport]);
+
+  const openDownloadPage = useCallback(async () => {
+    try {
+      await invoke("open_download_page");
+    } catch (error) {
+      setMessage(safeErrorText(error));
+    }
+  }, []);
+
+  const startOnlineUpdate = useCallback(async () => {
+    if (!updateReport?.download_url || !updateReport.download_file_name) return;
+    setUpdateDialogState("downloading");
+    setUpdateError("");
+    try {
+      await invoke("download_and_install_update", {
+        url: updateReport.download_url,
+        fileName: updateReport.download_file_name,
+      });
+      // 作者: long
+      // Rust 端启动系统安装器后会延迟退出应用；这里只负责提示，不必等待。
+      setUpdateDialogState("installReady");
+    } catch (error) {
+      setUpdateError(safeErrorText(error));
+      setUpdateDialogState("error");
+    }
+  }, [updateReport]);
 
   useEffect(() => {
     refreshTasks();
@@ -1164,6 +1297,15 @@ function App() {
                     <Icon name="refresh" />
                   </button>
                   <button
+                    aria-label="检查更新"
+                    data-action="check-update"
+                    data-testid="check-update-button"
+                    title="检查更新"
+                    onClick={runUpdateCheck}
+                  >
+                    <Icon name="download" />
+                  </button>
+                  <button
                     aria-label="打开设置"
                     data-action="settings"
                     data-testid="settings-button"
@@ -1245,6 +1387,19 @@ function App() {
           source={source}
           support={sourceSupport}
           torrentFileIndices={torrentFileIndices}
+        />
+      ) : null}
+
+      {updateDialogState !== "closed" ? (
+        <UpdateDialog
+          dialogState={updateDialogState}
+          errorText={updateError}
+          onClose={closeUpdateDialog}
+          onIgnore={ignoreUpdateVersion}
+          onOpenDownloadPage={openDownloadPage}
+          onRetry={runUpdateCheck}
+          onStartUpdate={startOnlineUpdate}
+          report={updateReport}
         />
       ) : null}
 
@@ -1489,6 +1644,145 @@ function TaskRow({
       </div>
       {action === "start" ? <span className="busyDot" /> : null}
     </article>
+  );
+}
+
+function UpdateDialog({
+  dialogState,
+  errorText,
+  onClose,
+  onIgnore,
+  onOpenDownloadPage,
+  onRetry,
+  onStartUpdate,
+  report,
+}: {
+  dialogState: UpdateDialogState;
+  errorText: string;
+  onClose: () => void;
+  onIgnore: () => void;
+  onOpenDownloadPage: () => void;
+  onRetry: () => void;
+  onStartUpdate: () => void;
+  report: UpdateCheckReport | null;
+}) {
+  const busy = dialogState === "checking" || dialogState === "downloading";
+  const currentVersion = report?.current_version ?? "";
+  const latestVersion = report?.latest_version ?? "";
+
+  return (
+    <div
+      className="modalBackdrop"
+      data-testid="update-backdrop"
+      onMouseDown={busy ? undefined : onClose}
+    >
+      <section
+        className="taskDialog updateDialog"
+        data-testid="update-dialog"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="dialogHeader">
+          <div>
+            <span className="dialogMark"><Icon name="download" /></span>
+            <h2>检查更新</h2>
+          </div>
+          <div className="dialogTools">
+            <button
+              aria-label="关闭"
+              data-testid="update-header-close"
+              disabled={busy}
+              title="关闭"
+              onClick={onClose}
+            >
+              <Icon name="x" />
+            </button>
+          </div>
+        </header>
+
+        {dialogState === "checking" ? (
+          <p className="updateStatus" data-testid="update-checking">
+            正在检查更新…
+          </p>
+        ) : null}
+
+        {dialogState === "upToDate" && report ? (
+          <div data-testid="update-up-to-date">
+            <p className="updateStatus ready">
+              当前已是最新版本 v{currentVersion}
+            </p>
+          </div>
+        ) : null}
+
+        {dialogState === "available" && report ? (
+          <div data-testid="update-available">
+            <p className="updateStatus">
+              当前版本为 <strong>v{currentVersion}</strong>，最新版本为{" "}
+              <strong>v{latestVersion}</strong>
+            </p>
+            <div className="updateNotesBlock">
+              <span>更新内容</span>
+              <pre className="updateNotes" data-testid="update-notes">
+                {report.release_notes?.trim() || "暂无更新说明"}
+              </pre>
+            </div>
+          </div>
+        ) : null}
+
+        {dialogState === "downloading" ? (
+          <p className="updateStatus" data-testid="update-downloading">
+            正在下载更新包…完成后将自动启动安装器并退出应用
+          </p>
+        ) : null}
+
+        {dialogState === "installReady" && report ? (
+          <p className="updateStatus ready" data-testid="update-install-ready">
+            安装器已启动（{report.download_file_name ?? "更新包"}），应用即将退出以完成更新。
+          </p>
+        ) : null}
+
+        {dialogState === "error" ? (
+          <p className="updateStatus failed" data-testid="update-error">
+            {errorText || "检查更新失败，请稍后重试"}
+          </p>
+        ) : null}
+
+        <footer className="dialogFooter">
+          <button data-testid="update-close" disabled={busy} onClick={onClose}>
+            关闭
+          </button>
+          {dialogState === "available" ? (
+            <button data-testid="update-ignore" onClick={onIgnore}>
+              忽略此版本
+            </button>
+          ) : null}
+          {dialogState === "available" ? (
+            <button data-testid="update-open-page" onClick={onOpenDownloadPage}>
+              打开下载页
+            </button>
+          ) : null}
+          {dialogState === "available" ? (
+            <button
+              className="primary"
+              data-testid="update-install"
+              disabled={!report?.download_url}
+              title={
+                report?.download_url
+                  ? "下载最新安装包并启动安装"
+                  : "当前平台没有可用的自动更新安装包，请使用“打开下载页”"
+              }
+              onClick={onStartUpdate}
+            >
+              在线更新
+            </button>
+          ) : null}
+          {dialogState === "error" ? (
+            <button className="primary" data-testid="update-retry" onClick={onRetry}>
+              重试
+            </button>
+          ) : null}
+        </footer>
+      </section>
+    </div>
   );
 }
 

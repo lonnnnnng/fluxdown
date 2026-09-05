@@ -510,8 +510,305 @@ fn home_dir() -> Option<PathBuf> {
         })
 }
 
+// 桌面端检查更新走 GitHub Releases 公开接口；E2E 可用环境变量替换为本地 fixture。
+const UPDATE_RELEASES_API_URL: &str =
+    "https://api.github.com/repos/lonnnnnng/fluxdown/releases/latest";
+const UPDATE_RELEASES_PAGE_URL: &str = "https://github.com/lonnnnnng/fluxdown/releases/latest";
+
+#[derive(Debug, serde::Serialize)]
+struct UpdateCheckReport {
+    current_version: String,
+    latest_version: String,
+    has_update: bool,
+    release_url: String,
+    release_notes: Option<String>,
+    published_at: Option<String>,
+    download_url: Option<String>,
+    download_file_name: Option<String>,
+    download_size_bytes: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubRelease {
+    tag_name: Option<String>,
+    html_url: Option<String>,
+    body: Option<String>,
+    published_at: Option<String>,
+    #[serde(default)]
+    assets: Vec<GitHubReleaseAsset>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubReleaseAsset {
+    name: String,
+    browser_download_url: String,
+    size: Option<u64>,
+}
+
+#[tauri::command]
+async fn check_update() -> Result<UpdateCheckReport, String> {
+    let api_url = env::var("FLUXDOWN_UPDATE_API_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| UPDATE_RELEASES_API_URL.to_string());
+    fetch_latest_release(&api_url).await
+}
+
+// 作者: long
+// E2E 专用：WebView2 的 browser 级 CDP 不提供窗口尺寸控制，桌面窗口尺寸持久化
+// 的自动化验证改走该 command；只在 E2E 运行（存在 e2e webview 参数）时生效。
+#[tauri::command]
+async fn e2e_window_metrics(
+    window: tauri::WebviewWindow,
+    resize_width: Option<f64>,
+    resize_height: Option<f64>,
+) -> Result<serde_json::Value, String> {
+    if env::var_os("FLUXDOWN_E2E_WEBVIEW2_ARGS").is_none() {
+        return Err("e2e_window_metrics is only available during E2E runs".to_string());
+    }
+    if let (Some(width), Some(height)) = (resize_width, resize_height) {
+        window
+            .set_size(tauri::LogicalSize::new(width, height))
+            .map_err(|error| error.to_string())?;
+        // 作者: long
+        // 给 window-state 插件一点时间收到 Resized 事件并更新内存状态。
+        tokio::time::sleep(Duration::from_millis(600)).await;
+    }
+    let inner = window.inner_size().map_err(|error| error.to_string())?;
+    let outer = window.outer_size().map_err(|error| error.to_string())?;
+    let scale = window.scale_factor().map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({
+        "inner_width": inner.width,
+        "inner_height": inner.height,
+        "outer_width": outer.width,
+        "outer_height": outer.height,
+        "scale_factor": scale,
+    }))
+}
+
+// 作者: long
+// E2E 专用退出入口：window.close() 在 WebView2 中会被忽略，而 window-state 插件
+// 需要一次正常退出（RunEvent::Exit）才会把窗口状态写盘。
+#[tauri::command]
+async fn e2e_quit_app(app: tauri::AppHandle) -> Result<(), String> {
+    if env::var_os("FLUXDOWN_E2E_WEBVIEW2_ARGS").is_none() {
+        return Err("e2e_quit_app is only available during E2E runs".to_string());
+    }
+    app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+fn open_download_page() -> Result<(), String> {
+    open::that(UPDATE_RELEASES_PAGE_URL).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn download_and_install_update(
+    app: tauri::AppHandle,
+    url: String,
+    file_name: String,
+) -> Result<String, String> {
+    let installer = download_update_installer(&url, &file_name).await?;
+    if spawn_platform_installer(&installer)? {
+        // 作者: long
+        // 安装器已接管后，桌面应用延迟退出，避免退出太早导致安装器提示文件被占用。
+        let app_for_exit = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+            app_for_exit.exit(0);
+        });
+    }
+    Ok(installer.to_string_lossy().into_owned())
+}
+
+async fn fetch_latest_release(api_url: &str) -> Result<UpdateCheckReport, String> {
+    let client = reqwest::Client::builder()
+        .user_agent(concat!("FluxDown/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .get(api_url)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|error| format!("无法连接更新服务器: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("更新服务器返回错误: {error}"))?;
+    let release: GitHubRelease = response
+        .json()
+        .await
+        .map_err(|error| format!("无法解析更新信息: {error}"))?;
+
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let latest_version = release
+        .tag_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.trim_start_matches(['v', 'V']).to_string())
+        .ok_or_else(|| "更新信息缺少版本号".to_string())?;
+    let asset = release
+        .assets
+        .iter()
+        .find(|asset| matches_platform_asset(&asset.name));
+
+    Ok(UpdateCheckReport {
+        has_update: compare_versions(&latest_version, &current_version) == std::cmp::Ordering::Greater,
+        current_version,
+        latest_version,
+        release_url: release
+            .html_url
+            .unwrap_or_else(|| UPDATE_RELEASES_PAGE_URL.to_string()),
+        release_notes: release.body,
+        published_at: release.published_at,
+        download_url: asset.map(|asset| asset.browser_download_url.clone()),
+        download_file_name: asset.map(|asset| asset.name.clone()),
+        download_size_bytes: asset.and_then(|asset| asset.size),
+    })
+}
+
+async fn download_update_installer(url: &str, file_name: &str) -> Result<PathBuf, String> {
+    if !is_trusted_download_url(url) {
+        return Err(format!("拒绝下载不受信任的更新地址: {url}"));
+    }
+    let safe_name = sanitize_download_file_name(file_name, "FluxDown-setup.exe");
+    let target = env::temp_dir().join(format!("fluxdown-update-{safe_name}"));
+    let client = reqwest::Client::builder()
+        .user_agent(concat!("FluxDown/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let mut response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| format!("下载更新失败: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("下载更新失败: {error}"))?;
+    let mut file = tokio::fs::File::create(&target)
+        .await
+        .map_err(|error| format!("无法创建安装包文件: {error}"))?;
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| format!("下载更新中断: {error}"))?
+    {
+        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
+            .await
+            .map_err(|error| format!("写入安装包失败: {error}"))?;
+    }
+    tokio::io::AsyncWriteExt::flush(&mut file)
+        .await
+        .map_err(|error| format!("写入安装包失败: {error}"))?;
+    Ok(target)
+}
+
+fn spawn_platform_installer(path: &Path) -> Result<bool, String> {
+    // 作者: long
+    // 按安装包类型交给系统默认安装流程；返回 false 表示当前平台没有对应安装方式，
+    // 此时前端引导用户改用“打开下载页”。
+    let Some(extension) = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+    else {
+        return Ok(false);
+    };
+    match extension.as_str() {
+        "exe" => std::process::Command::new(path)
+            .spawn()
+            .map(|_| true)
+            .map_err(|error| format!("启动安装器失败: {error}")),
+        "msi" => std::process::Command::new("msiexec")
+            .args(["/i"])
+            .arg(path)
+            .spawn()
+            .map(|_| true)
+            .map_err(|error| format!("启动安装器失败: {error}")),
+        "dmg" | "deb" | "rpm" => {
+            // 作者: long
+            // open::that_in_background 返回 JoinHandle，交给系统后台打开即可，无需等待。
+            open::that_in_background(path);
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn is_trusted_download_url(value: &str) -> bool {
+    // 作者: long
+    // 更新包只允许来自 GitHub 官方发布域；回环地址保留给 E2E fixture。
+    let Ok(parsed) = url::Url::parse(value) else {
+        return false;
+    };
+    if !matches!(parsed.scheme(), "https" | "http") {
+        return false;
+    }
+    let Some(host) = parsed.host_str().map(|host| host.to_ascii_lowercase()) else {
+        return false;
+    };
+    matches!(
+        host.as_str(),
+        "github.com"
+            | "api.github.com"
+            | "objects.githubusercontent.com"
+            | "release-assets.githubusercontent.com"
+    ) || host == "127.0.0.1"
+        || host == "localhost"
+        || host == "[::1]"
+}
+
+fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
+    fn parts(version: &str) -> Vec<u64> {
+        version
+            .trim()
+            .trim_start_matches(['v', 'V'])
+            .split('.')
+            .map(|part| {
+                part.trim()
+                    .parse::<u64>()
+                    .unwrap_or(0)
+            })
+            .collect()
+    }
+    let left = parts(left);
+    let right = parts(right);
+    for index in 0..left.len().max(right.len()) {
+        let l = left.get(index).copied().unwrap_or(0);
+        let r = right.get(index).copied().unwrap_or(0);
+        if l != r {
+            return l.cmp(&r);
+        }
+    }
+    std::cmp::Ordering::Equal
+}
+
+fn matches_platform_asset(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    if cfg!(target_os = "windows") {
+        cfg!(target_arch = "x86_64") && lower.contains("windows-x86_64-setup.exe")
+    } else if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            lower.contains("macos-aarch64.dmg")
+        } else {
+            lower.contains("macos-x86_64.dmg")
+        }
+    } else if cfg!(target_os = "linux") {
+        if cfg!(target_arch = "aarch64") {
+            lower.contains("linux-aarch64.deb")
+        } else {
+            lower.contains("linux-amd64.deb")
+        }
+    } else {
+        false
+    }
+}
+
 fn main() {
     tauri::Builder::default()
+        // 作者: long
+        // 窗口大小/位置由官方 window-state 插件在窗口变化与退出时持久化，下次启动自动恢复。
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|_app| {
             #[cfg(target_os = "windows")]
             setup_e2e_webview(_app)?;
@@ -532,7 +829,12 @@ fn main() {
             open_task_output,
             reveal_task_output,
             start_download,
-            run_queue
+            run_queue,
+            check_update,
+            open_download_page,
+            download_and_install_update,
+            e2e_window_metrics,
+            e2e_quit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running FluxDown desktop app");
@@ -619,6 +921,60 @@ mod tests {
 
     fn spawn_single_file_http_server(payload: &'static [u8]) -> String {
         spawn_checked_http_server(payload, "/fixture.txt")
+    }
+
+    #[test]
+    fn compare_versions_handles_semver_segments() {
+        use std::cmp::Ordering;
+        assert_eq!(compare_versions("1.0.11", "1.0.10"), Ordering::Greater);
+        assert_eq!(compare_versions("v1.0.11", "1.0.11"), Ordering::Equal);
+        assert_eq!(compare_versions("1.0", "1.0.0"), Ordering::Equal);
+        assert_eq!(compare_versions("0.9.9", "1.0.0"), Ordering::Less);
+        assert_eq!(compare_versions("2.0", "1.99.99"), Ordering::Greater);
+        // 预发布段无法按数字解析，按 0 处理，因此排在对应正式版之前。
+        assert_eq!(compare_versions("1.0.11-beta", "1.0.11"), Ordering::Less);
+    }
+
+    #[test]
+    fn matches_platform_asset_selects_platform_installer() {
+        // 作者: long
+        // 断言跟随编译目标平台，保证每台机器上匹配到的都是自己平台的安装包。
+        let expected = if cfg!(target_os = "windows") {
+            "FluxDown-1.0.12-windows-x86_64-setup.exe"
+        } else if cfg!(target_os = "macos") {
+            "FluxDown-1.0.12-macos-aarch64.dmg"
+        } else if cfg!(target_os = "linux") {
+            "FluxDown-1.0.12-linux-amd64.deb"
+        } else {
+            return;
+        };
+        assert!(matches_platform_asset(expected));
+        assert!(!matches_platform_asset("FluxDown-1.0.12-android-release.apk"));
+        if cfg!(target_os = "windows") {
+            assert!(!matches_platform_asset(
+                "FluxDown-1.0.12-macos-aarch64.dmg"
+            ));
+        }
+    }
+
+    #[test]
+    fn trusted_download_urls_whitelist_github_and_loopback() {
+        assert!(is_trusted_download_url(
+            "https://github.com/lonnnnnng/fluxdown/releases/download/v1.0.12/setup.exe"
+        ));
+        assert!(is_trusted_download_url(
+            "https://objects.githubusercontent.com/fluxdown/setup.exe"
+        ));
+        assert!(is_trusted_download_url(
+            "http://127.0.0.1:45321/FluxDown-99.0.0-windows-x86_64-setup.exe"
+        ));
+        assert!(!is_trusted_download_url(
+            "https://evil.example.com/github.com/setup.exe"
+        ));
+        assert!(!is_trusted_download_url(
+            "ftp://github.com/lonnnnnng/setup.exe"
+        ));
+        assert!(!is_trusted_download_url("not a url"));
     }
 
     fn spawn_checked_http_server(payload: &'static [u8], expected_path: &'static str) -> String {

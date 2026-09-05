@@ -1555,3 +1555,50 @@ textarea:focus-visible,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---- 检查更新对话框 ---- */
+.updateDialog {
+  width: min(560px, 100%);
+}
+
+.updateStatus {
+  margin: 4px 0 12px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.updateStatus strong {
+  color: var(--primary-ink);
+}
+
+.updateStatus.ready {
+  color: #16794c;
+}
+
+.updateStatus.failed {
+  color: #b3261e;
+  word-break: break-all;
+}
+
+.updateNotesBlock {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.updateNotes {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f7fafc;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
