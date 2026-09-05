@@ -1,5 +1,12 @@
 # 下载验证状态
 
+## 2026-09-05 `1.0.12` 桌面端功能发版
+
+- 桌面端新增“检查更新”入口（GitHub Releases 比对版本、更新内容展示、关闭/忽略此版本/打开下载页/在线更新四个动作）与窗口尺寸持久化（tauri-plugin-window-state）。
+- Windows E2E 13 项用例全部通过：真实 GitHub API 的“已是最新”分支、本地 fixture 的“有新版本”分支（版本展示、更新内容、四按钮）、忽略版本抑制、在线更新下载安装包并启动安装器后正常退出、1100x760 窗口尺寸跨重启恢复（200% DPI）。
+- Rust 测试：desktop 33（新增版本比较/平台安装包匹配/下载域名白名单）、core 69、cli 31，全部通过；前端 tsc + vite 构建通过。
+
+
 ## 2026-09-05 Windows 端真实资源复验（`1.0.11`）
 
 - 用真实公网资源（Cloudflare、curl.se、Apple BipBop、Rebex 公网测试服务器、Debian 官方种子）复验 Windows CLI 与原生 Tauri GUI，本地不搭 fixture；完整用例表、证据和边界见 [Windows 真实资源验证报告](windows-real-resource-verification.md)。
