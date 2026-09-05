@@ -1,8 +1,8 @@
 use fluxdown_core::{
     DoctorReport, DownloadOptions, DownloadRequest, DownloadState, DownloadTask, Protocol,
     QueueRunReport, QueueRunner, QueueRunnerOptions, RuntimeSupportStatus, TaskRunReport,
-    TaskStore, default_store_path, detect_protocol, doctor_report, runtime_support_status,
-    sanitize_download_file_name, validate_sha256_text,
+    TaskStore, default_store_path, detect_protocol, doctor_report, hls_variants,
+    runtime_support_status, sanitize_download_file_name, torrent_details, validate_sha256_text,
 };
 use serde::Deserialize;
 #[cfg(any(target_os = "macos", test))]
@@ -20,7 +20,7 @@ const MIN_CONCURRENCY: usize = 1;
 const MAX_CONCURRENCY: usize = 30;
 const DEFAULT_RETRY_ATTEMPTS: usize = 1;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct AddPayload {
     source: String,
     output_dir: String,
@@ -29,6 +29,12 @@ struct AddPayload {
     expected_sha256: Option<String>,
     #[serde(default)]
     torrent_file_indices: Vec<usize>,
+    #[serde(default)]
+    speed_limit_mbps: Option<f64>,
+    #[serde(default)]
+    hls_variant_index: Option<usize>,
+    #[serde(default)]
+    hls_keep_transport_stream: Option<bool>,
 }
 
 #[tauri::command]
@@ -65,10 +71,28 @@ async fn enqueue_download(payload: AddPayload) -> Result<DownloadTask, String> {
     request.file_name = payload.file_name;
     request.expected_sha256 = validated_expected_sha256(payload.expected_sha256)?;
     request.torrent_file_indices = payload.torrent_file_indices;
+    request.speed_limit_mbps = payload.speed_limit_mbps.filter(|limit| limit.is_finite() && *limit > 0.0);
+    request.hls_variant_index = payload.hls_variant_index;
+    request.hls_keep_transport_stream = payload.hls_keep_transport_stream;
     TaskStore::new(default_store_path())
         .enqueue(request)
         .await
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn list_hls_variants(source: String) -> Result<Vec<fluxdown_core::HlsVariantInfo>, String> {
+    hls_variants(&source)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn torrent_task_details(task_id: Option<String>, source: String) -> Result<serde_json::Value, String> {
+    let details = torrent_details(&source, task_id.as_deref())
+        .await
+        .map_err(|error| error.to_string())?;
+    serde_json::to_value(details).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -833,6 +857,8 @@ fn main() {
             check_update,
             open_download_page,
             download_and_install_update,
+            list_hls_variants,
+            torrent_task_details,
             e2e_window_metrics,
             e2e_quit_app
         ])
@@ -1456,7 +1482,8 @@ mod tests {
             file_name: Some("desktop-hls.m3u8".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::M3u8);
@@ -1496,7 +1523,8 @@ mod tests {
             file_name: Some("desktop-hls-byte-range.m3u8".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::M3u8);
@@ -1539,7 +1567,8 @@ mod tests {
             file_name: Some("desktop-command.txt".to_string()),
             expected_sha256: Some(format!("sha256:{expected_sha256}")),
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.state, DownloadState::Queued);
@@ -1586,7 +1615,8 @@ mod tests {
             file_name: Some("desktop-command.txt".to_string()),
             expected_sha256: Some(wrong_sha256.to_string()),
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.expected_sha256.as_deref(), Some(wrong_sha256));
@@ -1618,7 +1648,8 @@ mod tests {
             file_name: Some("desktop-retry.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
 
@@ -1655,7 +1686,8 @@ mod tests {
             file_name: Some("desktop-command.txt".to_string()),
             expected_sha256: Some("not-a-sha256".to_string()),
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap_err();
 
@@ -1676,6 +1708,7 @@ mod tests {
             file_name: Some("multi-file.torrent".to_string()),
             expected_sha256: None,
             torrent_file_indices: vec![4, 1, 4],
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -1701,7 +1734,8 @@ mod tests {
             file_name: Some("desktop-ftp.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Ftp);
@@ -1738,7 +1772,8 @@ mod tests {
             file_name: Some("desktop-start.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
 
@@ -1790,7 +1825,8 @@ mod tests {
             file_name: Some("desktop-restart.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         TaskStore::new(default_store_path())
@@ -1828,7 +1864,8 @@ mod tests {
             file_name: Some("desktop-start-ftp.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Ftp);
@@ -1875,7 +1912,8 @@ mod tests {
             file_name: Some("desktop-start-hls.m3u8".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
 
@@ -1926,7 +1964,8 @@ mod tests {
             file_name: Some("desktop-start-webdav.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Webdav);
@@ -1974,7 +2013,8 @@ mod tests {
             file_name: Some("delete-running.bin".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         let task_id = task.id.clone();
@@ -2019,7 +2059,8 @@ mod tests {
             file_name: Some("pause-running.bin".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         let task_id = task.id.clone();
@@ -2092,7 +2133,8 @@ mod tests {
             file_name: Some("desktop-webdav.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Webdav);
@@ -2138,7 +2180,8 @@ mod tests {
             file_name: Some(expected_name.clone()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Sftp);
@@ -2185,7 +2228,8 @@ mod tests {
             file_name: Some(expected_name.clone()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Ftps);
@@ -2232,7 +2276,8 @@ mod tests {
             file_name: Some(expected_name.clone()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Smb);
@@ -2279,7 +2324,8 @@ mod tests {
             file_name: Some("queued-sample.torrent".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Torrent);
@@ -2330,7 +2376,8 @@ mod tests {
             file_name: Some("magnet-download".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Magnet);
@@ -2395,7 +2442,8 @@ mod tests {
             file_name: Some("selected-bundle.torrent".to_string()),
             expected_sha256: None,
             torrent_file_indices: vec![0],
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Torrent);
@@ -2464,7 +2512,8 @@ mod tests {
             file_name: Some("selected-magnet".to_string()),
             expected_sha256: None,
             torrent_file_indices: vec![0],
-        })
+        ..Default::default()
+}        )
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Magnet);

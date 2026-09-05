@@ -61,6 +61,7 @@ class DownloadTask {
     this.torrentName,
     this.torrentFiles = const [],
     this.selectedTorrentFileIndexes,
+    this.expectedSha256,
   });
 
   factory DownloadTask.create({
@@ -70,6 +71,7 @@ class DownloadTask {
     String? torrentName,
     List<TorrentFileEntry> torrentFiles = const [],
     List<int>? selectedTorrentFileIndexes,
+    String? expectedSha256,
   }) {
     final now = DateTime.now().toUtc();
     final protocol = detectProtocol(source);
@@ -91,6 +93,7 @@ class DownloadTask {
       selectedTorrentFileIndexes: selectedTorrentFileIndexes == null
           ? null
           : List.unmodifiable(selectedTorrentFileIndexes),
+      expectedSha256: expectedSha256,
     );
   }
 
@@ -133,6 +136,7 @@ class DownloadTask {
               ?.map(_intFromJson)
               .whereType<int>()
               .toList(growable: false),
+      expectedSha256: json['expectedSha256'] as String?,
     );
   }
 
@@ -154,6 +158,7 @@ class DownloadTask {
   final String? torrentName;
   final List<TorrentFileEntry> torrentFiles;
   final List<int>? selectedTorrentFileIndexes;
+  final String? expectedSha256;
 
   double? get progress {
     final total = totalBytes;
@@ -264,6 +269,7 @@ class DownloadTask {
     List<int>? selectedTorrentFileIndexes,
     bool clearSelectedTorrentFileIndexes = false,
     bool clearTorrentMetadata = false,
+    String? expectedSha256,
   }) {
     return DownloadTask(
       id: id,
@@ -292,6 +298,7 @@ class DownloadTask {
           clearTorrentMetadata || clearSelectedTorrentFileIndexes
           ? null
           : selectedTorrentFileIndexes ?? this.selectedTorrentFileIndexes,
+      expectedSha256: expectedSha256 ?? this.expectedSha256,
     );
   }
 
@@ -315,6 +322,7 @@ class DownloadTask {
       'torrentName': torrentName,
       'torrentFiles': torrentFiles.map((file) => file.toJson()).toList(),
       'selectedTorrentFileIndexes': selectedTorrentFileIndexes,
+      'expectedSha256': expectedSha256,
     };
   }
 }
@@ -423,6 +431,19 @@ String suggestedFileName(String source) {
 String normalizeFileName(String value) {
   final normalized = value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
   return normalized.isEmpty ? 'download.bin' : normalized;
+}
+
+/// 归一化 SHA-256 输入：去掉可选的 "sha256:" 前缀并转小写；空串返回 null。
+String? normalizeSha256Text(String? value) {
+  if (value == null) return null;
+  final normalized =
+      value.trim().toLowerCase().replaceFirst(RegExp('^sha256:'), '').trim();
+  if (normalized.isEmpty) return null;
+  return normalized;
+}
+
+bool isValidSha256(String value) {
+  return value.length == 64 && value.contains(RegExp(r'^[0-9a-f]+$'));
 }
 
 String formatBytes(int? value) {

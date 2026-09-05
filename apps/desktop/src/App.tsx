@@ -134,11 +134,55 @@ type DownloadTask = {
   total_bytes?: number | null;
   downloaded_bytes: number;
   current_speed_bytes_per_second?: number;
+  speed_limit_mbps?: number | null;
+  hls_variant_index?: number | null;
+  hls_keep_transport_stream?: boolean;
   error?: string | null;
   created_at_ms?: number;
   updated_at_ms?: number;
   started_at_ms?: number | null;
   finished_at_ms?: number | null;
+};
+
+type HlsVariantInfo = {
+  index: number;
+  uri: string;
+  bandwidth: number;
+  average_bandwidth?: number | null;
+  codecs?: string | null;
+  resolution?: string | null;
+  frame_rate?: number | null;
+};
+
+type TorrentDetailsFile = {
+  index: number;
+  path: string;
+  size: number;
+  progress_bytes?: number | null;
+};
+
+type TorrentPeerSummary = {
+  live: number;
+  connecting: number;
+  queued: number;
+  seen: number;
+  dead: number;
+};
+
+type TorrentDetails = {
+  runtime: boolean;
+  name?: string | null;
+  info_hash?: string | null;
+  files: TorrentDetailsFile[];
+  trackers: string[];
+  total_bytes?: number | null;
+  progress_bytes?: number | null;
+  uploaded_bytes?: number | null;
+  download_speed_bps?: number | null;
+  upload_speed_bps?: number | null;
+  eta_seconds?: number | null;
+  peers?: TorrentPeerSummary | null;
+  error?: string | null;
 };
 
 type DownloadSummary = {
@@ -680,6 +724,18 @@ function formatRemainingTime(tasks: DownloadTask[]) {
   return `${Math.ceil(seconds / 3600)}h`;
 }
 
+function taskEtaLabel(task: DownloadTask) {
+  if (task.state !== "running") return "--";
+  const speed = task.current_speed_bytes_per_second ?? 0;
+  const remaining = (task.total_bytes ?? 0) - task.downloaded_bytes;
+  if (speed <= 0 || remaining <= 0) return "--";
+  const seconds = Math.ceil(remaining / speed);
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
+}
+
 function Icon({ name }: { name: IconName }) {
   const Component = iconComponents[name];
   return <Component aria-hidden="true" className={`uiIcon icon-${name}`} />;
@@ -712,6 +768,15 @@ function App() {
     null,
   );
   const [updateError, setUpdateError] = useState("");
+  const [hlsVariants, setHlsVariants] = useState<HlsVariantInfo[]>([]);
+  const [hlsVariantIndex, setHlsVariantIndex] = useState("");
+  const [hlsKeepTs, setHlsKeepTs] = useState(false);
+  const [taskSpeedLimit, setTaskSpeedLimit] = useState("");
+  const [torrentDetailsTask, setTorrentDetailsTask] =
+    useState<DownloadTask | null>(null);
+  const [torrentDetails, setTorrentDetails] = useState<TorrentDetails | null>(
+    null,
+  );
   const autoRunKeyRef = useRef("");
 
   const counts = useMemo(() => taskCounts(tasks), [tasks]);
@@ -849,6 +914,45 @@ function App() {
     }
   }, [updateReport]);
 
+  async function fetchTorrentDetails(task: DownloadTask) {
+    try {
+      const details = await invoke<TorrentDetails>("torrent_task_details", {
+        taskId: task.state === "running" || task.state === "queued" ? task.id : null,
+        source: task.source,
+      });
+      setTorrentDetails(details);
+    } catch (error) {
+      setTorrentDetails({
+        runtime: false,
+        files: [],
+        trackers: [],
+        error: safeErrorText(error),
+      });
+    }
+  }
+
+  function openTorrentDetails(task: DownloadTask) {
+    setTorrentDetailsTask(task);
+    setTorrentDetails(null);
+    void fetchTorrentDetails(task);
+  }
+
+  function closeTorrentDetails() {
+    setTorrentDetailsTask(null);
+    setTorrentDetails(null);
+  }
+
+  // 作者: long
+  // 详情面板打开且任务仍在运行时轮询刷新，关闭后停止，避免无谓的会话查询。
+  useEffect(() => {
+    if (!torrentDetailsTask) return;
+    if (torrentDetailsTask.state !== "running" && torrentDetailsTask.state !== "queued") return;
+    const timer = window.setInterval(() => {
+      void fetchTorrentDetails(torrentDetailsTask);
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [torrentDetailsTask]);
+
   useEffect(() => {
     refreshTasks();
     invoke<string>("default_output_dir")
@@ -876,6 +980,29 @@ function App() {
     const timer = window.setInterval(refreshTasks, settings.refreshIntervalMs);
     return () => window.clearInterval(timer);
   }, [queueActive, settings.refreshIntervalMs, tasks]);
+
+  // 作者: long
+  // 新建任务里输入 m3u8 源时，拉取 master playlist 的清晰度列表供用户选择；
+  // 非 master（单一码流）或拉取失败时保持空列表，界面回退到默认行为。
+  useEffect(() => {
+    const normalizedSource = source.trim();
+    const protocol = sourceSupport?.protocol ?? fallbackDetect(normalizedSource);
+    if (!newDialogOpen || protocol !== "m3u8" || !normalizedSource) {
+      setHlsVariants([]);
+      return;
+    }
+    let cancelled = false;
+    invoke<HlsVariantInfo[]>("list_hls_variants", { source: normalizedSource })
+      .then((variants) => {
+        if (!cancelled) setHlsVariants(variants);
+      })
+      .catch(() => {
+        if (!cancelled) setHlsVariants([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [newDialogOpen, source, sourceSupport]);
 
   useEffect(() => {
     if (!settings.autoStart) {
@@ -973,6 +1100,16 @@ function App() {
       setMessage("Torrent 文件编号只能填写非负整数");
       return;
     }
+    const parsedSpeedLimit = Number.parseFloat(taskSpeedLimit.trim());
+    const speedLimitMbps =
+      taskSpeedLimit.trim() && Number.isFinite(parsedSpeedLimit) && parsedSpeedLimit > 0
+        ? parsedSpeedLimit
+        : null;
+    const parsedVariantIndex = Number.parseInt(hlsVariantIndex.trim(), 10);
+    const variantIndex =
+      hlsVariantIndex.trim() && Number.isFinite(parsedVariantIndex)
+        ? parsedVariantIndex
+        : null;
     const task = await invoke<DownloadTask>("enqueue_download", {
       payload: {
         source: normalizedSource,
@@ -980,6 +1117,9 @@ function App() {
         file_name: fileName.trim() || null,
         expected_sha256: normalizedSha256,
         torrent_file_indices: selectedTorrentFiles,
+        speed_limit_mbps: speedLimitMbps,
+        hls_variant_index: variantIndex,
+        hls_keep_transport_stream: hlsKeepTs || null,
       },
     }).catch(() => {
       const protocol = fallbackDetect(normalizedSource);
@@ -993,6 +1133,9 @@ function App() {
         file_name: fileName.trim() || suggestedFileName(normalizedSource),
         expected_sha256: normalizedSha256,
         torrent_file_indices: selectedTorrentFiles,
+        speed_limit_mbps: speedLimitMbps,
+        hls_variant_index: variantIndex,
+        hls_keep_transport_stream: hlsKeepTs,
         total_bytes: null,
         downloaded_bytes: 0,
         created_at_ms: Date.now(),
@@ -1008,6 +1151,10 @@ function App() {
     setExpectedSha256("");
     setTorrentFileIndices("");
     setOutputDir(settings.outputDir);
+    setTaskSpeedLimit("");
+    setHlsVariantIndex("");
+    setHlsKeepTs(false);
+    setHlsVariants([]);
     setMessage(`${taskTitle(task)} 已加入队列`);
   }
 
@@ -1372,6 +1519,10 @@ function App() {
           <NewTaskDialog
           expectedSha256={expectedSha256}
           fileName={fileName}
+          hlsVariants={hlsVariants}
+          hlsVariantIndex={hlsVariantIndex}
+          hlsKeepTs={hlsKeepTs}
+          taskSpeedLimit={taskSpeedLimit}
           onClose={closeNewDialog}
           onCreate={createTask}
           onExpectedSha256Change={setExpectedSha256}
@@ -1379,14 +1530,25 @@ function App() {
             setFileNameEdited(true);
             setFileName(value);
           }}
+          onHlsKeepTsChange={setHlsKeepTs}
+          onHlsVariantIndexChange={setHlsVariantIndex}
           onOutputDirChange={setOutputDir}
           onPaste={pasteFromClipboard}
           onSourceChange={updateNewTaskSource}
+          onTaskSpeedLimitChange={setTaskSpeedLimit}
           onTorrentFileIndicesChange={setTorrentFileIndices}
           outputDir={outputDir}
           source={source}
           support={sourceSupport}
           torrentFileIndices={torrentFileIndices}
+        />
+      ) : null}
+
+      {torrentDetailsTask ? (
+        <TorrentDetailsDialog
+          details={torrentDetails}
+          onClose={closeTorrentDetails}
+          task={torrentDetailsTask}
         />
       ) : null}
 
@@ -1414,6 +1576,10 @@ function App() {
           onCopyPath={() =>
             copyTaskPath(currentMenuTask).then(() => setMenuTaskId(null))
           }
+          onDetails={() => {
+            setMenuTaskId(null);
+            openTorrentDetails(currentMenuTask);
+          }}
           onOpen={() =>
             openTaskOutput(currentMenuTask).then(() => setMenuTaskId(null))
           }
@@ -1624,7 +1790,10 @@ function TaskRow({
         <div className="progressTrack">
           <span />
         </div>
-        <small>{formatTaskProgress(task)}</small>
+        <small>
+          {formatTaskProgress(task)}
+          {taskEtaLabel(task) !== "--" ? ` · 剩余 ${taskEtaLabel(task)}` : ""}
+        </small>
       </div>
       <span className="speedCell">{taskSpeedLabel(task)}</span>
       <div className="rowActions">
@@ -1644,6 +1813,127 @@ function TaskRow({
       </div>
       {action === "start" ? <span className="busyDot" /> : null}
     </article>
+  );
+}
+
+function TorrentDetailsDialog({
+  details,
+  onClose,
+  task,
+}: {
+  details: TorrentDetails | null;
+  onClose: () => void;
+  task: DownloadTask;
+}) {
+  return (
+    <div
+      className="modalBackdrop"
+      data-testid="torrent-details-backdrop"
+      onMouseDown={onClose}
+    >
+      <section
+        className="taskDialog torrentDetailsDialog"
+        data-testid="torrent-details-dialog"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="dialogHeader">
+          <div>
+            <span className="dialogMark"><Icon name="download" /></span>
+            <h2>Torrent 详情</h2>
+          </div>
+          <div className="dialogTools">
+            <button aria-label="关闭" data-testid="torrent-details-close" onClick={onClose}>
+              <Icon name="x" />
+            </button>
+          </div>
+        </header>
+
+        {details ? (
+          <div className="torrentDetailsBody" data-testid="torrent-details-body">
+            <p className="updateStatus">
+              {details.runtime ? (
+                <>
+                  运行中快照 ·{" "}
+                  <strong>
+                    {formatBytes(details.download_speed_bps)}/s ↓{" "}
+                    {formatBytes(details.upload_speed_bps)}/s ↑
+                  </strong>
+                  {details.eta_seconds ? ` · 剩余 ${details.eta_seconds}s` : ""}
+                </>
+              ) : (
+                <strong>静态解析（任务未在运行，无实时速率）</strong>
+              )}
+            </p>
+            {details.error ? (
+              <p className="updateStatus failed">{details.error}</p>
+            ) : null}
+            <dl className="detailGrid">
+              <div>
+                <dt>名称</dt>
+                <dd>{details.name ?? taskTitle(task)}</dd>
+              </div>
+              <div>
+                <dt>大小</dt>
+                <dd>{details.total_bytes ? formatBytes(details.total_bytes) : "--"}</dd>
+              </div>
+              <div>
+                <dt>已完成</dt>
+                <dd>{details.progress_bytes != null ? formatBytes(details.progress_bytes) : "--"}</dd>
+              </div>
+              <div>
+                <dt>已上传</dt>
+                <dd>{details.uploaded_bytes != null ? formatBytes(details.uploaded_bytes) : "--"}</dd>
+              </div>
+              {details.peers ? (
+                <div>
+                  <dt>Peer</dt>
+                  <dd>
+                    活跃 {details.peers.live} · 连接中 {details.peers.connecting} · 排队{" "}
+                    {details.peers.queued} · 发现 {details.peers.seen}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+            {details.files.length > 0 ? (
+              <div className="updateNotesBlock">
+                <span>文件列表（{details.files.length}）</span>
+                <div className="torrentFileList" data-testid="torrent-files">
+                  {details.files.map((file) => (
+                    <div className="torrentFileRow" key={file.index}>
+                      <span className="torrentFileIndex">#{file.index}</span>
+                      <span className="torrentFilePath">{file.path || "-"}</span>
+                      <span className="torrentFileSize">{formatBytes(file.size)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {details.trackers.length > 0 ? (
+              <div className="updateNotesBlock">
+                <span>Tracker（{details.trackers.length}）</span>
+                <div className="torrentFileList" data-testid="torrent-trackers">
+                  {details.trackers.map((tracker) => (
+                    <div className="torrentFileRow" key={tracker}>
+                      <span className="torrentFilePath">{tracker}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <p className="updateStatus" data-testid="torrent-details-loading">
+            正在读取种子详情…
+          </p>
+        )}
+
+        <footer className="dialogFooter">
+          <button data-testid="torrent-details-close-footer" onClick={onClose}>
+            关闭
+          </button>
+        </footer>
+      </section>
+    </div>
   );
 }
 
@@ -1789,13 +2079,20 @@ function UpdateDialog({
 function NewTaskDialog({
   expectedSha256,
   fileName,
+  hlsVariants,
+  hlsVariantIndex,
+  hlsKeepTs,
+  taskSpeedLimit,
   onClose,
   onCreate,
   onExpectedSha256Change,
   onFileNameChange,
+  onHlsKeepTsChange,
+  onHlsVariantIndexChange,
   onOutputDirChange,
   onPaste,
   onSourceChange,
+  onTaskSpeedLimitChange,
   onTorrentFileIndicesChange,
   outputDir,
   source,
@@ -1804,13 +2101,20 @@ function NewTaskDialog({
 }: {
   expectedSha256: string;
   fileName: string;
+  hlsVariants: HlsVariantInfo[];
+  hlsVariantIndex: string;
+  hlsKeepTs: boolean;
+  taskSpeedLimit: string;
   onClose: () => void;
   onCreate: () => void;
   onExpectedSha256Change: (value: string) => void;
   onFileNameChange: (value: string) => void;
+  onHlsKeepTsChange: (value: boolean) => void;
+  onHlsVariantIndexChange: (value: string) => void;
   onOutputDirChange: (value: string) => void;
   onPaste: () => void;
   onSourceChange: (value: string) => void;
+  onTaskSpeedLimitChange: (value: string) => void;
   onTorrentFileIndicesChange: (value: string) => void;
   outputDir: string;
   source: string;
@@ -1890,6 +2194,47 @@ function NewTaskDialog({
             />
           </label>
         ) : null}
+        {protocol === "m3u8" && hlsVariants.length > 0 ? (
+          <label className="fieldBlock">
+            <span>清晰度（HLS variant）</span>
+            <select
+              data-testid="new-task-hls-variant"
+              onChange={(event) => onHlsVariantIndexChange(event.target.value)}
+              value={hlsVariantIndex}
+            >
+              <option value="">默认（第一个 variant）</option>
+              {hlsVariants.map((variant) => (
+                <option key={variant.index} value={String(variant.index)}>
+                  #{variant.index}
+                  {variant.resolution ? ` · ${variant.resolution}` : ""}
+                  {` · ${Math.round(variant.bandwidth / 1000)} kbps`}
+                  {variant.codecs ? ` · ${variant.codecs}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {protocol === "m3u8" ? (
+          <label className="fieldBlock inline">
+            <input
+              checked={hlsKeepTs}
+              data-testid="new-task-hls-keep-ts"
+              onChange={(event) => onHlsKeepTsChange(event.target.checked)}
+              type="checkbox"
+            />
+            <span>保留 TS 原始流（不转封装为 MP4）</span>
+          </label>
+        ) : null}
+        <label className="fieldBlock">
+          <span>任务限速（Mbps，留空跟随全局设置）</span>
+          <input
+            data-testid="new-task-speed-limit"
+            inputMode="decimal"
+            onChange={(event) => onTaskSpeedLimitChange(event.target.value)}
+            placeholder="例如 2.5"
+            value={taskSpeedLimit}
+          />
+        </label>
         <footer className="dialogFooter">
           <button data-testid="new-task-cancel" onClick={onClose}>取消</button>
           <button className="primary" data-testid="new-task-create" onClick={onCreate}>
@@ -1920,6 +2265,7 @@ function TaskMenu({
   onClose,
   onCopyLink,
   onCopyPath,
+  onDetails,
   onOpen,
   onProperties,
   onReveal,
@@ -1931,6 +2277,7 @@ function TaskMenu({
   onClose: () => void;
   onCopyLink: () => void;
   onCopyPath: () => void;
+  onDetails: () => void;
   onOpen: () => void;
   onProperties: () => void;
   onReveal: () => void;
@@ -1951,6 +2298,11 @@ function TaskMenu({
         <button onClick={onOpen}><Icon name="external-link" />打开</button>
         <button onClick={onReveal}><Icon name="folder" />在文件夹中显示</button>
         <button onClick={onShare}><Icon name="share" />分享</button>
+        {task.protocol === "torrent" || task.protocol === "magnet" ? (
+          <button onClick={onDetails} data-testid="task-details-button">
+            <Icon name="download" />详情
+          </button>
+        ) : null}
         <button onClick={onProperties}><Icon name="info" />属性</button>
         <button onClick={onRedownload}><Icon name="refresh" />重新下载</button>
         <button className="danger" onClick={onRemove}>

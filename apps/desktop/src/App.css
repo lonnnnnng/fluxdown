@@ -1602,3 +1602,97 @@ textarea:focus-visible,
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ---- 新建任务附加字段与详情面板 ---- */
+.fieldBlock.inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.fieldBlock.inline input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #2f7fb8;
+}
+
+.fieldBlock select {
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 12px;
+  padding: 0 8px;
+}
+
+.torrentDetailsDialog {
+  width: min(640px, 100%);
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 14px;
+  margin: 0 0 12px;
+}
+
+.detailGrid > div {
+  border: 1px solid #e8eff3;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fbfdfe;
+}
+
+.detailGrid dt {
+  color: var(--ink-soft);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.detailGrid dd {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.torrentFileList {
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f7fafc;
+}
+
+.torrentFileRow {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 10px;
+  border-bottom: 1px solid #edf3f6;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.torrentFileRow:last-child {
+  border-bottom: none;
+}
+
+.torrentFileIndex {
+  color: var(--ink-soft);
+  flex: 0 0 auto;
+}
+
+.torrentFilePath {
+  flex: 1 1 auto;
+  word-break: break-all;
+}
+
+.torrentFileSize {
+  color: var(--ink-soft);
+  flex: 0 0 auto;
+}

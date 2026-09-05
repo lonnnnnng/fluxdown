@@ -346,6 +346,8 @@ class AppStrings {
   String get protocol => language == AppLanguage.zh ? '协议' : 'Protocol';
   String get sourceRequired =>
       language == AppLanguage.zh ? '下载源不能为空。' : 'Source is required.';
+  String get sha256Invalid =>
+      language == AppLanguage.zh ? 'SHA-256 需要是 64 位十六进制。' : 'SHA-256 must be 64 hex characters.';
   String get outputFolderSettingRequired => language == AppLanguage.zh
       ? '请先在设置页选择下载目录。'
       : 'Choose a download folder in Settings first.';
@@ -727,6 +729,7 @@ class _DownloadHomeState extends State<DownloadHome> {
     String? torrentName,
     List<TorrentFileEntry> torrentFiles = const [],
     List<int>? selectedTorrentFileIndexes,
+    String? expectedSha256,
   }) async {
     final normalizedSource = source.trim();
     final output = outputFolder.trim();
@@ -746,6 +749,7 @@ class _DownloadHomeState extends State<DownloadHome> {
       torrentName: torrentName,
       torrentFiles: torrentFiles,
       selectedTorrentFileIndexes: selectedTorrentFileIndexes,
+      expectedSha256: expectedSha256,
     );
     setState(() {
       queueFilter = QueueFilter.all;
@@ -1272,6 +1276,7 @@ class NewTaskDialog extends StatefulWidget {
     String? torrentName,
     List<TorrentFileEntry> torrentFiles,
     List<int>? selectedTorrentFileIndexes,
+    String? expectedSha256,
   })
   onCreate;
 
@@ -1283,6 +1288,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
   final sourceController = TextEditingController();
   final fileNameController = TextEditingController();
   final outputFolderController = TextEditingController();
+  final sha256Controller = TextEditingController();
   var busy = false;
   String? errorText;
   var fileNameEdited = false;
@@ -1305,6 +1311,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
     sourceController.dispose();
     fileNameController.dispose();
     outputFolderController.dispose();
+    sha256Controller.dispose();
     super.dispose();
   }
 
@@ -1373,6 +1380,13 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
       });
       return;
     }
+    final expectedSha256 = normalizeSha256Text(sha256Controller.text);
+    if (expectedSha256 != null && !isValidSha256(expectedSha256)) {
+      setState(() {
+        errorText = strings.sha256Invalid;
+      });
+      return;
+    }
     setState(() {
       busy = true;
       errorText = null;
@@ -1426,6 +1440,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
       torrentName: torrentName,
       torrentFiles: torrentFiles,
       selectedTorrentFileIndexes: selectedTorrentFileIndexes,
+      expectedSha256: expectedSha256,
     );
     if (!mounted) return;
     if (created) {
@@ -1684,6 +1699,24 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                     ),
                   ),
                   onChanged: (_) => unawaited(refreshStorageStats()),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  key: const ValueKey('new-task-sha256'),
+                  controller: sha256Controller,
+                  enabled: !busy,
+                  textInputAction: TextInputAction.next,
+                  style: const TextStyle(fontSize: 12, height: 1.12),
+                  decoration: InputDecoration(
+                    labelText: strings.language == AppLanguage.zh
+                        ? 'SHA-256 校验（可选，64 位十六进制）'
+                        : 'SHA-256 (optional, 64 hex chars)',
+                    labelStyle: const TextStyle(fontSize: 12),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 StorageStatsPanel(

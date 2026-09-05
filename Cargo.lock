@@ -1298,7 +1298,7 @@ dependencies = [
 
 [[package]]
 name = "fluxdown-cli"
-version = "1.0.11"
+version = "1.0.12"
 dependencies = [
  "anyhow",
  "clap",
@@ -1310,13 +1310,14 @@ dependencies = [
 
 [[package]]
 name = "fluxdown-core"
-version = "1.0.11"
+version = "1.0.12"
 dependencies = [
  "aes 0.8.4",
  "anyhow",
  "cbc",
  "futures-util",
  "librqbit",
+ "librqbit-bencode",
  "m3u8-rs",
  "open",
  "percent-encoding",
@@ -1337,7 +1338,7 @@ dependencies = [
 
 [[package]]
 name = "fluxdown-desktop"
-version = "1.0.11"
+version = "1.0.12"
 dependencies = [
  "anyhow",
  "fluxdown-core",
@@ -1351,6 +1352,16 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "fluxdown-ffi"
+version = "1.0.12"
+dependencies = [
+ "fluxdown-core",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

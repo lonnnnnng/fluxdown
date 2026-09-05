@@ -15,6 +15,18 @@ pub struct DownloadRequest {
     pub expected_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub torrent_file_indices: Vec<usize>,
+    /// 每任务限速（Mbps）；None 表示跟随队列/全局策略。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed_limit_mbps: Option<f64>,
+    /// HLS master playlist 的清晰度 variant 下标；None 表示取第一个 variant。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hls_variant_index: Option<usize>,
+    /// HLS 保留 TS 原始流（跳过 ffmpeg 转封装）；None/Some(false) 表示按默认转封装。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hls_keep_transport_stream: Option<bool>,
+    /// 队列任务 id，透传给下载引擎用于运行时状态关联（如 torrent 会话注册表）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
 }
 
 impl DownloadRequest {
@@ -25,6 +37,10 @@ impl DownloadRequest {
             file_name: None,
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
+            speed_limit_mbps: None,
+            hls_variant_index: None,
+            hls_keep_transport_stream: None,
+            task_id: None,
         }
     }
 
@@ -60,6 +76,12 @@ pub struct DownloadTask {
     pub downloaded_bytes: u64,
     #[serde(default)]
     pub current_speed_bytes_per_second: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed_limit_mbps: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hls_variant_index: Option<usize>,
+    #[serde(default)]
+    pub hls_keep_transport_stream: bool,
     pub error: Option<String>,
     pub created_at_ms: u128,
     pub updated_at_ms: u128,
@@ -92,6 +114,9 @@ impl DownloadTask {
                 .as_deref()
                 .map(normalize_sha256_text),
             torrent_file_indices: normalize_torrent_file_indices(request.torrent_file_indices),
+            speed_limit_mbps: normalize_speed_limit_mbps(request.speed_limit_mbps),
+            hls_variant_index: request.hls_variant_index,
+            hls_keep_transport_stream: request.hls_keep_transport_stream.unwrap_or(false),
             total_bytes: None,
             downloaded_bytes: 0,
             current_speed_bytes_per_second: 0,
@@ -113,6 +138,10 @@ impl DownloadTask {
                 .map(|name| sanitize_download_file_name(name, "download.bin")),
             expected_sha256: self.expected_sha256.as_deref().map(normalize_sha256_text),
             torrent_file_indices: normalize_torrent_file_indices(self.torrent_file_indices.clone()),
+            speed_limit_mbps: normalize_speed_limit_mbps(self.speed_limit_mbps),
+            hls_variant_index: self.hls_variant_index,
+            hls_keep_transport_stream: Some(self.hls_keep_transport_stream),
+            task_id: Some(self.id.clone()),
         }
     }
 
@@ -200,6 +229,13 @@ pub fn normalize_torrent_file_indices(indices: Vec<usize>) -> Vec<usize> {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+pub fn normalize_speed_limit_mbps(value: Option<f64>) -> Option<f64> {
+    // 作者: long
+    // 每任务限速只在大于 0 的有限数值时生效，0/负数/NaN 都视为不限制，与全局设置语义一致。
+    value
+        .filter(|limit| limit.is_finite() && *limit > 0.0)
 }
 
 pub fn normalize_sha256_text(value: &str) -> String {
@@ -472,6 +508,36 @@ mod tests {
         assert_eq!(restored.finished_at_ms, None);
         assert_eq!(restored.expected_sha256, None);
         assert!(restored.torrent_file_indices.is_empty());
+    }
+
+    #[test]
+    fn deserializes_legacy_task_without_new_option_fields() {
+        let task = DownloadTask::from_request(DownloadRequest::new(
+            "https://example.com/file.bin",
+            "/tmp",
+        ));
+        let mut value = serde_json::to_value(task).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("speed_limit_mbps");
+        object.remove("hls_variant_index");
+        object.remove("hls_keep_transport_stream");
+
+        let restored: DownloadTask = serde_json::from_value(value).unwrap();
+
+        assert_eq!(restored.speed_limit_mbps, None);
+        assert_eq!(restored.hls_variant_index, None);
+        assert!(!restored.hls_keep_transport_stream);
+        // 请求重建时新字段随任务字段回填，task_id 用于运行时状态关联。
+        assert_eq!(restored.request().task_id, Some(restored.id.clone()));
+    }
+
+    #[test]
+    fn normalizes_speed_limit_mbps_values() {
+        assert_eq!(normalize_speed_limit_mbps(Some(2.5)), Some(2.5));
+        assert_eq!(normalize_speed_limit_mbps(Some(0.0)), None);
+        assert_eq!(normalize_speed_limit_mbps(Some(-3.0)), None);
+        assert_eq!(normalize_speed_limit_mbps(Some(f64::NAN)), None);
+        assert_eq!(normalize_speed_limit_mbps(None), None);
     }
 
     #[test]

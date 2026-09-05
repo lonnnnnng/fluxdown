@@ -10,6 +10,7 @@ anyhow.workspace = true
 cbc.workspace = true
 futures-util.workspace = true
 librqbit.workspace = true
+librqbit-bencode.workspace = true
 m3u8-rs.workspace = true
 open.workspace = true
 percent-encoding.workspace = true

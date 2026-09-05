@@ -3,9 +3,11 @@ mod protocol;
 mod runner;
 mod store;
 mod task;
+pub mod torrent_details;
 
 pub use downloader::{
     CancelToken, DownloadEngine, DownloadError, DownloadOptions, DownloadProgress, DownloadSummary,
+    HlsVariantInfo, hls_variants,
 };
 pub use protocol::{
     Backend, BackendAvailability, DoctorReport, Protocol, RuntimeSupportStatus, SupportStatus,
@@ -20,3 +22,4 @@ pub use task::{
     redact_url_credentials_in_text, sanitize_download_file_name, suggested_download_file_name,
     validate_sha256_text,
 };
+pub use torrent_details::{TorrentDetails, TorrentDetailsFile, TorrentPeerSummary, torrent_details};

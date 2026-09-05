@@ -101,6 +101,10 @@ pub enum DownloadError {
     },
     #[error("invalid ftp url: {0}")]
     InvalidFtpUrl(String),
+    #[error("HLS variant index {index} is out of range; {available} variants available")]
+    HlsVariantOutOfRange { index: usize, available: usize },
+    #[error("torrent source unreadable: {0}")]
+    TorrentSourceUnreadable(String),
     #[error("invalid sftp url: {0}")]
     InvalidSftpUrl(String),
     #[error("invalid smb url: {0}")]
@@ -771,6 +775,14 @@ impl DownloadEngine {
             initial_stats.progress_bytes,
             Some(initial_stats.total_bytes),
         );
+        // 作者: long
+        // 下载运行期间把会话句柄注册到详情注册表，GUI 才能展示文件列表、peer 与速率；
+        // 任何退出路径都必须注销，避免句柄泄漏导致任务结束后仍显示“运行中”。
+        if let Some(task_id) = request.task_id.as_deref() {
+            crate::torrent_details::register_runtime_handle(task_id, handle.clone());
+        }
+        let runtime_registered = request.task_id.is_some();
+        let runtime_task_id = request.task_id.clone();
         let mut last_progress_at = Instant::now();
         let mut last_progress_bytes = initial_stats.progress_bytes;
 
@@ -780,6 +792,11 @@ impl DownloadEngine {
 
         loop {
             if is_cancelled(&cancel) {
+                if runtime_registered {
+                    crate::torrent_details::unregister_runtime_handle(
+                        runtime_task_id.as_deref().expect("runtime task id"),
+                    );
+                }
                 let _ = session.pause(&handle).await;
                 session.stop().await;
                 return Err(DownloadError::Paused);
@@ -800,6 +817,11 @@ impl DownloadEngine {
                         && stats.progress_bytes < stats.total_bytes
                         && last_progress_at.elapsed() >= TORRENT_STALL_TIMEOUT
                     {
+                        if runtime_registered {
+                            crate::torrent_details::unregister_runtime_handle(
+                                runtime_task_id.as_deref().expect("runtime task id"),
+                            );
+                        }
                         session.stop().await;
                         return Err(DownloadError::TorrentStalled {
                             downloaded_bytes: stats.progress_bytes,
@@ -817,7 +839,7 @@ impl DownloadEngine {
             final_stats.progress_bytes,
             Some(final_stats.total_bytes),
         );
-        let (output_path, display_name) = handle.with_metadata(|metadata| {
+        let details_result = handle.with_metadata(|metadata| {
             let payload_file_count = metadata
                 .file_infos
                 .iter()
@@ -840,7 +862,13 @@ impl DownloadEngine {
                 &file_paths,
                 payload_file_count,
             )
-        })?;
+        });
+        if runtime_registered {
+            crate::torrent_details::unregister_runtime_handle(
+                runtime_task_id.as_deref().expect("runtime task id"),
+            );
+        }
+        let (output_path, display_name) = details_result?;
         session.stop().await;
 
         Ok(DownloadSummary {
@@ -909,7 +937,18 @@ impl DownloadEngine {
         let (media_playlist, media_playlist_url) = match playlist {
             m3u8_rs::Playlist::MediaPlaylist(media) => (media, playlist_url.clone()),
             m3u8_rs::Playlist::MasterPlaylist(master) => {
-                let variant = master.variants.first().ok_or(DownloadError::InvalidM3u8)?;
+                // 作者: long
+                // 支持按清晰度 variant 选择：未指定时保持旧行为取第一个，
+                // 指定下标越界时报错而不是悄悄回退，避免用户选错清晰度。
+                let variant = match request.hls_variant_index {
+                    Some(index) => master.variants.get(index).ok_or_else(|| {
+                        DownloadError::HlsVariantOutOfRange {
+                            index,
+                            available: master.variants.len(),
+                        }
+                    })?,
+                    None => master.variants.first().ok_or(DownloadError::InvalidM3u8)?,
+                };
                 let variant_url = playlist_url
                     .join(&variant.uri)
                     .map_err(|_| DownloadError::InvalidM3u8)?;
@@ -938,6 +977,11 @@ impl DownloadEngine {
         let output_path = hls_mp4_output_name(&requested_output_path);
         let temp_ts_path = hls_temp_transport_path(&output_path);
         let fallback_ts_path = hls_transport_output_name(&requested_output_path);
+        // 作者: long
+        // 分片落盘到旁挂缓存目录：暂停/失败后任务重新入队时，已完成的分片直接复用，
+        // 只补缺失分片；全部合并成功后才清掉缓存目录。
+        let segment_cache_dir = hls_segment_cache_dir(&output_path);
+        fs::create_dir_all(&segment_cache_dir).await?;
         let mut output = File::create(&temp_ts_path).await?;
         let mut bytes_written = 0;
         let mut segments_written = 0;
@@ -978,9 +1022,20 @@ impl DownloadEngine {
                 let progress = progress.clone();
                 let downloaded = Arc::clone(&downloaded);
                 let limiter = limiter.clone();
+                let segment_cache_path = hls_segment_cache_file(&segment_cache_dir, segment.index);
                 async move {
                     if is_cancelled(&cancel) {
                         return Err(DownloadError::Paused);
+                    }
+                    // 作者: long
+                    // 断点恢复：上一次运行留下的分片文件直接复用，不再重复请求网络。
+                    if let Some(cached) = fs::read(&segment_cache_path).await.ok()
+                        && !cached.is_empty()
+                    {
+                        let total = downloaded.fetch_add(cached.len() as u64, Ordering::SeqCst)
+                            + cached.len() as u64;
+                        emit_progress(&progress, total, None);
+                        return Ok((segment.index, cached));
                     }
                     let bytes = engine
                         .fetch_hls_segment_with_retry(
@@ -1001,6 +1056,7 @@ impl DownloadEngine {
                             &mut key_cache,
                         )
                         .await?;
+                    fs::write(&segment_cache_path, &segment_bytes).await?;
                     let total = downloaded.fetch_add(segment_bytes.len() as u64, Ordering::SeqCst)
                         + segment_bytes.len() as u64;
                     emit_progress(&progress, total, None);
@@ -1030,18 +1086,28 @@ impl DownloadEngine {
         output.flush().await?;
         drop(output);
 
+        // 作者: long
+        // 走到这里说明所有分片已就绪，缓存目录的使命结束；转封装失败时仍会保留 TS，
+        // 因此无论哪种产物路径都可以安全清理分片缓存。
+        let _ = fs::remove_dir_all(&segment_cache_dir).await;
+
         let (output_path, output_bytes) =
-            match remux_hls_transport_stream(&temp_ts_path, &output_path).await {
-                Ok(bytes) => {
-                    let _ = fs::remove_file(&temp_ts_path).await;
-                    (output_path, bytes)
-                }
-                Err(_) => {
-                    if fallback_ts_path != temp_ts_path {
-                        let _ = fs::remove_file(&fallback_ts_path).await;
-                        fs::rename(&temp_ts_path, &fallback_ts_path).await?;
+            if request.hls_keep_transport_stream.unwrap_or(false) {
+                fs::rename(&temp_ts_path, &fallback_ts_path).await?;
+                (fallback_ts_path, bytes_written)
+            } else {
+                match remux_hls_transport_stream(&temp_ts_path, &output_path).await {
+                    Ok(bytes) => {
+                        let _ = fs::remove_file(&temp_ts_path).await;
+                        (output_path, bytes)
                     }
-                    (fallback_ts_path, bytes_written)
+                    Err(_) => {
+                        if fallback_ts_path != temp_ts_path {
+                            let _ = fs::remove_file(&fallback_ts_path).await;
+                            fs::rename(&temp_ts_path, &fallback_ts_path).await?;
+                        }
+                        (fallback_ts_path, bytes_written)
+                    }
                 }
             };
 
@@ -1821,6 +1887,77 @@ async fn torrent_source(
     }
 }
 
+/// 读取 .torrent 字节：http(s) URL 走 reqwest 下载，其它按本地文件路径读取。
+pub async fn read_torrent_bytes_from_url(source: &str) -> Result<Vec<u8>, DownloadError> {
+    if source.starts_with("http://") || source.starts_with("https://") {
+        let response = reqwest::get(source)
+            .await
+            .map_err(|error| DownloadError::TorrentSourceUnreadable(format!("下载种子失败: {error}")))?
+            .error_for_status()
+            .map_err(|error| DownloadError::TorrentSourceUnreadable(format!("下载种子失败: {error}")))?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| DownloadError::TorrentSourceUnreadable(format!("读取种子内容失败: {error}")))?;
+        Ok(bytes.to_vec())
+    } else {
+        tokio::fs::read(source)
+            .await
+            .map_err(|error| DownloadError::TorrentSourceUnreadable(format!("读取种子文件失败: {error}")))
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HlsVariantInfo {
+    pub index: usize,
+    pub uri: String,
+    pub bandwidth: u64,
+    pub average_bandwidth: Option<u64>,
+    pub codecs: Option<String>,
+    pub resolution: Option<String>,
+    pub frame_rate: Option<f64>,
+}
+
+/// 解析 master playlist 的清晰度 variant 列表，供用户在新建任务时选择。
+/// 源不是 master playlist（已是 media playlist）时返回空列表。
+pub async fn hls_variants(source: &str) -> Result<Vec<HlsVariantInfo>, DownloadError> {
+    let client = Client::builder()
+        .user_agent(concat!("FluxDown/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|_error| DownloadError::InvalidM3u8)?;
+    let url = Url::parse(source).map_err(|_| DownloadError::InvalidUrl(source.to_string()))?;
+    let text = client
+        .get(url)
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    let playlist = m3u8_rs::parse_playlist_res(text.as_bytes())
+        .map_err(|_| DownloadError::InvalidM3u8)?;
+    let m3u8_rs::Playlist::MasterPlaylist(master) = playlist else {
+        return Ok(Vec::new());
+    };
+    Ok(master
+        .variants
+        .iter()
+        .enumerate()
+        .filter(|(_, variant)| !variant.is_i_frame)
+        .map(|(index, variant)| HlsVariantInfo {
+            index,
+            uri: variant.uri.clone(),
+            bandwidth: variant.bandwidth.max(0),
+            average_bandwidth: variant.average_bandwidth,
+            codecs: variant.codecs.clone(),
+            resolution: variant
+                .resolution
+                .as_ref()
+                .map(|resolution| format!("{}x{}", resolution.width, resolution.height)),
+            frame_rate: variant.frame_rate,
+        })
+        .collect())
+}
+
 fn webdav_http_url(source: &str) -> Result<String, DownloadError> {
     let url = Url::parse(source).map_err(|_| DownloadError::InvalidUrl(source.to_string()))?;
     let target_scheme = match url.scheme() {
@@ -2384,6 +2521,18 @@ fn hls_temp_transport_path(output_mp4: &Path) -> PathBuf {
     output_mp4.with_file_name(format!(".{file_name}.ts"))
 }
 
+fn hls_segment_cache_dir(output_mp4: &Path) -> PathBuf {
+    let stem = output_mp4
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("stream");
+    output_mp4.with_file_name(format!(".{stem}.hls-parts"))
+}
+
+fn hls_segment_cache_file(cache_dir: &Path, index: usize) -> PathBuf {
+    cache_dir.join(format!("{index:08}.ts"))
+}
+
 fn range_temp_output_path(output_path: &Path) -> PathBuf {
     let file_name = output_path
         .file_name()
@@ -2528,6 +2677,10 @@ mod tests {
             file_name: Some("../movie:name.m3u8".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
+            speed_limit_mbps: None,
+            hls_variant_index: None,
+            hls_keep_transport_stream: None,
+            task_id: None,
         };
         let candidates = output_file_candidates_for_request(&hls_request);
         assert!(candidates.contains(&PathBuf::from("/tmp/fluxdown/_movie_name.mp4")));
@@ -3350,6 +3503,140 @@ fn main() {{
             fs::read(temp_dir.path().join("master.ts")).await.unwrap(),
             b"low variant segment onelow variant segment two"
         );
+        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn downloads_hls_master_playlist_variant_by_index() {
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/master.m3u8", server.local_addr().unwrap());
+        let server_task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = server.accept().await else {
+                    return;
+                };
+                let mut buffer = [0; 1024];
+                let Ok(read) = stream.read(&mut buffer).await else {
+                    continue;
+                };
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let (status, content_type, body): (&str, &str, Vec<u8>) = match path {
+                    "/master.m3u8" => (
+                        "200 OK",
+                        "application/vnd.apple.mpegurl",
+                        b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=64000\nvariants/low.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=256000\nvariants/high.m3u8\n"
+                            .to_vec(),
+                    ),
+                    "/variants/high.m3u8" => (
+                        "200 OK",
+                        "application/vnd.apple.mpegurl",
+                        b"#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1,\nhigh-1.ts\n#EXT-X-ENDLIST\n"
+                            .to_vec(),
+                    ),
+                    "/variants/high-1.ts" => {
+                        ("200 OK", "video/mp2t", b"high variant only".to_vec())
+                    }
+                    "/variants/low.m3u8" | "/variants/low-1.ts" => (
+                        "500 Internal Server Error",
+                        "text/plain",
+                        b"low variant should not be requested".to_vec(),
+                    ),
+                    _ => ("404 Not Found", "text/plain", b"not found".to_vec()),
+                };
+                let header = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(header.as_bytes()).await;
+                let _ = stream.write_all(&body).await;
+                let _ = stream.shutdown().await;
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut request = DownloadRequest::new(source, temp_dir.path());
+        request.hls_variant_index = Some(1);
+        let summary = DownloadEngine::new()
+            .download(request)
+            .await
+            .unwrap();
+
+        assert_eq!(summary.segments_written, Some(1));
+        assert_eq!(
+            fs::read(temp_dir.path().join("master.ts")).await.unwrap(),
+            b"high variant only"
+        );
+        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn hls_segment_cache_skips_network_for_cached_segments() {
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/playlist.m3u8", server.local_addr().unwrap());
+        let server_task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = server.accept().await else {
+                    return;
+                };
+                let mut buffer = [0; 1024];
+                let Ok(read) = stream.read(&mut buffer).await else {
+                    continue;
+                };
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let (status, content_type, body): (&str, &str, Vec<u8>) = match path {
+                    "/playlist.m3u8" => (
+                        "200 OK",
+                        "application/vnd.apple.mpegurl",
+                        b"#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1,\nseg-1.ts\n#EXTINF:1,\nseg-2.ts\n#EXT-X-ENDLIST\n"
+                            .to_vec(),
+                    ),
+                    // 作者: long
+                    // 断点恢复断言：seg-1 已在缓存目录，服务器不再提供该分片；
+                    // 只有 seg-2 走网络。
+                    "/seg-1.ts" => ("404 Not Found", "text/plain", b"gone".to_vec()),
+                    "/seg-2.ts" => ("200 OK", "video/mp2t", b"second segment".to_vec()),
+                    _ => ("404 Not Found", "text/plain", b"not found".to_vec()),
+                };
+                let header = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(header.as_bytes()).await;
+                let _ = stream.write_all(&body).await;
+                let _ = stream.shutdown().await;
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let output_path = temp_dir.path().join("playlist.ts");
+        let cache_dir = hls_segment_cache_dir(&hls_mp4_output_name(&output_path));
+        fs::create_dir_all(&cache_dir).await.unwrap();
+        fs::write(hls_segment_cache_file(&cache_dir, 0), b"first segment")
+            .await
+            .unwrap();
+
+        let summary = DownloadEngine::new()
+            .download(DownloadRequest::new(source, temp_dir.path()))
+            .await
+            .unwrap();
+
+        assert_eq!(summary.segments_written, Some(2));
+        assert_eq!(
+            fs::read(temp_dir.path().join("playlist.ts")).await.unwrap(),
+            b"first segmentsecond segment"
+        );
+        // 成功完成后分片缓存必须被清理。
+        assert!(!cache_dir.exists());
         server_task.abort();
     }
 }

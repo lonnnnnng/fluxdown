@@ -1,4 +1,9 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:path/path.dart' as p;
+import 'package:pointycastle/digests/sha256.dart';
 
 import 'download_task.dart';
 import 'mobile_downloader.dart';
@@ -58,6 +63,7 @@ class DownloadController {
     String? torrentName,
     List<TorrentFileEntry> torrentFiles = const [],
     List<int>? selectedTorrentFileIndexes,
+    String? expectedSha256,
   }) async {
     final task = DownloadTask.create(
       source: source,
@@ -66,6 +72,7 @@ class DownloadController {
       torrentName: torrentName,
       torrentFiles: torrentFiles,
       selectedTorrentFileIndexes: selectedTorrentFileIndexes,
+      expectedSha256: expectedSha256,
     );
     _tasks.insert(0, task);
     await _save();
@@ -222,17 +229,28 @@ class DownloadController {
             _emit();
           },
         );
-        _replace(
-          id,
-          (_) => finished.copyWith(
-            finishedAt: finished.state == DownloadState.finished
-                ? DateTime.now().toUtc()
-                : null,
-            clearFinishedAt: finished.state != DownloadState.finished,
-            clearPausedAt: true,
-            currentSpeedBytesPerSecond: 0,
-          ),
+        var completed = finished.copyWith(
+          finishedAt: finished.state == DownloadState.finished
+              ? DateTime.now().toUtc()
+              : null,
+          clearFinishedAt: finished.state != DownloadState.finished,
+          clearPausedAt: true,
+          currentSpeedBytesPerSecond: 0,
         );
+        // 作者: long
+        // SHA-256 校验与桌面端语义一致：下载成功后核对产物哈希，不匹配按失败处理；
+        // torrent 任务是目录/多文件产物，哈希校验不适用，直接跳过。
+        if (completed.state == DownloadState.finished) {
+          final mismatch = await _verifyExpectedSha256(completed);
+          if (mismatch != null) {
+            completed = completed.copyWith(
+              state: DownloadState.failed,
+              error: mismatch,
+              finishedAt: DateTime.now().toUtc(),
+            );
+          }
+        }
+        _replace(id, (_) => completed);
         await _save();
         _emit();
         return;
@@ -394,6 +412,36 @@ class DownloadController {
       }
     }
     return next?.id;
+  }
+
+  /// 下载完成后的 SHA-256 校验。返回 null 表示通过（或无需校验），否则返回失败原因。
+  Future<String?> _verifyExpectedSha256(DownloadTask task) async {
+    final expected = normalizeSha256Text(task.expectedSha256);
+    if (expected == null) return null;
+    if (expected.length != 64 || !isValidSha256(expected)) {
+      return 'SHA-256 校验失败：期望值必须是 64 位十六进制';
+    }
+    final taskFilePath = p.join(task.outputFolder, task.fileName);
+    final file = File(taskFilePath);
+    if (!await file.exists()) {
+      return 'SHA-256 校验失败：找不到下载产物 $taskFilePath';
+    }
+    try {
+      final digest = SHA256Digest();
+      await for (final chunk in file.openRead()) {
+        final bytes = chunk is Uint8List ? chunk : Uint8List.fromList(chunk);
+        digest.update(bytes, 0, bytes.length);
+      }
+      final out = Uint8List(digest.digestSize);
+      digest.doFinal(out, 0);
+      final actual = out.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+      if (actual != expected) {
+        return 'SHA-256 校验失败：期望 $expected，实际 $actual';
+      }
+      return null;
+    } catch (error) {
+      return 'SHA-256 校验失败：读取文件出错（$error）';
+    }
   }
 
   DownloadTask _taskById(String id) {

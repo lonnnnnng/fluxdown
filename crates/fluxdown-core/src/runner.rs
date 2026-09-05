@@ -197,6 +197,17 @@ async fn run_one_with_retry(
     options: QueueRunnerOptions,
 ) -> Result<TaskRunReport, QueueRunnerError> {
     let max_attempts = options.retry_attempts.saturating_add(1);
+    // 作者: long
+    // 每任务限速优先于队列全局限速：任务自带配置是用户对单任务的显式意愿，
+    // 没配置时保持全局策略不变。
+    let mut download_options = options.download;
+    if let Some(limit) = task.speed_limit_mbps
+        && limit.is_finite()
+        && limit > 0.0
+    {
+        download_options.speed_limit_bps =
+            Some((limit * 1024.0 * 1024.0).round().max(1.0) as u64);
+    }
     if options.restart_existing {
         remove_existing_outputs(&task).await;
         task.reset_for_restart();
@@ -207,7 +218,7 @@ async fn run_one_with_retry(
             engine.clone(),
             task,
             Arc::clone(&write_lock),
-            options.download,
+            download_options,
         )
         .await?;
 
