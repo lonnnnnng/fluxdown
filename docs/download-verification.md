@@ -1,5 +1,13 @@
 # 下载验证状态
 
+## 2026-09-06 `1.0.13` 中期路线图功能发版
+
+- 完成中期路线图五项：任务 ETA 与每任务限速、Torrent 详情面板（文件/tracker/peer/速率）、HLS 清晰度 variant 选择与分片断点恢复及可选 TS 直出、移动端 SHA-256 校验入口、统一任务 schema v1 与 `fluxdown-ffi` FFI 层（详见 [task-schema.md](task-schema.md) 与 [roadmap.md](roadmap.md)）。
+- Rust 测试 140 项全部通过（core 75 / desktop 33 / cli 31，含限速归一化、schema 向后兼容、torrent 静态解析、HLS variant 与断点恢复用例）。
+- Windows GUI E2E 11 项用例全部通过（本地 fixture 可重复）：0.5 限速实测 4.1s（理论 4s）、ETA 渲染、variant=1 + 保留 TS 实际产出 high 分片原始流、torrent 静态详情解析。
+- `fluxdown-ffi` 动态库在 Windows host 用 ctypes 冒烟验证 7 项（协议识别/队列添加/列表）。移动端 Dart 代码需要 Flutter 环境跑 analyze/test 后再打包。
+
+
 ## 2026-09-05 `1.0.12` 桌面端功能发版
 
 - 桌面端新增“检查更新”入口（GitHub Releases 比对版本、更新内容展示、关闭/忽略此版本/打开下载页/在线更新四个动作）与窗口尺寸持久化（tauri-plugin-window-state）。

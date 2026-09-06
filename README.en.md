@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is `1.0.12`; see the latest release at [FluxDown 1.0.12](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.12).
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is `1.0.13`; see the latest release at [FluxDown 1.0.13](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.13).
 
 ## Current Status
 

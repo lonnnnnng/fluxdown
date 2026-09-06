@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 `1.0.12`，最新发布见 [FluxDown 1.0.12](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.12)。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 `1.0.13`，最新发布见 [FluxDown 1.0.13](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.13)。
 
 ## 当前状态
 
