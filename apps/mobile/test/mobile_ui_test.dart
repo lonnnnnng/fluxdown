@@ -176,6 +176,7 @@ Future<bool> _acceptTask({
   String? torrentName,
   List<TorrentFileEntry> torrentFiles = const [],
   List<int>? selectedTorrentFileIndexes,
+  String? expectedSha256,
 }) async {
   return true;
 }

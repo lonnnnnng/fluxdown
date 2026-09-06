@@ -151,10 +151,10 @@ class FluxDownCoreFfi {
   String version() => _toDart(_version());
 
   Map<String, Object?> detect(String source) =>
-      _unwrap(_toDart(_detect(_toNative(source))));
+      _unwrapMap(_toDart(_detect(_toNative(source))));
 
   Map<String, Object?> support(String source) =>
-      _unwrap(_toDart(_support(_toNative(source))));
+      _unwrapMap(_toDart(_support(_toNative(source))));
 
   List<FluxDownCoreTask> queueList(String storePath) {
     final data = _unwrap(_toDart(_queueList(_toNative(storePath))));
@@ -173,16 +173,26 @@ class FluxDownCoreFfi {
   }
 
   Map<String, Object?> queueRun(String storePath, String taskId) =>
-      _unwrap(_toDart(_queueRun(_toNative(storePath), _toNative(taskId))));
+      _unwrapMap(_toDart(_queueRun(_toNative(storePath), _toNative(taskId))));
 
-  Map<String, Object?> _unwrap(Object? envelope) {
+  /// 解包信封：成功返回 data 载荷（可能是任意 JSON 值），失败抛异常。
+  Object? _unwrap(Object? envelope) {
     if (envelope is Map<String, Object?>) {
       if (envelope['ok'] != true) {
         throw FluxDownCoreException(envelope['error']?.toString() ?? 'FFI 调用失败');
       }
-      return envelope;
+      return envelope['data'];
     }
     throw const FluxDownCoreException('FFI 返回的信封无法解析');
+  }
+
+  /// 解包信封并要求 data 是 JSON 对象。
+  Map<String, Object?> _unwrapMap(Object? envelope) {
+    final data = _unwrap(envelope);
+    if (data is Map) {
+      return Map<String, Object?>.from(data);
+    }
+    throw const FluxDownCoreException('FFI 返回的 data 不是对象');
   }
 
   String _toDart(Pointer<Utf8> pointer) {
