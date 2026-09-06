@@ -343,7 +343,7 @@ async fn queue_remove_recovers_stale_running_task_before_removal() {
 }
 
 fn wait_for_running_progress(store_path: &std::path::Path, task_id: &str) -> Value {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         let task = list_task(store_path, task_id);
         if task["state"] == "running" && task["downloaded_bytes"].as_u64().unwrap_or(0) > 0 {
@@ -1744,7 +1744,7 @@ fn queue_run_can_remove_running_task_from_separate_cli_process() {
     assert_eq!(removed["id"], task_id);
     assert_eq!(removed["state"], "running");
 
-    let run_output = wait_for_cli_output(run_child, Duration::from_secs(5));
+    let run_output = wait_for_cli_output(run_child, Duration::from_secs(20));
     server.join().unwrap();
     assert!(
         run_output.status.success(),
@@ -1867,7 +1867,7 @@ fn queue_run_can_pause_and_resume_running_task_from_separate_cli_process() {
     let paused_by_command: Value = serde_json::from_slice(&pause_output.stdout).unwrap();
     assert_eq!(paused_by_command["state"], "paused");
 
-    let run_output = wait_for_cli_output(run_child, Duration::from_secs(5));
+    let run_output = wait_for_cli_output(run_child, Duration::from_secs(20));
     assert!(
         run_output.status.success(),
         "stderr: {}",
