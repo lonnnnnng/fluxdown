@@ -142,6 +142,28 @@ CI 签名 secrets：
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
 
+### Windows 代码签名
+
+CI 的 Windows CLI 与桌面产物支持 Authenticode 签名（SHA-256 摘要 + RFC3161 时间戳），secrets 未配置时自动跳过、不阻断打包。首次启用签名：
+
+1. 购买代码签名证书并导出为 `.pfx`（含私钥）。
+2. 在仓库 Settings → Secrets → Actions 添加：
+   - `WINDOWS_PFX_BASE64`：`.pfx` 文件的 base64 内容（本机可用 `certutil -encode cert.pfx cert.b64` 生成，取内容体）。
+   - `WINDOWS_PFX_PASSWORD`：该 `.pfx` 的导出密码。
+   - 可选 `WINDOWS_TIMESTAMP_URL`：自定义 RFC3161 时间戳服务器，默认 `http://timestamp.digicert.com`。
+3. 重新手动运行 Build workflow；日志里 `sign-windows-artifacts: signed N file(s)` 即签名成功，被签的文件包括 Windows CLI、桌面 exe、NSIS 安装包与 MSI。
+
+签名依赖 Windows runner 自带的 Windows Kits `signtool`；签名逻辑在 `scripts/sign-windows-artifacts.mjs`。未签名分发的现状是用户首次运行会触发 SmartScreen 提示——正式对外分发前强烈建议启用签名。
+
+### Rust FFI 动态库（移动端）
+
+`crates/fluxdown-ffi` 会被 CI 自动构建并随移动端产物分发：
+
+- **Android**：`cargo ndk` 产出 `arm64-v8a` / `armeabi-v7a` / `x86_64` 三个 ABI 的 `libfluxdown_ffi.so`，直接写入 `apps/mobile/android/app/src/main/jniLibs/`，Flutter 打包时自动带进 APK/AAB。移动端协议识别经 `dart:ffi` 走 FFI 优先（`lib/src/core_bridge.dart`），动态库缺失时回退 Dart 自实现。
+- **iOS**：CI 产出 `aarch64-apple-ios` 静态库 `libfluxdown_ffi.a`（artifact `fluxdown-ffi-ios-static`）。iOS 的 Xcode 链接（加到 Runner 工程 + `DynamicLibrary.process()` 加载）尚未接入，作为后续版本工作。
+
+本地验证 FFI 层：`cargo build -p fluxdown-ffi` 后用 `cargo run -p fluxdown-ffi` 不可行（cdylib 无 main），Windows 上可用 Python ctypes 或任何 FFI 工具调用 `fluxdown_ffi_abi()` / `fluxdown_version()` 探活。
+
 ## iOS 构建
 
 模拟器验证：

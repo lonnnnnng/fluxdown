@@ -1,3 +1,5 @@
+import 'core_bridge.dart';
+
 class ProtocolSupport {
   const ProtocolSupport({
     required this.backendLabel,
@@ -88,6 +90,11 @@ ProtocolSupport supportStatus(String protocol) {
 }
 
 String detectProtocol(String source) {
+  // 作者: long
+  // FFI 优先：与桌面端共享 Rust core 的协议识别（libfluxdown_ffi 打进包时可用）；
+  // 动态库缺失或调用失败时回退 Dart 自实现，两端结果保持一致。
+  final viaCore = FluxDownCoreBridge.detectProtocol(source);
+  if (viaCore != null) return viaCore;
   final value = source.trim().toLowerCase();
   if (value.startsWith('magnet:?')) return 'magnet';
   if (value.startsWith('ed2k://')) return 'ed2k';

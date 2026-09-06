@@ -72,6 +72,14 @@ jobs:
         run: cargo test -p fluxdown-core -p fluxdown-cli
       - name: Build CLI
         run: cargo build -p fluxdown-cli --release
+      - name: Sign Windows CLI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        run: |
+          node scripts/sign-windows-artifacts.mjs "target/release/fluxdown.exe"
       - name: Stage CLI artifact
         shell: bash
         run: |
@@ -141,6 +149,17 @@ jobs:
       - name: Build macOS DMG
         if: runner.os == 'macOS'
         run: npm run desktop:dmg
+      - name: Sign Windows desktop artifacts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        run: |
+          node scripts/sign-windows-artifacts.mjs `
+            "target/release/fluxdown-desktop.exe" `
+            "target/release/bundle/nsis/*.exe" `
+            "target/release/bundle/msi/*.msi"
       - name: Verify Linux desktop artifact
         if: runner.os == 'Linux'
         run: node scripts/verify-artifacts.mjs linux-gui-ci
@@ -170,10 +189,37 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Build Rust FFI library for Android
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: |
+          # 作者: long
+          # 把 Rust 下载核心（fluxdown-ffi）编成三个主流 ABI 的动态库并放进
+          # jniLibs，Flutter 打包时自动带进 APK；协议识别经 dart:ffi 走 FFI 优先。
+          if [ -z "$ANDROID_NDK_HOME" ]; then
+            echo "ANDROID_NDK_LATEST_HOME is not set; cannot build fluxdown_ffi."
+            exit 1
+          fi
+          cargo ndk \
+            --target arm64-v8a \
+            --target armeabi-v7a \
+            --target x86_64 \
+            --platform 24 \
+            -o apps/mobile/android/app/src/main/jniLibs \
+            build --release -p fluxdown-ffi
+          node scripts/verify-artifacts.mjs file \
+            apps/mobile/android/app/src/main/jniLibs/arm64-v8a/libfluxdown_ffi.so
       - name: Install Flutter dependencies
         working-directory: apps/mobile
         run: flutter pub get
@@ -240,10 +286,27 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+      - name: Build Rust FFI static library for iOS
+        run: |
+          # 作者: long
+          # iOS 链接静态库需要改 Runner 工程文件，本轮先产出 .a 产物并校验，
+          # Xcode 链接与 dart:ffi 加载（DynamicLibrary.process）在后续版本接入。
+          cargo build -p fluxdown-ffi --release --target aarch64-apple-ios
+          mkdir -p dist/ffi-ios
+          cp target/aarch64-apple-ios/release/libfluxdown_ffi.a dist/ffi-ios/
+          node scripts/verify-artifacts.mjs file dist/ffi-ios/libfluxdown_ffi.a
+      - name: Upload Rust FFI static library
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-ffi-ios-static
+          path: dist/ffi-ios/libfluxdown_ffi.a
       - name: Install Flutter dependencies
         working-directory: apps/mobile
         run: flutter pub get
