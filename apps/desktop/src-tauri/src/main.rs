@@ -12,8 +12,12 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+// 作者: long
+// Manager 在所有平台都要用（单实例回调、托盘菜单都通过它找主窗口）；
+// WebviewWindowBuilder/URL 只有 Windows E2E 钩子使用，保持平台门控。
+use tauri::Manager;
 #[cfg(target_os = "windows")]
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MIN_CONCURRENCY: usize = 1;
