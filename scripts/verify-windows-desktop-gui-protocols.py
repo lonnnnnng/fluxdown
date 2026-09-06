@@ -496,7 +496,7 @@ def run_settings_validation(driver: GuiDriver, ctx: GuiContext) -> dict[str, Any
     driver.wait_for_testid("settings-page", timeout=10.0)
 
     section_rows = {
-        "general": ["outputDir", "autoStart", "refreshIntervalMs"],
+        "general": ["outputDir", "autoStart", "notifyOnFinish", "clipboardMonitor", "refreshIntervalMs"],
         "download": ["concurrency", "threadCount", "retryAttempts", "speedLimitMbps"],
         "protocol": [],
         "storage": ["fileNaming", "sha256", "torrentFileSelection", "openWhenFinished"],

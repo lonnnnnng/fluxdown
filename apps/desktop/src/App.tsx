@@ -218,6 +218,8 @@ type Settings = {
   speedLimitMbps: number;
   autoStart: boolean;
   refreshIntervalMs: number;
+  notifyOnFinish: boolean;
+  clipboardMonitor: boolean;
 };
 
 type UpdateCheckReport = {
@@ -272,6 +274,8 @@ const defaultSettings: Settings = {
   speedLimitMbps: 0,
   autoStart: true,
   refreshIntervalMs: 600,
+  notifyOnFinish: true,
+  clipboardMonitor: true,
 };
 
 const queueFilters: QueueFilter[] = [
@@ -420,6 +424,14 @@ function loadSettings(): Settings {
         5000,
         defaultSettings.refreshIntervalMs,
       ),
+      notifyOnFinish:
+        typeof saved.notifyOnFinish === "boolean"
+          ? saved.notifyOnFinish
+          : defaultSettings.notifyOnFinish,
+      clipboardMonitor:
+        typeof saved.clipboardMonitor === "boolean"
+          ? saved.clipboardMonitor
+          : defaultSettings.clipboardMonitor,
     };
   } catch {
     return defaultSettings;
@@ -777,6 +789,14 @@ function App() {
   const [torrentDetails, setTorrentDetails] = useState<TorrentDetails | null>(
     null,
   );
+  const [clipboardSuggestion, setClipboardSuggestion] = useState<string | null>(
+    null,
+  );
+  const lastClipboardRef = useRef<string | null>(null);
+  const clipboardSeenRef = useRef(false);
+  const dismissedClipboardRef = useRef<Set<string>>(new Set());
+  const clipboardMonitorRef = useRef(settings.clipboardMonitor);
+  clipboardMonitorRef.current = settings.clipboardMonitor;
   const autoRunKeyRef = useRef("");
 
   const counts = useMemo(() => taskCounts(tasks), [tasks]);
@@ -1004,6 +1024,66 @@ function App() {
     };
   }, [newDialogOpen, source, sourceSupport]);
 
+  // 作者: long
+  // 剪贴板监听：Rust 端读系统剪贴板（不受 WebView 权限限制），检测到新的
+  // 可下载链接时显示提示条。首次读取只记录不提示，避免启动时弹旧链接。
+  useEffect(() => {
+    if (!settings.clipboardMonitor) {
+      setClipboardSuggestion(null);
+      return;
+    }
+    let cancelled = false;
+    let inFlight = false;
+    const tick = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const text = await invoke<string | null>("read_clipboard_text");
+        const normalized = (text ?? "").trim();
+        if (!normalized) return;
+        const seen = lastClipboardRef.current;
+        lastClipboardRef.current = normalized;
+        if (!clipboardSeenRef.current) {
+          clipboardSeenRef.current = true;
+          return;
+        }
+        if (normalized === seen || dismissedClipboardRef.current.has(normalized)) {
+          return;
+        }
+        const protocol = sourceSupport
+          ? (sourceSupport.protocol ?? fallbackDetect(normalized))
+          : fallbackDetect(normalized);
+        if (supportedNow.has(protocol)) {
+          setClipboardSuggestion(normalized);
+        }
+      } catch {
+        // 剪贴板不可用（无后端/被占用）时静默跳过本轮。
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(() => void tick(), 1500);
+    void tick();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [settings.clipboardMonitor, sourceSupport]);
+
+  function acceptClipboardSuggestion() {
+    if (!clipboardSuggestion) return;
+    updateNewTaskSource(clipboardSuggestion);
+    setClipboardSuggestion(null);
+    openNewDialog();
+  }
+
+  function dismissClipboardSuggestion() {
+    if (clipboardSuggestion) {
+      dismissedClipboardRef.current.add(clipboardSuggestion);
+    }
+    setClipboardSuggestion(null);
+  }
+
   useEffect(() => {
     if (!settings.autoStart) {
       autoRunKeyRef.current = "";
@@ -1058,7 +1138,44 @@ function App() {
     const result = await invoke<DownloadTask[]>("list_downloads").catch(
       () => null,
     );
-    if (result) setTasks(result);
+    if (result) {
+      setTasks(result);
+      notifyFinishedTasks(result);
+    }
+  }
+
+  // 作者: long
+  // 完成通知：对比上一轮任务状态，只有从进行中转为完成/失败的任务才通知，
+  // 避免启动时对历史任务重复提醒；窗口隐藏（托盘驻留）时这是唯一的完成感知。
+  const previousStatesRef = useRef<Map<string, DownloadState>>(new Map());
+  const notifyOnFinishRef = useRef(settings.notifyOnFinish);
+  notifyOnFinishRef.current = settings.notifyOnFinish;
+
+  async function notifyFinishedTasks(tasks: DownloadTask[]) {
+    const previous = previousStatesRef.current;
+    const events: Array<{ title: string; body: string }> = [];
+    for (const task of tasks) {
+      const before = previous.get(task.id);
+      previous.set(task.id, task.state);
+      if (!before || before === task.state) continue;
+      if (before !== "running" && before !== "queued") continue;
+      const title = taskTitle(task);
+      if (task.state === "finished") {
+        events.push({ title: "下载完成", body: `${title} 已完成` });
+      } else if (task.state === "failed") {
+        events.push({
+          title: "下载失败",
+          body: `${title} 失败：${displayTaskError(task) || "未知错误"}`,
+        });
+      }
+    }
+    if (!events.length || !notifyOnFinishRef.current) return;
+    for (const event of events) {
+      await invoke("send_notification", {
+        title: event.title,
+        body: event.body,
+      }).catch(() => null);
+    }
   }
 
   async function refreshTasksWithMessage() {
@@ -1464,6 +1581,32 @@ function App() {
                 </div>
               </div>
             </header>
+
+            {clipboardSuggestion ? (
+              <div className="clipboardSuggestion" data-testid="clipboard-suggestion">
+                <Icon name="clipboard" />
+                <span className="clipboardSuggestionText">
+                  检测到下载链接：
+                  <strong>{clipboardSuggestion}</strong>
+                </span>
+                <button
+                  className="actionButton primary"
+                  data-testid="clipboard-suggestion-accept"
+                  onClick={acceptClipboardSuggestion}
+                >
+                  新建任务
+                </button>
+                <button
+                  className="iconButton"
+                  aria-label="忽略此剪贴板链接"
+                  data-testid="clipboard-suggestion-dismiss"
+                  title="忽略"
+                  onClick={dismissClipboardSuggestion}
+                >
+                  <Icon name="x" />
+                </button>
+              </div>
+            ) : null}
 
             <section className="contentView queueView">
               <div className="insights">
@@ -2538,6 +2681,46 @@ function SettingsPage({
                   data-testid="setting-auto-start"
                   onClick={() =>
                     updateSetting({ autoStart: !settings.autoStart }, "创建后自动开始")
+                  }
+                >
+                  <span />
+                </button>
+              </SettingRow>
+              <SettingRow
+                dataSetting="notifyOnFinish"
+                title="完成系统通知"
+                subtitle="任务完成或失败时弹出系统通知，驻留托盘时也能感知。"
+              >
+                <button
+                  aria-pressed={settings.notifyOnFinish}
+                  className={`toggle ${settings.notifyOnFinish ? "on" : ""}`}
+                  data-setting-input="notifyOnFinish"
+                  data-testid="setting-notify-on-finish"
+                  onClick={() =>
+                    updateSetting(
+                      { notifyOnFinish: !settings.notifyOnFinish },
+                      "完成系统通知",
+                    )
+                  }
+                >
+                  <span />
+                </button>
+              </SettingRow>
+              <SettingRow
+                dataSetting="clipboardMonitor"
+                title="剪贴板监听"
+                subtitle="检测到复制的下载链接时提示创建任务。"
+              >
+                <button
+                  aria-pressed={settings.clipboardMonitor}
+                  className={`toggle ${settings.clipboardMonitor ? "on" : ""}`}
+                  data-setting-input="clipboardMonitor"
+                  data-testid="setting-clipboard-monitor"
+                  onClick={() =>
+                    updateSetting(
+                      { clipboardMonitor: !settings.clipboardMonitor },
+                      "剪贴板监听",
+                    )
                   }
                 >
                   <span />

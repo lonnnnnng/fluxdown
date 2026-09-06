@@ -1696,3 +1696,34 @@ textarea:focus-visible,
   color: var(--ink-soft);
   flex: 0 0 auto;
 }
+
+/* ---- 剪贴板监听提示条 ---- */
+.clipboardSuggestion {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--primary-ink);
+  border-radius: var(--radius);
+  background: var(--primary-soft);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.clipboardSuggestion > svg {
+  flex: 0 0 auto;
+  color: var(--primary-ink);
+}
+
+.clipboardSuggestionText {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clipboardSuggestionText strong {
+  color: var(--primary-ink);
+  font-weight: 500;
+}

@@ -12,6 +12,9 @@ anyhow.workspace = true
 fluxdown-core = { path = "../../../crates/fluxdown-core" }
 open.workspace = true
 reqwest.workspace = true
+tauri-plugin-clipboard-manager.workspace = true
+tauri-plugin-notification.workspace = true
+tauri-plugin-single-instance.workspace = true
 tauri-plugin-window-state.workspace = true
 serde.workspace = true
 serde_json.workspace = true

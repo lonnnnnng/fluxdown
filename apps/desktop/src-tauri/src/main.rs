@@ -828,14 +828,141 @@ fn matches_platform_asset(name: &str) -> bool {
     }
 }
 
+// 作者: long
+// 托盘：左键单击唤起主窗口；菜单提供显示/退出。主窗口关闭时隐藏到托盘，
+// 下载继续进行，用户从托盘回到界面——这是下载器常驻体验的核心。
+fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::{
+        menu::{Menu, MenuItem},
+        tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+        Manager,
+    };
+
+    let show_item = MenuItem::with_id(app, "show", "显示 FluxDown", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "退出 FluxDown", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+    let mut tray = TrayIconBuilder::with_id("fluxdown-tray")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .tooltip("FluxDown")
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "quit" => {
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            // 作者: long
+            // 左键单击切换主窗口可见性；系统托盘是用户唯一常驻入口，双击语义不必要。
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                if let Some(window) = tray.app_handle().get_webview_window("main") {
+                    if window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false) {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.unminimize();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+
+    // 主窗口关闭请求转为隐藏（驻留托盘，下载继续），真正的退出只走托盘菜单。
+    if let Some(window) = app.get_webview_window("main") {
+        let handle = window.clone();
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = handle.hide();
+            }
+        });
+    }
+    Ok(())
+}
+
+/// 发送系统通知；Windows 上未安装（dev 运行无 AppUserModelID）时静默失败，
+/// 不把通知错误反馈到下载主流程。
+#[tauri::command]
+fn send_notification(app: tauri::AppHandle, title: String, body: String) -> Result<bool, String> {
+    use tauri_plugin_notification::NotificationExt;
+    match app
+        .notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+    {
+        Ok(_) => Ok(true),
+        Err(error) => {
+            #[cfg(debug_assertions)]
+            eprintln!("notification failed: {error}");
+            Ok(false)
+        }
+    }
+}
+
+/// 读取系统剪贴板文本（供前端轮询剪贴板监听使用；Rust 端读取不受浏览器权限限制）。
+#[tauri::command]
+fn read_clipboard_text(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    match app.clipboard().read_text() {
+        Ok(text) => {
+            let trimmed = text.trim().to_string();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(trimmed))
+            }
+        }
+        Err(_) => Ok(None),
+    }
+}
+
+/// 写入系统剪贴板文本（E2E 注入测试链接用，也可供后续“复制”功能统一走此路径）。
+#[tauri::command]
+fn write_clipboard_text(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    app.clipboard().write_text(text).map_err(|error| error.to_string())
+}
+
 fn main() {
     tauri::Builder::default()
         // 作者: long
+        // 单实例必须是第一个插件：重复启动时把已有主窗口带到前台并退出新进程，
+        // 避免两个进程并发写同一个 JSON 队列。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        // 作者: long
         // 窗口大小/位置由官方 window-state 插件在窗口变化与退出时持久化，下次启动自动恢复。
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|_app| {
             #[cfg(target_os = "windows")]
             setup_e2e_webview(_app)?;
+            setup_tray(_app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -859,6 +986,9 @@ fn main() {
             download_and_install_update,
             list_hls_variants,
             torrent_task_details,
+            send_notification,
+            read_clipboard_text,
+            write_clipboard_text,
             e2e_window_metrics,
             e2e_quit_app
         ])

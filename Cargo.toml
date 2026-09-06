@@ -10,7 +10,7 @@ resolver = "3"
 [workspace.package]
 edition = "2024"
 license = "MIT"
-version = "1.0.13"
+version = "1.0.14"
 
 [workspace.dependencies]
 aes = "0.8.4"
@@ -30,8 +30,11 @@ sha2 = "0.10.9"
 smb2 = "0.11.2"
 ssh2 = "0.9.5"
 suppaftp = { version = "11.0.0", features = ["tokio", "tokio-rustls-ring", "deprecated"] }
-tauri = { version = "2.9.5", features = [] }
+tauri = { version = "2.9.5", features = ["tray-icon"] }
 tauri-build = "2.5.3"
+tauri-plugin-clipboard-manager = "2.3.0"
+tauri-plugin-notification = "2.3.0"
+tauri-plugin-single-instance = "2.3.0"
 tauri-plugin-window-state = "2.4.0"
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["fs", "io-util", "macros", "rt-multi-thread"] }
