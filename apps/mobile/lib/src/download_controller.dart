@@ -240,7 +240,11 @@ class DownloadController {
         // 作者: long
         // SHA-256 校验与桌面端语义一致：下载成功后核对产物哈希，不匹配按失败处理；
         // torrent 任务是目录/多文件产物，哈希校验不适用，直接跳过。
-        if (completed.state == DownloadState.finished) {
+        // 未配置 SHA-256 的任务必须走同步路径完成状态落库，不引入额外 await，
+        // 否则会改变既有“完成即可见”的时序约定。
+        final needsSha256Verification = completed.state == DownloadState.finished
+            && normalizeSha256Text(completed.expectedSha256) != null;
+        if (needsSha256Verification) {
           final mismatch = await _verifyExpectedSha256(completed);
           if (mismatch != null) {
             completed = completed.copyWith(
