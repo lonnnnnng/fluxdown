@@ -201,12 +201,12 @@ jobs:
         run: cargo install cargo-ndk --locked
       - name: Build Rust FFI library for Android
         shell: bash
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
         run: |
           # 作者: long
           # 把 Rust 下载核心（fluxdown-ffi）编成三个主流 ABI 的动态库并放进
           # jniLibs，Flutter 打包时自动带进 APK；协议识别经 dart:ffi 走 FFI 优先。
+          # runner 预设变量不在 env context 里，直接在 shell 里取。
+          ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-${ANDROID_NDK_LATEST_HOME:-}}"
           if [ -z "$ANDROID_NDK_HOME" ]; then
             echo "ANDROID_NDK_LATEST_HOME is not set; cannot build fluxdown_ffi."
             exit 1
@@ -217,7 +217,7 @@ jobs:
             --target x86_64 \
             --platform 24 \
             -o apps/mobile/android/app/src/main/jniLibs \
-            build --release -p fluxdown-ffi
+            build --release -p fluxdown-ffi --features fluxdown-core/vendored-openssl
           node scripts/verify-artifacts.mjs file \
             apps/mobile/android/app/src/main/jniLibs/arm64-v8a/libfluxdown_ffi.so
       - name: Install Flutter dependencies
@@ -298,7 +298,8 @@ jobs:
           # 作者: long
           # iOS 链接静态库需要改 Runner 工程文件，本轮先产出 .a 产物并校验，
           # Xcode 链接与 dart:ffi 加载（DynamicLibrary.process）在后续版本接入。
-          cargo build -p fluxdown-ffi --release --target aarch64-apple-ios
+          cargo build -p fluxdown-ffi --release --target aarch64-apple-ios \
+            --features fluxdown-core/vendored-openssl
           mkdir -p dist/ffi-ios
           cp target/aarch64-apple-ios/release/libfluxdown_ffi.a dist/ffi-ios/
           node scripts/verify-artifacts.mjs file dist/ffi-ios/libfluxdown_ffi.a

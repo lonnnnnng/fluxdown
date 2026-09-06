@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# 作者: long
+# 移动端交叉编译时 host 上没有目标平台 OpenSSL，启用 ssh2 的 vendored OpenSSL
+# 从源码构建；桌面构建保持默认（依赖各平台 host OpenSSL），本地开发无需 perl。
+vendored-openssl = ["ssh2/vendored-openssl"]
+
 [dependencies]
 aes.workspace = true
 anyhow.workspace = true
