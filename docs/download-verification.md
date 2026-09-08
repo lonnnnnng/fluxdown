@@ -1,6 +1,6 @@
 # 下载验证状态
 
-## 2026-09-08 `1.0.17` Windows 启动控制台修复与发版准备
+## 2026-09-08 `1.0.17` Windows 启动控制台修复、发布与回验
 
 - 用户反馈：启动桌面应用同时出现命令行窗口，关闭该窗口后应用退出。
 - 已核验 [v1.0.16 构建 34193842586](https://github.com/lonnnnnng/fluxdown/actions/runs/34193842586) 的真实 `fluxdown-desktop.exe`：PE32+ x64，`Subsystem=3`（Console），应为 `2`（GUI）。桌面入口缺少 `windows_subsystem` 声明，Rust 默认使用 Console；关闭控制台会向附着的进程发送终止信号。安装器自身为 GUI，不能代表其中的桌面程序也正确。
@@ -8,7 +8,12 @@
 - 修复：桌面 Windows Release 使用 GUI 子系统，Debug 保留控制台日志；CLI 仍使用 Console。启动时可选后端的 `--version` 探测设置 `CREATE_NO_WINDOW`，避免探测控制台工具时闪窗；不隐藏安装器或用户主动打开的外部 App。
 - 防回归：`verify-artifacts.mjs` 检查实际桌面 EXE 必须为 GUI、CLI EXE 必须为 Console，已接入原始 Windows 构建产物和重命名后的发布目录检查。`npm run verify:ci-config` 包含 11 项发行策略和 10 项 PE 检查，共 21 项通过。新检查对旧版真实桌面 EXE 返回 `Windows PE subsystem must be GUI (2), got 3`，按预期拒绝该产物。
 - 本地 `cargo test --locked -p fluxdown-core -p fluxdown-desktop`：110 项通过、7 项外部环境用例忽略；这是 macOS 回归，不能证明 Windows 门控代码已原生运行。
-- 源码版本已升为 `1.0.17+18`。发布前 Windows 验收须使用重新构建的 Release 安装包：实际桌面 EXE 通过 GUI 子系统门禁；从快捷方式启动无控制台、托盘驻留/恢复正常、托盘退出正常、可选 ed2k 后端探测不闪窗、CLI 输出与退出码正常。`v1.0.16` 不包含修复。
+- 发布提交为 `d33d716`，npm/Tauri/Rust 版本为 `1.0.17`，Flutter 版本为 `1.0.17+18`；[正式 Release](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.17) 已发布。只手动触发一次 [34223531407](https://github.com/lonnnnnng/fluxdown/actions/runs/34223531407)，预检、三平台 Rust/CLI、三平台桌面、Android、iOS 和 Publish 共 10 个作业全部成功。
+- Windows CI 的真实桌面 EXE 通过 `Subsystem=2`，CLI 通过 `Subsystem=3`。正式 NSIS 安装器已重新下载，并使用 `7zz` 提取其中的 `fluxdown-desktop.exe` 再次确认 GUI 子系统。包内主程序为 20,643,840 字节，SHA-256 为 `70c492bd40106cae3ab5c1b4ef70d9592406a9044b94aca23b3ae13d2a91e68c`；与 CI 裸 EXE 仅相差 Tauri 在打包时写入的 `__TAURI_BUNDLE_TYPE_VAR_UNK` -> `__TAURI_BUNDLE_TYPE_VAR_NSS` 三个字节，代码区不变。安装器 SHA-256 为 `51118bf62fa608c7cce37b0d4926de15fc273e18271844501368a87711ecfe76`，与同次 CI 安装器一致。
+- 已下载 Windows/macOS/Linux 的 Release CLI smoke 报告，均通过 `--version/detect/add/pause/resume/run/list/download`；队列与直接下载各产出 262,144 字节，SHA-256 为 `31a1f9dea0169551092d05e8bf4a446228c8c3eb4c9b713c66adcb7fd53c89be`，各覆盖 8 次 HTTP Range 请求。正式 macOS CLI 归档解压后在本机再次执行同套 smoke 通过；正式 Windows CLI ZIP 内 EXE 再次核验为 Console 子系统。
+- 正式 Release 的全部 11 个附件已在新目录重新下载，精确资产清单、manifest 中的大小/SHA-256、GitHub API 返回的 11 个文件 digest（包括 manifest 自身）全部匹配；加上自动源码包，页面仍为 13 项。Android 包名为 `dev.fluxdown.mobile`，版本为 `1.0.17 (18)`，保留 arm64-v8a、armeabi-v7a、x86_64；APK v2 签名有效，实际证书为 `Android Debug`。macOS DMG checksum 有效。iOS simulator 与 unsigned device app 构建及 FFI 导出校验通过，未生成签名 IPA。
+- 本地证据保留在 `dist/release-v1.0.17-verify.w57tPI/`、`dist/windows-v1.0.17-artifact-34223531407/` 和 `dist/release-v1.0.17-evidence/`；对应原始制品和三平台 smoke 报告同时保存在本次 Actions Artifacts。
+- 未完成边界：本轮未启动 Windows 前台 GUI，快捷方式启动、托盘驻留/恢复/退出、可选 ed2k 后端探测不闪窗仍待用户桌面实测；未新增真机完整协议下载验收。当前证据确认安装包内主程序的 GUI 启动类型和 CLI 输出/退出码，不能替代前台交互验收。`v1.0.16` 不包含本次修复。
 - 官方依据：[Rust Windows subsystem](https://doc.rust-lang.org/reference/runtime.html#the-windows_subsystem-attribute)、[Windows 控制台关闭信号](https://learn.microsoft.com/en-us/windows/console/ctrl-close-signal)、[PE 格式](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format)。
 
 ## 2026-09-08 `1.0.16` 发布与回验
