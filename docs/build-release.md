@@ -9,7 +9,7 @@
 - Rust workspace `Cargo.toml`
 - Flutter `apps/mobile/pubspec.yaml`
 
-当前版本号为 `1.0.16`，包含 FFI/桌面详情与跨进程队列修复、精简发行策略和包体优化，见 [发行说明](releases/1.0.16.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
+当前版本号为 `1.0.17`，修复 Windows 桌面控制台窗口并加入真实 EXE 的 PE 子系统门禁，见 [发行说明](releases/1.0.17.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
 
 ## 本地依赖
 
@@ -154,6 +154,8 @@ CI 签名 secrets：
 - `ANDROID_KEY_PASSWORD`
 
 ### Windows 代码签名
+
+Windows 桌面 Release 入口必须使用 `windows_subsystem = "windows"`；Debug 版保留控制台，CLI 仍是 Console 程序。现有 `desktop-windows-ci` / `windows-gui` / CLI 产物校验会检查真实 EXE 的 PE 子系统，不能只检查 NSIS 安装器或文件非空。`npm run verify:ci-config` 同时运行 PE32/PE32+、错误启动类型和损坏文件头回归。修改签名或压缩配置时也必须保留这项检查。
 
 CI 的 Windows CLI 与桌面产物支持 Authenticode 签名（SHA-256 摘要 + RFC3161 时间戳），secrets 未配置时自动跳过、不阻断打包。首次启用签名：
 

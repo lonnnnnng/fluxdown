@@ -19,6 +19,7 @@
 - [macOS 原生桌面端 12 协议验证报告](macos-desktop-protocol-e2e-report-20260805.md)：macOS 原生 Tauri 前台窗口下 11 类真实下载和 ed2k 系统移交证据。
 - [跨平台协议测试资源清单](protocol-test-resources.md)：保留公网小资源、动态实验室地址、复跑方式和跨端复用边界。
 - [构建与发布](build-release.md)：本地构建命令、CI 作业、发布产物、签名配置和版本发布流程。
+- [1.0.17 发行说明](releases/1.0.17.md)：Windows 桌面控制台修复、PE 子系统发布门禁及验证边界。
 - [1.0.16 发行说明](releases/1.0.16.md)：精简公开资产策略、FFI/桌面修复及签名边界。
 - [包体优化记录](release-size-optimization.md)：R8、Rust/Flutter 裁剪、CLI 压缩包、实际大小对比和验证边界。
 - [第三方许可证清单](third-party-licenses.md)：项目自有许可证、主要直接依赖和移动端 GPL 风险边界。
@@ -34,7 +35,7 @@ FluxDown 是一个跨平台下载器工作区：
 - 共享核心：Rust core crate 提供协议检测、任务模型、任务存储、队列运行器和桌面下载执行能力。
 - 移动 FFI：协议识别优先复用 Rust；Flutter 下载队列仍由 Dart/移动原生适配器执行，不是完整的跨端统一引擎。
 
-当前版本号为 `1.0.16`，纳入 2026-09-08 的 FFI/桌面详情修复，并将公开 Assets 从 21 项精简为 13 项（11 个上传文件与 2 个自动源码包）。内部调试、商店和 iOS 验证产物仍保留在 Actions Artifacts。发布流水线只允许手动选择 `run_mode=package` 或 `run_mode=release`，普通代码推送和 `v*` 标签推送都不会自动执行。各次构建与运行证据见 [下载验证状态](download-verification.md)。
+当前版本号为 `1.0.17`，修复 Windows 桌面程序随控制台启动及关闭控制台后退出的问题，并加入实际 EXE 的 PE 子系统发布门禁。`1.0.16` 已将公开 Assets 从 21 项精简为 13 项（11 个上传文件与 2 个自动源码包），该策略继续沿用。内部调试、商店和 iOS 验证产物仍保留在 Actions Artifacts。发布流水线只允许手动选择 `run_mode=package` 或 `run_mode=release`，普通代码推送和 `v*` 标签推送都不会自动执行。各次构建与运行证据见 [下载验证状态](download-verification.md)。
 
 ## 当前版本重点
 

@@ -1,5 +1,16 @@
 # 下载验证状态
 
+## 2026-09-08 `1.0.17` Windows 启动控制台修复与发版准备
+
+- 用户反馈：启动桌面应用同时出现命令行窗口，关闭该窗口后应用退出。
+- 已核验 [v1.0.16 构建 34193842586](https://github.com/lonnnnnng/fluxdown/actions/runs/34193842586) 的真实 `fluxdown-desktop.exe`：PE32+ x64，`Subsystem=3`（Console），应为 `2`（GUI）。桌面入口缺少 `windows_subsystem` 声明，Rust 默认使用 Console；关闭控制台会向附着的进程发送终止信号。安装器自身为 GUI，不能代表其中的桌面程序也正确。
+- 证据：桌面 EXE SHA-256 为 `cbedc08c028bcef180bf2c69f097dd577a2e72c6524048b6b7bf1d475ed82e2c`；同次 CI 安装器与正式 Release 安装器哈希一致，为 `97341db73ec6503628968b96d19f45afb3dad550450c27e74777cbb44b1f19af`。不是对用户机器实际启动的复现。
+- 修复：桌面 Windows Release 使用 GUI 子系统，Debug 保留控制台日志；CLI 仍使用 Console。启动时可选后端的 `--version` 探测设置 `CREATE_NO_WINDOW`，避免探测控制台工具时闪窗；不隐藏安装器或用户主动打开的外部 App。
+- 防回归：`verify-artifacts.mjs` 检查实际桌面 EXE 必须为 GUI、CLI EXE 必须为 Console，已接入原始 Windows 构建产物和重命名后的发布目录检查。`npm run verify:ci-config` 包含 11 项发行策略和 10 项 PE 检查，共 21 项通过。新检查对旧版真实桌面 EXE 返回 `Windows PE subsystem must be GUI (2), got 3`，按预期拒绝该产物。
+- 本地 `cargo test --locked -p fluxdown-core -p fluxdown-desktop`：110 项通过、7 项外部环境用例忽略；这是 macOS 回归，不能证明 Windows 门控代码已原生运行。
+- 源码版本已升为 `1.0.17+18`。发布前 Windows 验收须使用重新构建的 Release 安装包：实际桌面 EXE 通过 GUI 子系统门禁；从快捷方式启动无控制台、托盘驻留/恢复正常、托盘退出正常、可选 ed2k 后端探测不闪窗、CLI 输出与退出码正常。`v1.0.16` 不包含修复。
+- 官方依据：[Rust Windows subsystem](https://doc.rust-lang.org/reference/runtime.html#the-windows_subsystem-attribute)、[Windows 控制台关闭信号](https://learn.microsoft.com/en-us/windows/console/ctrl-close-signal)、[PE 格式](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format)。
+
 ## 2026-09-08 `1.0.16` 发布与回验
 
 - 保留 `v1.0.15` 标签，不覆盖失败记录；`v1.0.16+17` 已发布。Release API 确认 11 个上传文件，GitHub 页面另含 2 个自动源码包，共 13 项；CLI 使用 ZIP/TAR.GZ。

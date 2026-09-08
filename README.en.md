@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.16](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.16). Features below describe the current source; historical verification is labeled separately.
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.17](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.17). Features below describe the current source; historical verification is labeled separately.
 
 ## Current Status
 
@@ -21,6 +21,10 @@ FluxDown is a multi-protocol downloader for desktop and mobile. The current vers
 - CLI and desktop redact usernames and passwords in URLs, and sanitize save-as names to a single file name.
 - Mobile protocol detection tries Rust through FFI, with a Dart fallback when unavailable. Its queue and actual downloads still use Dart/native mobile adapters; migration to the Rust download engine is not complete.
 - Normal commits and tag pushes do not trigger GitHub Actions. CI is run manually only for explicit packaging or release work.
+
+### 1.0.17 Update (2026-09-08)
+
+Fixed the Windows desktop binary being linked as a Console subsystem application. Launching the app no longer opens an accompanying command window, and closing an unrelated console no longer terminates the app. Optional backend probes no longer flash console windows on Windows. Release validation now checks the PE subsystem of the actual desktop and CLI binaries. See the [release notes](docs/releases/1.0.17.md) and [verification record](docs/download-verification.md) (Chinese).
 
 ### 1.0.16 Update (2026-09-08)
 
@@ -113,11 +117,11 @@ Starting with `v1.0.16`, a standard release contains 11 uploaded files, plus Git
 | Command line | Windows x64 CLI ZIP; macOS ARM64 / Linux x64 CLI TAR.GZ |
 | Verification and notices | Release manifest (sizes/SHA-256), LICENSE, third-party license notices |
 
-Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.16.md) for signing and verification limits.
+Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.17.md) for signing and verification limits.
 
 Extract the CLI archive and run `fluxdown` / `fluxdown.exe`; Unix executable permissions are retained. Android still includes arm64-v8a, armeabi-v7a, and x86_64. Release uses R8; Dart symbols and R8 mapping are retained separately in Actions Artifacts.
 
-Release page: [FluxDown 1.0.16](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.16).
+Release page: [FluxDown 1.0.17](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.17).
 
 ## Documentation
 

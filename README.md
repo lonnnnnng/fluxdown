@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.16](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.16)。以下功能说明以当前源码为准，历史验证单独标注。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.17](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.17)。以下功能说明以当前源码为准，历史验证单独标注。
 
 ## 当前状态
 
@@ -21,6 +21,10 @@ FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版�
 - CLI 和桌面端会脱敏 URL 中的用户名和密码，并把另存文件名规范化为单文件名。
 - 移动端协议识别优先通过 FFI 调用 Rust，库不可用时回退 Dart；队列与实际下载仍由 Dart/移动原生适配器执行，尚未统一到 Rust 下载引擎。
 - 普通提交和 tag 推送不会触发 GitHub Actions；只有明确打包或发版时才手动运行流水线。
+
+### 1.0.17 更新（2026-09-08）
+
+修复 Windows 桌面程序被错误编译为 Console 子系统的问题，启动应用不再同时显示命令行窗口，关闭无关控制台也不会连带退出应用。后台可选后端探测在 Windows 下不再闪出控制台；新增真实 EXE 的 PE 子系统发布门禁，桌面程序必须为 GUI，CLI 继续保留 Console。详见 [发行说明](docs/releases/1.0.17.md) 和 [验证记录](docs/download-verification.md)。
 
 ### 1.0.16 更新（2026-09-08）
 
@@ -113,11 +117,11 @@ Runner 构建阶段自动编译并静态链接 Rust FFI，最低部署版本为 
 | 命令行 | Windows x64 CLI ZIP、macOS ARM64 / Linux x64 CLI TAR.GZ |
 | 校验与说明 | release manifest（大小/SHA-256）、LICENSE、第三方许可证清单 |
 
-Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.16.md)。
+Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.17.md)。
 
 CLI 解压后运行 `fluxdown` / `fluxdown.exe`，Unix 可执行权限已保留。Android APK 仍包含 arm64-v8a、armeabi-v7a、x86_64；Release 启用 R8，Dart 符号和 R8 mapping 单独保存在 Actions Artifacts，不是从 App 删除功能。
 
-Release 页面：[FluxDown 1.0.16](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.16)。
+Release 页面：[FluxDown 1.0.17](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.17)。
 
 ## 文档
 

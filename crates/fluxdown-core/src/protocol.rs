@@ -214,7 +214,12 @@ pub async fn backend_availability(backend: Backend) -> BackendAvailability {
 }
 
 async fn command_availability(backend: Backend, command: &str, note: &str) -> BackendAvailability {
-    let available = Command::new(command)
+    let mut process = Command::new(command);
+    // 作者: long
+    // 桌面启动会探测可选后端版本；这是后台检查，不能让 PATH 中的控制台工具额外弹出窗口。
+    #[cfg(target_os = "windows")]
+    process.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    let available = process
         .arg("--version")
         .output()
         .await

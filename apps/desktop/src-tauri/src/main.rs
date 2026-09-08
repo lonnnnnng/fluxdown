@@ -1,3 +1,10 @@
+// 作者: long
+// Windows 发行版按 GUI 程序启动，避免创建控制台及关闭控制台时连带终止下载；调试版保留控制台日志。
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+
 use fluxdown_core::{
     DoctorReport, DownloadOptions, DownloadRequest, DownloadState, DownloadTask, Protocol,
     QueueRunReport, QueueRunner, QueueRunnerOptions, RuntimeSupportStatus, TaskRunReport,
@@ -914,9 +921,9 @@ fn send_notification(app: tauri::AppHandle, title: String, body: String) -> Resu
         .show()
     {
         Ok(_) => Ok(true),
-        Err(error) => {
+        Err(_error) => {
             #[cfg(debug_assertions)]
-            eprintln!("notification failed: {error}");
+            eprintln!("notification failed: {_error}");
             Ok(false)
         }
     }

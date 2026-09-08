@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { verifyWindowsSubsystem } from './windows-pe.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const profile = process.argv[2] ?? 'local'
@@ -132,6 +133,16 @@ function verify(kind, relativePath) {
       fail(`${relativePath} is empty`)
     } else {
       console.log(`ok file ${relativePath} (${stat.size} bytes)`)
+      const name = basename(path).toLowerCase()
+      const expectedSubsystem = expectedWindowsSubsystem(name)
+      if (expectedSubsystem !== null) {
+        try {
+          const subsystem = verifyWindowsSubsystem(readFileSync(path), expectedSubsystem)
+          console.log(`ok PE   ${relativePath} (subsystem ${subsystem})`)
+        } catch (error) {
+          fail(`${relativePath}: ${error.message}`)
+        }
+      }
     }
     return
   }
@@ -143,6 +154,14 @@ function verify(kind, relativePath) {
   } else {
     console.log(`ok dir  ${relativePath}`)
   }
+}
+
+function expectedWindowsSubsystem(name) {
+  // 作者: long
+  // 发布目录会重命名 Windows 二进制；原始产物和公开资产都必须经过同一子系统门禁。
+  if (name === 'fluxdown-desktop.exe' || name === 'fluxdown-desktop-windows-x86_64.exe') return 2
+  if (name === 'fluxdown.exe' || name === 'fluxdown-windows-x86_64.exe') return 3
+  return null
 }
 
 function verifyGlob(relativePattern) {

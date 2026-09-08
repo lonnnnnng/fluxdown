@@ -1,7 +1,7 @@
 {
   "name": "fluxdown",
   "private": true,
-  "version": "1.0.16",
+  "version": "1.0.17",
   "workspaces": [
     "apps/desktop"
   ],
@@ -62,7 +62,7 @@
     "verify:ios:integration": "bash scripts/verify-ios-integration.sh",
     "verify:ios:physical-integration": "bash scripts/verify-ios-physical-integration.sh",
     "verify:release": "node scripts/verify-artifacts.mjs release",
-    "verify:ci-config": "node --check scripts/prepare-github-release-assets.mjs && node scripts/verify-artifacts.mjs ci-config && node --test scripts/github-release-assets.test.mjs",
+    "verify:ci-config": "node --check scripts/prepare-github-release-assets.mjs && node scripts/verify-artifacts.mjs ci-config && node --test scripts/github-release-assets.test.mjs scripts/windows-pe.test.mjs",
     "verify:github-release": "node scripts/verify-github-release-assets.mjs",
     "verify:release-cli-smoke": "node scripts/verify-release-cli-smoke.mjs",
     "verify:licenses": "node scripts/verify-licenses.mjs",
