@@ -1,5 +1,18 @@
 # 下载验证状态
 
+## 2026-09-08 `1.0.16` 压缩与补丁准备
+
+- 保留 `v1.0.15` 标签，不覆盖失败记录；后续版本升为 `1.0.16+17`。公开仍为 11 个上传文件、含源码包 13 项，CLI 改为 ZIP/TAR.GZ。
+- 队列增加跨进程文件锁，修复进度覆盖删除和并发添加丢任务。本地先在旧实现复现新增回归失败，修复后 debug 和 Release Core/CLI 各 113 项通过；桌面 Rust 另有 33 项通过、7 项外部环境用例忽略。
+- Rust 链接裁剪、Dart 调试符号分离、未使用字体清理和标准安装包压缩已配置。优化后的 Release host FFI 通过 50 项 Flutter 测试；11 项发行策略回归通过。完整策略与测量口径见 [包体优化记录](release-size-optimization.md)。
+- 本地 macOS App/DMG、iOS unsigned Release 构建通过，最终 iOS Runner 的 8 个 FFI 导出完整。优化后的 macOS Release CLI 实际执行版本检查、detect/add/pause/resume/run/list/download，两份 256 KiB 文件的大小和 SHA-256 均正确；三平台 CI 使用同一隔离脚本，不访问用户队列。
+- 远端 `1.0.16` 尚未运行，最终资产大小、各平台构建和回验结论待补，不用本地候选或旧版结果冒充。
+
+## 2026-09-08 `1.0.15` 发版阻断
+
+- 已提交推送 `a90e63c` 并创建 `v1.0.15`，只手动触发一次 [34191232572](https://github.com/lonnnnnng/fluxdown/actions/runs/34191232572)。Linux CLI 的 `queue_run_can_remove_running_task_from_separate_cli_process` 断言失败：删除后 `finished=1`，期望 `0`；发布作业被阻断，未创建 Release。
+- macOS/Windows CLI、三平台桌面、Android 和 iOS 作业均成功；流水线最终为 failure，Publish 作业 skipped。已下载成功平台产物用于压缩基线，不是已发布的资产。
+
 ## 2026-09-08 `1.0.15` 发行准备
 
 - 版本同步至 npm/Tauri/Rust `1.0.15` 和 Flutter `1.0.15+16`，纳入下文的 FFI/桌面分文件进度修复。

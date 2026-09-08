@@ -88,7 +88,7 @@ flowchart TD
 - Windows 默认路径：优先使用 `%APPDATA%/FluxDown/queue.json`，再退回用户目录下的 `AppData/Roaming/FluxDown/queue.json`。
 - Linux / 其他 Unix 默认路径：`$XDG_DATA_HOME/fluxdown/queue.json`，未设置时使用 `~/.local/share/fluxdown/queue.json`，再退回当前目录。
 - 写入方式：先写临时文件，再原子替换目标文件。
-- 进程内写锁：避免同一进程内并发写入打坏 JSON。
+- 进程内互斥与跨进程文件锁：`queue.json.lock` 保护完整的读改写，避免多个 CLI 的进度、新建、暂停和删除覆盖彼此；旁路锁文件长期保留，文件句柄关闭时释放系统锁，不随队列原子替换而失效。系统锁通过阻塞线程池获取。
 - CLI 可通过 `--store /path/to/queue.json` 覆盖默认路径。
 
 ### 队列运行器
@@ -99,6 +99,7 @@ flowchart TD
 - `run_queued(concurrency)`：按有界并发执行所有 `queued` 任务。
 - 进度持久化节流：约 250ms 写一次队列。
 - 暂停检测：通过队列状态变化触发 `CancelToken`，下载器返回 `Paused` 后保留部分文件。
+- 跨进程删除：发现任务不再存在时取消下载，收尾不恢复任务，也不把已删除任务计作完成。
 
 ### 下载引擎
 
@@ -155,7 +156,7 @@ Tauri commands 包括：
 
 这些 commands 直接调用 Rust core，因此桌面 GUI 和 CLI 的协议能力基本一致。
 
-前端从队列获取活动任务状态，在运行或排队中轮询 Torrent 会话详情。详情关闭或切换任务后丢弃迟到响应；静态详情的未知进度显示为未知，不从总任务状态推断每个文件已完成。分文件进度 UI 修复纳入 `1.0.15`，见 [验证记录](bugfix-verification-20260908.md)。
+前端从队列获取活动任务状态，在运行或排队中轮询 Torrent 会话详情。详情关闭或切换任务后丢弃迟到响应；静态详情的未知进度显示为未知，不从总任务状态推断每个文件已完成。分文件进度 UI 修复纳入 `1.0.16`，见 [验证记录](bugfix-verification-20260908.md)。
 
 桌面壳还承担托盘、关窗驻留、单实例、系统通知、剪贴板监听和窗口尺寸持久化；更新检查/安装包下载经 Tauri 后端执行。这些是桌面平台能力，不是 Flutter 已同步的功能。
 

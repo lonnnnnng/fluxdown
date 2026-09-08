@@ -70,7 +70,7 @@ cp "$PROFILE_PATH" "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
 plutil -lint "$EXPORT_OPTIONS"
 
 cd "$APP_DIR"
-LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ipa --export-options-plist="$EXPORT_OPTIONS"
+LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ipa --split-debug-info=build/symbols/ios --export-options-plist="$EXPORT_OPTIONS"
 
 cd "$ROOT"
 node scripts/verify-artifacts.mjs file apps/mobile/build/ios/ipa/*.ipa

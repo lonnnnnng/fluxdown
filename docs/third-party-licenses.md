@@ -52,7 +52,6 @@
 | 依赖 | 用途 | 许可证审查状态 |
 | --- | --- | --- |
 | `http` | HTTP/WebDAV 下载 | 发布前需随锁文件生成完整许可证文本。 |
-| `cupertino_icons` | iOS 风格图标资源 | MIT |
 | `ffi` | Dart 与 Rust C ABI 之间的内存和字符串转换 | BSD-3-Clause |
 | `path` | 本地路径拼接和文件名处理 | BSD-3-Clause |
 | `path_provider` | Android/iOS 下载目录解析 | BSD-3-Clause |

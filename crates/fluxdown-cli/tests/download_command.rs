@@ -62,6 +62,97 @@ fn list_tasks(store_path: &std::path::Path) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+#[test]
+fn queue_writes_wait_for_cross_process_lock() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(temp_dir.path().join("queue.json.lock"))
+        .unwrap();
+    lock.lock().unwrap();
+
+    // 作者: long
+    // 持锁进程模拟尚未提交的进度写入；另一个 CLI 必须等它提交，不能用旧快照覆盖队列。
+    let mut child = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "add",
+            "https://example.com/locked.bin",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    thread::sleep(Duration::from_secs(2));
+    let early_status = child.try_wait().unwrap();
+    let wrote_without_lock = store_path.exists();
+    lock.unlock().unwrap();
+    let output = wait_for_cli_output(child, Duration::from_secs(20));
+
+    assert!(
+        early_status.is_none(),
+        "queue writer did not wait for the other process"
+    );
+    assert!(
+        !wrote_without_lock,
+        "queue changed while another process held its write lock"
+    );
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(list_tasks(&store_path).as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn concurrent_cli_adds_preserve_every_task() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    // 作者: long
+    // 多个 CLI 同时读改写同一个文件时，原子替换本身无法防止任务丢失；每个进程新增的任务都必须保留。
+    let children = (0..16)
+        .map(|index| {
+            Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+                .args([
+                    "--store",
+                    store_path.to_str().unwrap(),
+                    "add",
+                    &format!("https://example.com/concurrent-{index}.bin"),
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    for child in children {
+        let output = wait_for_cli_output(child, Duration::from_secs(20));
+        assert!(
+            output.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let tasks = list_tasks(&store_path);
+    let sources = tasks
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|task| task["source"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        sources.len(),
+        16,
+        "concurrent writers lost queued tasks: {tasks}"
+    );
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn queue_commands_use_macos_native_default_store_path() {

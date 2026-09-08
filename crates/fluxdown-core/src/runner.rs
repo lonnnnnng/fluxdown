@@ -205,8 +205,7 @@ async fn run_one_with_retry(
         && limit.is_finite()
         && limit > 0.0
     {
-        download_options.speed_limit_bps =
-            Some((limit * 1024.0 * 1024.0).round().max(1.0) as u64);
+        download_options.speed_limit_bps = Some((limit * 1024.0 * 1024.0).round().max(1.0) as u64);
     }
     if options.restart_existing {
         remove_existing_outputs(&task).await;
@@ -299,6 +298,9 @@ async fn run_one(
                     Ok(None) => {
                         cancel.cancel();
                     }
+                    Err(TaskStoreError::NotFound(_)) => {
+                        cancel.cancel();
+                    }
                     Err(_) => {}
                 }
             }
@@ -337,7 +339,7 @@ async fn run_one(
         }) as Arc<dyn Fn(DownloadProgress) + Send + Sync>
     };
 
-    let summary = match engine
+    let mut summary = match engine
         .download_with_control_and_options(
             task.request(),
             Some(progress_callback),
@@ -383,7 +385,14 @@ async fn run_one(
     // 用户删除运行中任务时，删除动作本身就是取消并移出队列；下载协程收尾不能把任务重新写回，也不能让队列运行因为 NotFound 失败。
     let task = match store.update(task.clone()).await {
         Ok(task) => task,
-        Err(TaskStoreError::NotFound(_)) => task,
+        Err(TaskStoreError::NotFound(_)) => {
+            // 作者: long
+            // 删除和最后一个下载块可能同时完成；队列已删除时按用户取消收尾，不再计入下载成功。
+            task.set_state(DownloadState::Paused);
+            task.error = None;
+            summary = None;
+            task
+        }
         Err(error) => return Err(error.into()),
     };
     Ok(TaskRunReport { task, summary })

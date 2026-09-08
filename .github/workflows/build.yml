@@ -93,6 +93,15 @@ jobs:
           cp "target/release/${{ matrix.binary-name }}" "dist/cli/${{ matrix.staged-name }}"
       - name: Verify CLI artifact
         run: node scripts/verify-artifacts.mjs file "dist/cli/${{ matrix.staged-name }}"
+      - name: Run Release CLI download smoke
+        run: node scripts/verify-release-cli-smoke.mjs "dist/cli/${{ matrix.staged-name }}" "dist/cli-smoke/report.json"
+      - name: Upload Release CLI smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}-smoke
+          path: dist/cli-smoke/report.json
+          if-no-files-found: warn
       - name: Upload CLI artifact
         uses: actions/upload-artifact@v4
         with:
@@ -262,10 +271,18 @@ jobs:
         run: flutter build apk --debug
       - name: Build Android release APK
         working-directory: apps/mobile
-        run: flutter build apk --release
+        run: flutter build apk --release --split-debug-info=build/symbols/android
       - name: Build Android App Bundle
-        working-directory: apps/mobile/android
-        run: ./gradlew bundleRelease
+        working-directory: apps/mobile
+        run: flutter build appbundle --release --split-debug-info=build/symbols/android
+      - name: Preserve Android symbols and R8 mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-android-symbols
+          path: |
+            apps/mobile/build/symbols/android
+            apps/mobile/build/app/outputs/mapping/release
+          if-no-files-found: error
       - name: Verify Android release artifacts
         run: node scripts/verify-artifacts.mjs android
       - name: Upload Android APK
@@ -419,7 +436,7 @@ jobs:
         env:
           LANG: en_US.UTF-8
           LC_ALL: en_US.UTF-8
-        run: flutter build ios --no-codesign
+        run: flutter build ios --no-codesign --split-debug-info=build/symbols/ios
       - name: Verify unsigned iOS device app
         run: node scripts/verify-artifacts.mjs ios-device-unsigned
       - name: Upload unsigned iOS device app
@@ -433,7 +450,7 @@ jobs:
         env:
           LANG: en_US.UTF-8
           LC_ALL: en_US.UTF-8
-        run: flutter build ipa --export-options-plist=ios/ExportOptions.ci.plist
+        run: flutter build ipa --split-debug-info=build/symbols/ios --export-options-plist=ios/ExportOptions.ci.plist
       - name: Verify signed iOS IPA
         if: steps.ios_signing.outputs.enabled == 'true'
         run: node scripts/verify-artifacts.mjs glob "apps/mobile/build/ios/ipa/*.ipa"
@@ -443,6 +460,12 @@ jobs:
         with:
           name: fluxdown-ios-release-ipa
           path: apps/mobile/build/ios/ipa/*.ipa
+      - name: Preserve iOS Dart symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-ios-symbols
+          path: apps/mobile/build/symbols/ios
+          if-no-files-found: error
 
   release:
     name: Publish GitHub release

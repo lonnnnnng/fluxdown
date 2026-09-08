@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.15](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.15)。以下功能说明以当前源码为准，历史验证单独标注。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.16](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.16)。以下功能说明以当前源码为准，历史验证单独标注。
 
 ## 当前状态
 
@@ -22,9 +22,9 @@ FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版�
 - 移动端协议识别优先通过 FFI 调用 Rust，库不可用时回退 Dart；队列与实际下载仍由 Dart/移动原生适配器执行，尚未统一到 Rust 下载引擎。
 - 普通提交和 tag 推送不会触发 GitHub Actions；只有明确打包或发版时才手动运行流水线。
 
-### 1.0.15 更新（2026-09-08）
+### 1.0.16 更新（2026-09-08）
 
-iOS Rust 部署目标及 Runner 静态链接、移动端 FFI JSON 解码/内存释放、桌面 Torrent 分文件进度与轮询竞态已修复。公开 Assets 精简为 11 个上传文件，加源码包共 13 项。本地构建和定向测试通过，但没有重跑各端完整协议下载。详见 [发行说明](docs/releases/1.0.15.md) 和 [修复验证报告](docs/bugfix-verification-20260908.md)。
+iOS FFI 链接、移动端 JSON 解码/内存释放、桌面 Torrent 分文件进度及队列跨进程写入竞态已修复。公开 Assets 精简为 11 个上传文件，加源码包共 13 项；新增保守的二进制裁剪、Dart 符号分离与安装包压缩，保留全部协议和 Android 三种架构。详见 [发行说明](docs/releases/1.0.16.md)、[包体优化记录](docs/release-size-optimization.md) 和 [修复验证报告](docs/bugfix-verification-20260908.md)。
 
 ## 界面截图
 
@@ -104,18 +104,20 @@ Runner 构建阶段自动编译并静态链接 Rust FFI，最低部署版本为 
 
 ## 发布产物
 
-从 `v1.0.15` 起，常规 Release 只公开以下 11 个文件，加上 GitHub 自动提供的 ZIP/TAR.GZ 源码包后共 13 项：
+从 `v1.0.16` 起，常规 Release 只公开以下 11 个文件，加上 GitHub 自动提供的 ZIP/TAR.GZ 源码包后共 13 项：
 
 | 用途 | 下载内容 |
 | --- | --- |
 | 手机安装 | Android release APK |
 | 桌面安装 | Windows x64 Setup EXE、macOS ARM64 DMG、Linux x64 DEB/RPM |
-| 命令行 | Windows x64、macOS ARM64、Linux x64 CLI |
+| 命令行 | Windows x64 CLI ZIP、macOS ARM64 / Linux x64 CLI TAR.GZ |
 | 校验与说明 | release manifest（大小/SHA-256）、LICENSE、第三方许可证清单 |
 
-Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.15.md)。
+Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.16.md)。
 
-Release 页面：[FluxDown 1.0.15](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.15)。
+CLI 解压后运行 `fluxdown` / `fluxdown.exe`，Unix 可执行权限已保留。Android APK 仍包含 arm64-v8a、armeabi-v7a、x86_64；Release 启用 R8，Dart 符号和 R8 mapping 单独保存在 Actions Artifacts，不是从 App 删除功能。
+
+Release 页面：[FluxDown 1.0.16](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.16)。
 
 ## 文档
 

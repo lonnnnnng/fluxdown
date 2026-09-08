@@ -43,6 +43,10 @@ await run('hdiutil', [
   '-ov',
   '-format',
   'UDZO',
+  // 作者: long
+  // 只提高现有 zlib 容器压缩等级，不改变镜像格式和系统兼容性。
+  '-imagekey',
+  'zlib-level=9',
   dmgPath,
 ])
 

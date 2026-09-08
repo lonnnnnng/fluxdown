@@ -47,6 +47,7 @@ impl TaskStore {
 
     pub async fn enqueue(&self, request: DownloadRequest) -> Result<DownloadTask, TaskStoreError> {
         let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        let _process_guard = self.lock_for_write().await?;
         let mut file = self.read_file().await?;
         let task = DownloadTask::from_request(request);
         file.tasks.insert(0, task.clone());
@@ -56,6 +57,7 @@ impl TaskStore {
 
     pub async fn update(&self, task: DownloadTask) -> Result<DownloadTask, TaskStoreError> {
         let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        let _process_guard = self.lock_for_write().await?;
         let mut file = self.read_file().await?;
         let Some(existing) = file
             .tasks
@@ -75,6 +77,7 @@ impl TaskStore {
         state: DownloadState,
     ) -> Result<DownloadTask, TaskStoreError> {
         let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        let _process_guard = self.lock_for_write().await?;
         let mut file = self.read_file().await?;
         let Some(task) = file.tasks.iter_mut().find(|candidate| candidate.id == id) else {
             return Err(TaskStoreError::NotFound(id.to_string()));
@@ -93,6 +96,7 @@ impl TaskStore {
         current_speed_bytes_per_second: u64,
     ) -> Result<Option<DownloadTask>, TaskStoreError> {
         let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        let _process_guard = self.lock_for_write().await?;
         let mut file = self.read_file().await?;
         let Some(task) = file.tasks.iter_mut().find(|candidate| candidate.id == id) else {
             return Err(TaskStoreError::NotFound(id.to_string()));
@@ -113,6 +117,7 @@ impl TaskStore {
 
     pub async fn remove(&self, id: &str) -> Result<DownloadTask, TaskStoreError> {
         let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        let _process_guard = self.lock_for_write().await?;
         let mut file = self.read_file().await?;
         let Some(index) = file.tasks.iter().position(|candidate| candidate.id == id) else {
             return Err(TaskStoreError::NotFound(id.to_string()));
@@ -137,6 +142,7 @@ impl TaskStore {
         max_age: Duration,
     ) -> Result<Vec<DownloadTask>, TaskStoreError> {
         let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        let _process_guard = self.lock_for_write().await?;
         let mut file = self.read_file().await?;
         let now = now_ms();
         let max_age_ms = max_age.as_millis();
@@ -159,6 +165,35 @@ impl TaskStore {
         }
 
         Ok(recovered)
+    }
+
+    async fn lock_for_write(&self) -> Result<std::fs::File, TaskStoreError> {
+        let mut lock_path = self.path.as_os_str().to_os_string();
+        lock_path.push(".lock");
+        let lock_path = PathBuf::from(lock_path);
+        // 作者: long
+        // 原子替换只避免半截 JSON，不能防止多个 CLI 用旧快照覆盖彼此的增删改。
+        // 锁定长期保留的旁路文件，避免 queue.json 被替换后锁仍落在旧文件上；退出进程自动释放锁。
+        // 获取系统锁可能等待其他进程，放到阻塞线程池，避免阻塞下载和取消处理的异步执行器。
+        let guard = tokio::task::spawn_blocking(move || -> std::io::Result<std::fs::File> {
+            if let Some(parent) = lock_path
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+            {
+                std::fs::create_dir_all(parent)?;
+            }
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(lock_path)?;
+            file.lock()?;
+            Ok(file)
+        })
+        .await
+        .map_err(|error| std::io::Error::other(format!("task store lock failed: {error}")))??;
+        Ok(guard)
     }
 
     async fn read_file(&self) -> Result<TaskStoreFile, TaskStoreError> {
@@ -414,7 +449,8 @@ mod tests {
         while entries.next_entry().await.unwrap().is_some() {
             entry_count += 1;
         }
-        assert_eq!(entry_count, 1);
+        assert_eq!(entry_count, 2);
+        assert!(temp_dir.path().join("queue.json.lock").exists());
     }
 
     #[tokio::test]

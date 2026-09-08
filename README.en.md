@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.15](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.15). Features below describe the current source; historical verification is labeled separately.
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.16](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.16). Features below describe the current source; historical verification is labeled separately.
 
 ## Current Status
 
@@ -22,9 +22,9 @@ FluxDown is a multi-protocol downloader for desktop and mobile. The current vers
 - Mobile protocol detection tries Rust through FFI, with a Dart fallback when unavailable. Its queue and actual downloads still use Dart/native mobile adapters; migration to the Rust download engine is not complete.
 - Normal commits and tag pushes do not trigger GitHub Actions. CI is run manually only for explicit packaging or release work.
 
-### 1.0.15 Update (2026-09-08)
+### 1.0.16 Update (2026-09-08)
 
-Fixed the iOS Rust deployment target and Runner linkage, mobile FFI JSON decoding/memory ownership, and desktop Torrent per-file progress/polling races. Public assets now contain 11 uploaded files, or 13 entries including source archives. Local builds and targeted tests pass; full platform protocol downloads have not been rerun. See the [release notes](docs/releases/1.0.15.md) and [fix verification report](docs/bugfix-verification-20260908.md) (Chinese).
+Fixed iOS FFI linkage, mobile JSON decoding/memory ownership, desktop Torrent per-file progress, and cross-process queue writes. Public assets contain 11 uploaded files, or 13 entries including source archives. Conservative binary trimming, separate Dart symbols, and package compression retain all protocols and three Android ABIs. See the [release notes](docs/releases/1.0.16.md), [size optimization record](docs/release-size-optimization.md), and [fix verification report](docs/bugfix-verification-20260908.md) (Chinese).
 
 ## Screenshots
 
@@ -104,18 +104,20 @@ Runner automatically builds and statically links Rust FFI, targeting iOS 15.0 or
 
 ## Release Assets
 
-Starting with `v1.0.15`, a standard release contains 11 uploaded files, plus GitHub's two automatic source archives, for 13 entries:
+Starting with `v1.0.16`, a standard release contains 11 uploaded files, plus GitHub's two automatic source archives, for 13 entries:
 
 | Purpose | Downloads |
 | --- | --- |
 | Mobile installation | Android release APK |
 | Desktop installation | Windows x64 Setup EXE, macOS ARM64 DMG, Linux x64 DEB/RPM |
-| Command line | Windows x64, macOS ARM64, Linux x64 CLI |
+| Command line | Windows x64 CLI ZIP; macOS ARM64 / Linux x64 CLI TAR.GZ |
 | Verification and notices | Release manifest (sizes/SHA-256), LICENSE, third-party license notices |
 
-Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.15.md) for signing and verification limits.
+Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.16.md) for signing and verification limits.
 
-Release page: [FluxDown 1.0.15](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.15).
+Extract the CLI archive and run `fluxdown` / `fluxdown.exe`; Unix executable permissions are retained. Android still includes arm64-v8a, armeabi-v7a, and x86_64. Release uses R8; Dart symbols and R8 mapping are retained separately in Actions Artifacts.
+
+Release page: [FluxDown 1.0.16](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.16).
 
 ## Documentation
 

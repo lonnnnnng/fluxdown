@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { gzipSync } from 'node:zlib'
 import { verifyPublicReleaseAssets } from './verify-github-release-assets.mjs'
 
 const root = resolve(import.meta.dirname, '..')
@@ -18,9 +21,9 @@ if (existsSync(assetsDir) && readdirSync(assetsDir).length > 0) {
 }
 mkdirSync(assetsDir, { recursive: true })
 
-copyRequiredFile('fluxdown-cli-linux', (name) => name === 'fluxdown', `fluxdown-${version}-linux-amd64`)
-copyRequiredFile('fluxdown-cli-macos', (name) => name === 'fluxdown', `fluxdown-${version}-macos-aarch64`)
-copyRequiredFile('fluxdown-cli-windows', (name) => name === 'fluxdown.exe', `fluxdown-${version}-windows-x86_64.exe`)
+archiveCli('fluxdown-cli-linux', 'fluxdown', `fluxdown-${version}-linux-amd64.tar.gz`)
+archiveCli('fluxdown-cli-macos', 'fluxdown', `fluxdown-${version}-macos-aarch64.tar.gz`)
+archiveCli('fluxdown-cli-windows', 'fluxdown.exe', `fluxdown-${version}-windows-x86_64.zip`)
 copyRequiredFile('fluxdown-desktop-macos', (name) => name.endsWith('.dmg'), `FluxDown-${version}-macos-aarch64.dmg`)
 copyRequiredFile('fluxdown-desktop-linux', (name) => name.endsWith('.deb'), `FluxDown-${version}-linux-amd64.deb`)
 copyRequiredFile('fluxdown-desktop-linux', (name) => name.endsWith('.rpm'), `FluxDown-${version}-linux-x86_64.rpm`)
@@ -37,12 +40,43 @@ writeReleaseNotes()
 console.log(`prepared ${preparedAssets.length} public release assets in ${relative(root, assetsDir)}`)
 
 function copyRequiredFile(artifactName, predicate, assetName) {
+  copyAsset(findRequiredFile(artifactName, predicate, assetName), assetName)
+}
+
+function findRequiredFile(artifactName, predicate, assetName) {
   const artifactDir = resolve(rawDir, artifactName)
   const matches = existsSync(artifactDir)
     ? listFiles(artifactDir).filter((file) => predicate(basename(file).toLowerCase()))
     : []
   if (matches.length !== 1) throw new Error(`expected exactly one ${assetName} in ${artifactName}, found ${matches.length}`)
-  copyAsset(matches[0], assetName)
+  return matches[0]
+}
+
+function archiveCli(artifactName, binaryName, assetName) {
+  const source = findRequiredFile(artifactName, (name) => name === binaryName, assetName)
+  const staging = mkdtempSync(join(tmpdir(), 'fluxdown-cli-release-'))
+  try {
+    const binary = join(staging, binaryName)
+    copyFileSync(source, binary)
+    // 作者: long
+    // Actions 下载会丢失可执行位；归档前只修复临时副本，Unix 用户解压即可运行，原生二进制内容不变。
+    chmodSync(binary, 0o755)
+    copyFileSync(resolve(root, 'LICENSE'), join(staging, 'LICENSE.txt'))
+    copyFileSync(resolve(root, 'docs/third-party-licenses.md'), join(staging, 'THIRD-PARTY-LICENSES.md'))
+    const files = [binaryName, 'LICENSE.txt', 'THIRD-PARTY-LICENSES.md']
+    const destination = resolve(assetsDir, assetName)
+    if (assetName.endsWith('.zip')) {
+      execFileSync('zip', ['-9', '-q', destination, ...files], { cwd: staging, env: { ...process.env, LC_ALL: 'C' } })
+    } else {
+      const tar = execFileSync('tar', ['-cf', '-', ...files], { cwd: staging, env: { ...process.env, LC_ALL: 'C' }, maxBuffer: 256 * 1024 * 1024 })
+      writeFileSync(destination, gzipSync(tar, { level: 9 }))
+    }
+    recordAsset(assetName)
+  } finally {
+    // 作者: long
+    // 仅清理本函数创建的临时目录，不触碰 CI 原始产物或调用方的公开输出目录。
+    rmSync(staging, { recursive: true, force: true })
+  }
 }
 
 function listFiles(directory) {
@@ -55,6 +89,11 @@ function listFiles(directory) {
 function copyAsset(source, name) {
   const destination = resolve(assetsDir, name)
   copyFileSync(source, destination)
+  recordAsset(name)
+}
+
+function recordAsset(name) {
+  const destination = resolve(assetsDir, name)
   const bytes = statSync(destination).size
   if (!bytes) throw new Error(`prepared asset is empty: ${name}`)
   preparedAssets.push({ name, bytes, sha256: createHash('sha256').update(readFileSync(destination)).digest('hex') })
@@ -86,7 +125,9 @@ ${changelog}
 
 ## 命令行版本
 
-[Windows x64](${download(`fluxdown-${version}-windows-x86_64.exe`)}) · [macOS ARM64](${download(`fluxdown-${version}-macos-aarch64`)}) · [Linux x64](${download(`fluxdown-${version}-linux-amd64`)})
+[Windows x64 ZIP](${download(`fluxdown-${version}-windows-x86_64.zip`)}) · [macOS ARM64 TAR.GZ](${download(`fluxdown-${version}-macos-aarch64.tar.gz`)}) · [Linux x64 TAR.GZ](${download(`fluxdown-${version}-linux-amd64.tar.gz`)})
+
+CLI 解压后运行其中的 fluxdown/fluxdown.exe；压缩包包含许可证，Unix 可执行权限已保留。Android APK 仍兼容 arm64-v8a、armeabi-v7a 和 x86_64，没有为了减包移除架构。
 
 ## 资产说明
 

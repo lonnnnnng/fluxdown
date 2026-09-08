@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import test from 'node:test'
@@ -29,6 +29,9 @@ const internal = [
   'fluxdown-ios-device-unsigned/Runner.app/Runner',
   'fluxdown-ios-release-ipa/FluxDown.ipa',
   'fluxdown-ffi-ios-static/libfluxdown_ffi.a',
+  'fluxdown-android-symbols/app.android-arm64.symbols',
+  'fluxdown-android-symbols/mapping.txt',
+  'fluxdown-ios-symbols/app.ios-arm64.symbols',
 ]
 
 function fixture(t, inputs = [...required, ...internal]) {
@@ -56,11 +59,33 @@ test('publishes exactly 11 files and leaves development artifacts out', (t) => {
   assert.equal(readdirSync(data.assets).length, 11)
   assert.deepEqual(verifyPublicReleaseAssets(data.assets, version), publicReleaseAssetNames(version))
   assert.equal(publicReleaseAssetNames(version).filter((name) => name.endsWith('.apk')).length, 1)
-  assert.equal(publicReleaseAssetNames(version).filter((name) => /debug|ios-|\.aab$|\.msi$|\.tar\.gz$|fluxdown-desktop-/.test(name)).length, 0)
+  assert.equal(publicReleaseAssetNames(version).filter((name) => /debug|ios-|\.aab$|\.msi$|\.app\.tar\.gz$|fluxdown-desktop-/.test(name)).length, 0)
   const notes = readFileSync(resolve(data.assets, '../RELEASE_NOTES.md'), 'utf8')
   assert.match(notes, /Assets 共 13 项/)
   assert.match(notes, new RegExp(`releases/download/v${version}/FluxDown-${version}-windows-x86_64-setup.exe`))
 })
+
+for (const [platform, artifact, binaryName, extension] of [
+  ['macos-aarch64', 'fluxdown-cli-macos', 'fluxdown', 'tar.gz'],
+  ['linux-amd64', 'fluxdown-cli-linux', 'fluxdown', 'tar.gz'],
+  ['windows-x86_64', 'fluxdown-cli-windows', 'fluxdown.exe', 'zip'],
+]) {
+  test(`CLI archive preserves ${platform} bytes and notices`, (t) => {
+    const data = fixture(t)
+    const prepared = data.prepare()
+    assert.equal(prepared.status, 0, prepared.stderr)
+    const archive = resolve(data.assets, `fluxdown-${version}-${platform}.${extension}`)
+    const unpacked = resolve(data.assets, '../unpacked')
+    mkdirSync(unpacked)
+    const options = { env: { ...process.env, LC_ALL: 'C' } }
+    if (extension === 'zip') execFileSync('unzip', ['-q', archive, '-d', unpacked], options)
+    else execFileSync('tar', ['-xzf', archive, '-C', unpacked], options)
+    assert.deepEqual(readdirSync(unpacked).sort(), [binaryName, 'LICENSE.txt', 'THIRD-PARTY-LICENSES.md'].sort())
+    assert.deepEqual(readFileSync(resolve(unpacked, binaryName)), readFileSync(resolve(data.raw, artifact, binaryName)))
+    assert.deepEqual(readFileSync(resolve(unpacked, 'LICENSE.txt')), readFileSync(resolve(root, 'LICENSE')))
+    if (extension !== 'zip') assert.equal(statSync(resolve(unpacked, binaryName)).mode & 0o111, 0o111)
+  })
+}
 
 test('public preparation does not require internal artifacts', (t) => {
   const result = fixture(t, required).prepare()

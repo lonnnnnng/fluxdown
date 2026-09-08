@@ -10,7 +10,22 @@ resolver = "3"
 [workspace.package]
 edition = "2024"
 license = "MIT"
-version = "1.0.15"
+version = "1.0.16"
+
+# 作者: long
+# 保留吞吐优先的优化等级和 panic 展开行为，避免为了减包改变 FFI 错误恢复；链接阶段合并重复代码。
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+
+# 作者: long
+# CLI 和桌面不通过内部 Rust 符号名动态调用，额外去除符号表；移动 FFI 保留其导出符号供 Dart 查找。
+[profile.release.package.fluxdown-cli]
+strip = "symbols"
+
+[profile.release.package.fluxdown-desktop]
+strip = "symbols"
 
 [workspace.dependencies]
 aes = "0.8.4"

@@ -9,7 +9,7 @@
 - Rust workspace `Cargo.toml`
 - Flutter `apps/mobile/pubspec.yaml`
 
-当前版本号为 `1.0.15`，包含 FFI/桌面详情修复及新的精简发行策略，见 [发行说明](releases/1.0.15.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。下一次发版必须使用新的版本号，不覆盖已有标签。
+当前版本号为 `1.0.16`，包含 FFI/桌面详情与跨进程队列修复、精简发行策略和包体优化，见 [发行说明](releases/1.0.16.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
 
 ## 本地依赖
 
@@ -77,6 +77,14 @@ CI 会在 Linux、Windows 和 macOS 分别构建 CLI，并上传：
 - `fluxdown-cli-windows`
 - `fluxdown-cli-macos`
 
+三平台 CI 在上传前使用实际 Release CLI 执行版本检查、`detect/add/pause/resume/run/list/download`，下载隔离 HTTP/Range 夹具并验证大小与 SHA-256。`fluxdown-cli-<platform>-smoke` 留存 JSON 报告，不进入公开 Assets。本地可执行：
+
+```sh
+npm run verify:release-cli-smoke -- /absolute/path/to/fluxdown dist/cli-smoke/report.json
+```
+
+脚本不会构建程序、启动 GUI 或操作默认用户队列。它只覆盖基础 CLI 下载流程，不替代所有协议测试或安装包内 GUI 验收。
+
 ## 桌面 GUI 构建
 
 ```sh
@@ -118,8 +126,8 @@ npm run verify:windows-gui
 ```sh
 cd apps/mobile
 flutter build apk --debug
-flutter build apk --release
-cd android && ./gradlew bundleRelease
+flutter build apk --release --split-debug-info=build/symbols/android
+flutter build appbundle --release --split-debug-info=build/symbols/android
 ```
 
 输出：
@@ -219,7 +227,7 @@ flutter build ios --simulator
 
 ```sh
 cd apps/mobile
-LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
+LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign --split-debug-info=build/symbols/ios
 ```
 
 回到仓库根目录检查最终产物，而不是只检查 `.a` 是否存在：
@@ -255,7 +263,7 @@ npm run mobile:ios:ipa:signed
 
 ```sh
 cd apps/mobile
-LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ipa --export-options-plist=ios/ExportOptions.plist
+LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ipa --split-debug-info=build/symbols/ios --export-options-plist=ios/ExportOptions.plist
 ```
 
 ### iOS 签名
@@ -287,12 +295,12 @@ npm run verify:ios:physical-integration
 
 ## 公开发行策略
 
-从 `1.0.15` 开始，GitHub Release 固定公开 11 个上传文件；另有 GitHub 自动生成的 ZIP/TAR.GZ 源码包，页面共 13 项。
+从 `1.0.16` 开始，GitHub Release 固定公开 11 个上传文件；另有 GitHub 自动生成的 ZIP/TAR.GZ 源码包，页面共 13 项。
 
 | 分类 | 公开文件 | 数量 |
 | --- | --- | --- |
 | 用户安装 | Android release APK、Windows x64 Setup、macOS ARM64 DMG、Linux x64 DEB/RPM | 5 |
-| 命令行 | Windows x64、macOS ARM64、Linux x64 CLI | 3 |
+| 命令行 | Windows x64 CLI ZIP、macOS ARM64 / Linux x64 CLI TAR.GZ | 3 |
 | 核验与许可 | release manifest、LICENSE、第三方许可证说明 | 3 |
 
 Debug APK、AAB、iOS simulator/unsigned app、可选签名 IPA/framework、Windows MSI、裸桌面程序和 macOS App 构建目录继续由各 CI job 构建、检查、上传为 Actions Artifacts，不自动进入公开下载区。CI Artifacts 受仓库保留期限制，不是永久的用户发行渠道。旧 Release 的资产不批量删除。
@@ -307,7 +315,17 @@ node scripts/prepare-github-release-assets.mjs <ci-artifacts-directory> <new-emp
 npm run verify:github-release -- <new-empty-assets-directory>
 ```
 
-`verify:ci-config` 同时运行 8 项隔离发布回归，覆盖公开数量、内部产物排除、缺包、多候选、不清理已有输出目录、多余文件、哈希变化及重复 manifest 项。
+`verify:ci-config` 同时运行 11 项隔离发布回归，覆盖公开数量、内部产物排除、缺包、多候选、不清理已有输出目录、多余文件、哈希变化、重复 manifest 项，以及三平台 CLI 解压内容与 Unix 可执行权限。
+
+### 包体与符号
+
+- Rust Release 保持默认 `opt-level=3` 和 `panic=unwind`，启用 Thin LTO、`codegen-units=1` 和 debug info 裁剪；CLI/桌面额外裁剪符号表，移动 FFI 保留导出。不要使用 `panic=abort`，否则 FFI 的异常恢复语义会变化。
+- Flutter Android Release 已由插件开启 R8 及资源裁剪，不需要再加宽泛 keep 规则；未使用的 `cupertino_icons` 字体依赖已移除，不影响 Flutter 的 Cupertino 控件。
+- 使用 `npm run mobile:android:release`、`npm run mobile:android:aab`、`npm run mobile:ios` 打包，会传入 `--split-debug-info`。保留 `apps/mobile/build/symbols/android` / `ios`，异常堆栈用同一版本、同一架构的 `.symbols` 配合 `flutter symbolize` 还原。没有启用 Dart 标识符混淆。
+- CI 将 Dart 符号和 R8 mapping 归档为 `fluxdown-android-symbols` / `fluxdown-ios-symbols`，不公开到 Release；本地构建也应保留这些输出，不混用不同版本符号。
+- Android 仍构建三 ABI 通用 APK；Windows NSIS 保留默认 LZMA，RPM 使用 XZ level 6，DMG 保持 UDZO 格式但提高 zlib 压缩等级。DEB 由 Tauri 构建，受益于二进制裁剪，未增加额外系统依赖。
+- CLI 压缩包内只放平台二进制和两份许可证；Unix 归档设置可执行权限。打包依赖标准 `tar` / `zip` 工具，回归解包另用 `unzip`。
+- 比较口径和测量结果见 [包体优化记录](release-size-optimization.md)。
 
 ## 内部完整归档
 
