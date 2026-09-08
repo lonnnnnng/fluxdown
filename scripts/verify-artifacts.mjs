@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
+import { execFileSync } from 'node:child_process'
 
 const root = resolve(import.meta.dirname, '..')
 const profile = process.argv[2] ?? 'local'
@@ -173,6 +174,30 @@ function readPackageVersion() {
   return JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
 }
 
+function verifyIosFfiSymbols(relativeAppPath) {
+  const appPath = resolve(root, relativeAppPath)
+  if (!existsSync(appPath)) return
+  // 作者: long
+  // 仅存在 .a 或 Runner.app 不能证明 FFI 已接入；检查最终二进制的导出符号，覆盖 Release dead-strip。
+  // 新版 Xcode 的 Debug 构建会把应用代码放在 Runner.debug.dylib，而不是启动用的 Runner。
+  const binaries = readdirSync(appPath).filter((name) => name === 'Runner' || name === 'Runner.debug.dylib')
+  try {
+    const symbols = new Set(binaries.flatMap((name) =>
+      execFileSync('xcrun', ['nm', '-gjU', resolve(appPath, name)], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+        .split('\n').map((line) => line.trim().split(/\s+/).at(-1)),
+    ))
+    const exports = ['ffi_abi', 'version', 'detect', 'support', 'queue_list', 'queue_add', 'queue_run', 'string_free']
+    const missing = exports.filter((name) => !symbols.has(`_fluxdown_${name}`))
+    if (missing.length) {
+      fail(`${relativeAppPath} is missing FFI exports: ${missing.join(', ')}`)
+    } else {
+      console.log(`ok ffi  ${relativeAppPath} (8 linked exports)`)
+    }
+  } catch (error) {
+    fail(`cannot inspect iOS FFI symbols: ${error.message}`)
+  }
+}
+
 function verifyCiConfig() {
   const workflow = readFileSync(resolve(root, '.github/workflows/build.yml'), 'utf8')
   const onBlock = extractTopLevelBlock(workflow, 'on')
@@ -244,6 +269,9 @@ if (profile === 'file') {
   }
   if (profile === 'ci-config') {
     verifyCiConfig()
+  }
+  if (profile === 'ios-simulator' || profile === 'ios-device-unsigned') {
+    verifyIosFfiSymbols(profiles[profile][0][1])
   }
 } else {
   console.error(`unknown artifact verification profile: ${profile}`)

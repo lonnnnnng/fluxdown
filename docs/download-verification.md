@@ -1,5 +1,19 @@
 # 下载验证状态
 
+## 2026-09-08 `1.0.15` 发行准备
+
+- 版本同步至 npm/Tauri/Rust `1.0.15` 和 Flutter `1.0.15+16`，纳入下文的 FFI/桌面分文件进度修复。
+- 公开 Release 改为 11 个上传文件，加自动源码包共 13 项；Debug APK、AAB、iOS 验证包、MSI 和裸桌面程序仍保留 CI。8 项隔离资产策略回归已通过，覆盖缺包、多余产物和大小/SHA-256 等异常。
+- 当前 `1.0.15` 本地通过 Rust workspace 144 项测试（7 项外部环境用例忽略）、桌面前端构建、Flutter analyze、50 项 Flutter 测试及直接依赖许可证清单检查；Flutter 测试显式加载本轮编译的 host `libfluxdown_ffi.dylib`，原生用例未跳过。
+- 本节只记录发布准备，不提前声明远端 CI 或 Release 回验通过；结果以随后补充的发行记录为准。未新增完整真机协议下载验收。
+
+## 2026-09-08 未发布修复验证
+
+- 基线为最新 `main` / `e0f2a69`，版本号仍为 `1.0.14`。iOS FFI 部署目标/Runner 静态链接、移动 FFI JSON 解码/桥接和内存释放、桌面 Torrent 分文件进度及轮询竞态已修复；详细命令和代码/README 差异见 [本次修复验证报告](bugfix-verification-20260908.md)。
+- 本地通过 Flutter analyze、50 项 Flutter 测试（含真实 host Rust FFI 与本地 HTTP 文件校验）、iOS simulator/unsigned device 构建及 8 个 FFI 导出检查、桌面前端构建、2 项 Torrent core 测试、10 项隔离 UI 回归与 CI 配置检查。
+- 本次未在 Android/iOS 真机或原生桌面重新跑完整协议下载；UI 回归使用隔离 mock IPC，不是真实 Torrent 下载证据。下列旧版记录保留原有日期与范围。
+- 最新远端 [34037218884](https://github.com/lonnnnnng/fluxdown/actions/runs/34037218884) 仍为历史 iOS 构建失败，修复尚未提交/发布或重跑 CI。移动端仅协议识别接入 Rust，实际下载引擎迁移仍未完成。
+
 ## 2026-09-06 `1.0.14` 桌面驻留体验发版
 
 - 桌面端完成“驻留体验包”四件套：系统托盘（左键唤起/菜单显示与退出）、关闭窗口驻留托盘（下载继续）、单实例保护（重复启动聚焦已有窗口）、任务完成/失败系统通知（可在设置关闭）。

@@ -9,7 +9,7 @@
 - Rust workspace `Cargo.toml`
 - Flutter `apps/mobile/pubspec.yaml`
 
-当前版本为 `1.0.10`。发布标签使用 `v<version>`，例如 `v1.0.10`。GitHub Release 作业会校验标签版本和 `package.json` 版本一致。
+当前版本号为 `1.0.15`，包含 FFI/桌面详情修复及新的精简发行策略，见 [发行说明](releases/1.0.15.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。下一次发版必须使用新的版本号，不覆盖已有标签。
 
 ## 本地依赖
 
@@ -33,8 +33,8 @@
 ```sh
 cargo test -p fluxdown-core -p fluxdown-cli
 npm --workspace apps/desktop run build
-cd apps/mobile && flutter analyze
-cd apps/mobile && flutter test
+npm run mobile:analyze
+npm run mobile:test
 npm run verify:apple
 npm run verify:apple:current
 npm run verify:macos
@@ -80,10 +80,11 @@ CI 会在 Linux、Windows 和 macOS 分别构建 CLI，并上传：
 ## 桌面 GUI 构建
 
 ```sh
-npm install
-npm run desktop:web
+npm ci
 npm run desktop:build
 ```
+
+开发时运行 `npm run desktop:dev`；只检查前端时运行 `npm run desktop:web`。Web 预览不代表原生 Tauri 下载能力可用。
 
 macOS DMG：
 
@@ -111,6 +112,8 @@ npm run verify:windows-gui
 ```
 
 ## Android 构建
+
+需要随包使用 Rust 协议识别时，先执行下文 [移动端 Rust FFI](#移动端-rust-ffi) 的 Android 编译命令。单独执行 Flutter 构建不会生成 Rust `.so`，缺库时 App 会回退到 Dart 协议识别。
 
 ```sh
 cd apps/mobile
@@ -155,16 +158,55 @@ CI 的 Windows CLI 与桌面产物支持 Authenticode 签名（SHA-256 摘要 + 
 
 签名依赖 Windows runner 自带的 Windows Kits `signtool`；签名逻辑在 `scripts/sign-windows-artifacts.mjs`。未签名分发的现状是用户首次运行会触发 SmartScreen 提示——正式对外分发前强烈建议启用签名。
 
-### Rust FFI 动态库（移动端）
+## 移动端 Rust FFI
 
-`crates/fluxdown-ffi` 会被 CI 自动构建并随移动端产物分发：
+`crates/fluxdown-ffi` 提供 ABI 1 的协议识别、支持状态与队列 C 接口。产品当前只接入 FFI 优先的协议识别；Flutter 下载控制器仍调用 Dart/移动原生适配器。原生队列绑定可独立测试，不等于移动端已切换下载引擎。请求字段与返回值见 [任务模型与 FFI](task-schema.md)。
 
-- **Android**：`cargo ndk` 产出 `arm64-v8a` / `armeabi-v7a` / `x86_64` 三个 ABI 的 `libfluxdown_ffi.so`，直接写入 `apps/mobile/android/app/src/main/jniLibs/`，Flutter 打包时自动带进 APK/AAB。移动端协议识别经 `dart:ffi` 走 FFI 优先（`lib/src/core_bridge.dart`），动态库缺失时回退 Dart 自实现。
-- **iOS**：CI 产出 `aarch64-apple-ios` 静态库 `libfluxdown_ffi.a`（artifact `fluxdown-ffi-ios-static`）。iOS 的 Xcode 链接（加到 Runner 工程 + `DynamicLibrary.process()` 加载）尚未接入，作为后续版本工作。
+### Android 原生库
 
-本地验证 FFI 层：`cargo build -p fluxdown-ffi` 后用 `cargo run -p fluxdown-ffi` 不可行（cdylib 无 main），Windows 上可用 Python ctypes 或任何 FFI 工具调用 `fluxdown_ffi_abi()` / `fluxdown_version()` 探活。
+需要已安装 Android NDK、`cargo-ndk` 和三个 Rust targets。从仓库根目录执行，与手动 CI 的 Android 步骤一致：
+
+```sh
+rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+cargo ndk --target arm64-v8a --target armeabi-v7a --target x86_64 --platform 24 \
+  -o apps/mobile/android/app/src/main/jniLibs build --release \
+  -p fluxdown-ffi --features fluxdown-core/vendored-openssl
+```
+
+产出的 `arm64-v8a` / `armeabi-v7a` / `x86_64` 三个 `libfluxdown_ffi.so` 会被 Flutter 打进 APK/AAB。Android 使用 `DynamicLibrary.open('libfluxdown_ffi.so')`；仍需在对应 ABI 设备上验证加载，host 测试不能替代这一步。
+
+### iOS 静态链接
+
+```sh
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+bash scripts/build-ios-ffi.sh
+```
+
+- 脚本默认构建真机 arm64 静态库；Runner 的 `Build FluxDown FFI` 阶段会根据 `PLATFORM_NAME` / `ARCHS` 构建真机或模拟器库，多模拟器架构使用 `lipo` 合并。
+- Rust 与 C 依赖共用 `IPHONEOS_DEPLOYMENT_TARGET=15.0`，与 Runner 对齐。不要让 Rust 默认部署目标与 Xcode SDK/Runner 目标分离。
+- 产物分别位于 `target/ffi-ios/iphoneos/libfluxdown_ffi.a` 和 `target/ffi-ios/iphonesimulator/libfluxdown_ffi.a`，不能因为两者都是 arm64 就混用。
+- `ios/Flutter/FluxDownFfi.xcconfig` 链入静态库和系统依赖，并保留 8 个 C ABI 导出，避免 Release dead-strip 后 `DynamicLibrary.process()` 找不到符号。Debug/Release 配置均包含该文件。
+- 手动 CI 复用同一脚本，并上传真机静态库 `fluxdown-ffi-ios-static`。静态库 artifact 不是可安装 App，也不能单独证明 Runner 已正确链接。
+
+### FFI 回归测试
+
+在仓库根目录先构建 host 库，再从 `apps/mobile` 运行 Flutter 测试。macOS 示例：
+
+```sh
+cargo build --locked -p fluxdown-ffi
+cd apps/mobile
+flutter test --dart-define=FLUXDOWN_FFI_TEST_LIBRARY="$(cd ../.. && pwd)/target/debug/libfluxdown_ffi.dylib"
+```
+
+Linux 库为 `target/debug/libfluxdown_ffi.so`，Windows 为 `target/debug/fluxdown_ffi.dll`，参数须指向当前 host 的绝对路径，不是 Android/iOS 交叉编译产物。Android CI job 在 Linux host 编译该库并传入 Flutter 测试。
+
+`test/core_ffi_test.dart` 覆盖信封解析、ABI/版本、12 类协议识别、Unicode 队列、错误透传，以及真实本地 HTTP 下载后的内容与大小核验。不传该参数时原生库相关的 4 项会跳过，仅跑 Dart 信封测试；不能把这一结果写成 FFI 验证通过。
+
+`queueRun` 是同步阻塞调用，未来接入产品必须在隔离线程/isolate 中执行，并补齐进度、取消和队列控制接口；当前测试把 HTTP 服务放在独立 isolate，避免服务端与 FFI 调用互相阻塞。
 
 ## iOS 构建
+
+先安装上节列出的三个 Rust iOS targets；Runner 会自动编译并链接 FFI。2026-09-08 已在 Xcode 16.2 / Rust 1.97.1 / Flutter 3.41.9 本地通过以下两种 App 构建，但未重跑远端 CI 或真机下载。
 
 模拟器验证：
 
@@ -179,6 +221,15 @@ flutter build ios --simulator
 cd apps/mobile
 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
 ```
+
+回到仓库根目录检查最终产物，而不是只检查 `.a` 是否存在：
+
+```sh
+npm run mobile:ios:simulator:verify
+npm run mobile:ios:verify
+```
+
+这两个入口检查 App 内 `Runner` / `Runner.debug.dylib` 的 8 个 FFI 导出符号。符号检查和 unsigned 构建不代替 iOS App 运行验证或签名验证。
 
 iOS framework 验证：
 
@@ -234,9 +285,33 @@ npm run verify:ios:physical-integration
 
 该入口只选择物理 iPhone，不会回退到 simulator；如果自动推断的 Mac 局域网地址不对，可以显式设置 `FLUXDOWN_E2E_HOST=<mac-lan-ip>`。
 
-## Release staging
+## 公开发行策略
 
-本地准备发布目录：
+从 `1.0.15` 开始，GitHub Release 固定公开 11 个上传文件；另有 GitHub 自动生成的 ZIP/TAR.GZ 源码包，页面共 13 项。
+
+| 分类 | 公开文件 | 数量 |
+| --- | --- | --- |
+| 用户安装 | Android release APK、Windows x64 Setup、macOS ARM64 DMG、Linux x64 DEB/RPM | 5 |
+| 命令行 | Windows x64、macOS ARM64、Linux x64 CLI | 3 |
+| 核验与许可 | release manifest、LICENSE、第三方许可证说明 | 3 |
+
+Debug APK、AAB、iOS simulator/unsigned app、可选签名 IPA/framework、Windows MSI、裸桌面程序和 macOS App 构建目录继续由各 CI job 构建、检查、上传为 Actions Artifacts，不自动进入公开下载区。CI Artifacts 受仓库保留期限制，不是永久的用户发行渠道。旧 Release 的资产不批量删除。
+
+桌面在线更新当前依赖 Windows `-setup.exe`、macOS `.dmg` 和 Linux `.deb` 的命名，调整公开资产时必须同时检查 `matches_platform_asset` 的匹配规则。
+
+`scripts/prepare-github-release-assets.mjs` 只提取公开文件，要求输出目录为空，拒绝缺失或多个候选文件；发行正文读取 `docs/releases/<version>.md`，避免重复使用旧版本说明。`scripts/verify-github-release-assets.mjs` 校验精确的 11 项白名单和 manifest 中 10 项的大小/SHA-256（manifest 不包含自身哈希）。
+
+```sh
+npm run verify:ci-config
+node scripts/prepare-github-release-assets.mjs <ci-artifacts-directory> <new-empty-assets-directory>
+npm run verify:github-release -- <new-empty-assets-directory>
+```
+
+`verify:ci-config` 同时运行 8 项隔离发布回归，覆盖公开数量、内部产物排除、缺包、多候选、不清理已有输出目录、多余文件、哈希变化及重复 manifest 项。
+
+## 内部完整归档
+
+以下原有入口用于本地完整测试/归档，仍要求多端内部产物，不等于公开 Release 的 11 项白名单，也不会上传文件：
 
 ```sh
 npm run release:stage
@@ -251,7 +326,7 @@ npm run release:manifest:verify
 npm run release:prepare
 ```
 
-发布目录位于：
+内部归档目录位于：
 
 ```text
 dist/release/FluxDown-<version>
@@ -269,11 +344,11 @@ Release manifest 记录平台、产物类型、大小和 SHA-256。目录型产�
 - `desktop`：Linux、Windows、macOS 上构建 Tauri GUI 并上传平台产物。
 - `android`：分析、测试、构建 debug APK、release APK 和 AAB。
 - `ios`：构建 iOS simulator、unsigned device；签名 secrets 齐全时构建 IPA。
-- `release`：手动运行在 `v*` 标签 ref 上，并选择 `run_mode=release` 时，下载所有 artifact，整理 assets，发布或更新 GitHub Release。
+- `release`：手动运行在 `v*` 标签 ref 上，并选择 `run_mode=release` 时，整理公开白名单文件、校验大小/哈希，再发布 GitHub Release。内部产物不会因为已经构建就自动公开。
 
 流水线只在明确需要打包或发版时，通过 GitHub Actions 页面手动触发 `workflow_dispatch` 运行。普通代码提交推送到 `main` 只同步代码，不触发打包流水线；推送 `v*` 标签也只同步标签，不自动触发流水线。手动触发时必须选择 `run_mode`：需要打包时选择 `package`，需要发版时选择 `release` 并切换到对应 `v*` 标签 ref。选择 `release` 但 ref 不是 `v*` 标签时，预检会立刻失败，避免误跑整套多平台构建。Actions 页面里事件为 `push` 的记录是旧版配置留下的历史执行记录，当前配置不会因普通 push 继续新增。
 
-`npm run verify:ci-config` 会先检查 Release 资产整理脚本的 JavaScript 语法，再检查 `.github/workflows/build.yml` 是否仍只保留 `workflow_dispatch` 入口、是否要求显式选择打包/发版模式、是否启用同 ref 手动运行去重、以及 Release 作业是否只允许在 `run_mode=release` 且 `v*` 标签 ref 上执行。
+`npm run verify:ci-config` 检查脚本语法、手动触发/同 ref 去重/标签发布门槛，并运行公开资产回归。手动流水线在 preflight 阶段先执行这些检查，避免等多平台编译完才发现发布策略错误。
 
 ## CI 产物
 
@@ -290,6 +365,7 @@ Release manifest 记录平台、产物类型、大小和 SHA-256。目录型产�
 | `fluxdown-android-release-aab` | Android App Bundle。 |
 | `fluxdown-ios-simulator` | iPhone simulator app bundle。 |
 | `fluxdown-ios-device-unsigned` | unsigned iPhone device app bundle。 |
+| `fluxdown-ffi-ios-static` | iPhone arm64 Rust 静态库，独立构建证据，不是 App 安装包。 |
 | `fluxdown-ios-release-ipa` | 签名 IPA，仅 secrets 齐全时生成。 |
 
 ## 发布流程
@@ -298,9 +374,9 @@ Release manifest 记录平台、产物类型、大小和 SHA-256。目录型产�
 2. 运行本地检查和必要的平台构建。
 3. 运行 `npm run audit:release` 查看发布准备状态。
 4. 提交代码并推送到 `main`。这一步只同步代码，不触发 GitHub Actions 打包流水线。
-5. 创建并推送标签，例如 `git tag v1.0.10 && git push origin v1.0.10`。
+5. 创建并推送与新版本一致的 `v<version>` 标签；先确认标签不存在，不重写已发布标签。
 6. 在 GitHub Actions 页面手动运行 `Build` workflow，选择刚推送的 `v*` 标签 ref，并设置 `run_mode=release`。
-7. 在 Release 页面检查 assets 和 release notes。
+7. 从 Release 下载回验全部 11 个公开文件的大小/SHA-256、版本/包名，检查页面含源码包共 13 项；不要把只检查 CI 工作目录写成远端资产验证通过。
 
 ## 常见问题
 

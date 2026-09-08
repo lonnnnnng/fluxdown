@@ -4,24 +4,34 @@
 
 FluxDown 的 Flutter Android/iOS App。
 
-App 保存本地 JSON 队列，允许用户启动或暂停单个任务，也可以从队列工具栏以有界并发运行已排队任务。
+App 保存本地 JSON 队列，按设置的并发数自动调度排队任务。点击任务开始/暂停，长按打开操作菜单；新建任务支持扫码/剪切板、文件命名、保存位置与可选 SHA-256 校验。
+
+协议识别优先调用 Rust FFI，不可用时回退 Dart；实际队列与下载控制器仍由 Dart/移动原生适配器执行，尚未切换到 Rust 队列引擎。见 [FFI 构建与测试](../../docs/build-release.md#移动端-rust-ffi) 和 [当前验证边界](../../docs/bugfix-verification-20260908.md)。
 
 ## 命令
+
+以下命令在 `apps/mobile` 执行。Android Rust `.so` 必须先通过 cargo-ndk 单独编译；iOS 需安装 `aarch64-apple-ios`、`aarch64-apple-ios-sim` 和 `x86_64-apple-ios` 三个 Rust targets，Runner 会自动编译/链接 FFI，最低 iOS 15.0。
 
 ```sh
 flutter analyze
 flutter test
 flutter build apk --debug
 flutter build apk --release
-cd android && ./gradlew bundleRelease
+flutter build appbundle --release
 flutter build ios --simulator
 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release
 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ipa --export-options-plist=ios/ExportOptions.plist
 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
-cd ../.. && npm run mobile:ios:simulator:verify
-cd ../.. && npm run mobile:ios:verify
-cd ../.. && npm run mobile:ios:ipa:signed
 ```
+
+从仓库根目录验证最终 iOS App 与 FFI 导出：
+
+```sh
+npm run mobile:ios:simulator:verify
+npm run mobile:ios:verify
+```
+
+直接运行 `flutter test` 会跳过 4 项原生库测试。按构建文档传入 `FLUXDOWN_FFI_TEST_LIBRARY` 才会调用真实 host Rust 库；host 测试不能替代 Android/iOS 原生设备验证。
 
 Android debug APK 会写入 `build/app/outputs/flutter-apk/app-debug.apk`。
 Android release APK 会写入 `build/app/outputs/flutter-apk/app-release.apk`。

@@ -40,6 +40,12 @@ jobs:
             echo "Release mode must run on a v* tag ref. Current ref: $GITHUB_REF"
             exit 1
           fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify manual policy and public asset regression tests
+        run: npm run verify:ci-config
 
   rust:
     name: Rust core and CLI (${{ matrix.os }})
@@ -226,9 +232,11 @@ jobs:
       - name: Analyze mobile app
         working-directory: apps/mobile
         run: flutter analyze
+      - name: Build host FFI for binding tests
+        run: cargo build --locked -p fluxdown-ffi
       - name: Test mobile app
         working-directory: apps/mobile
-        run: flutter test
+        run: flutter test --dart-define=FLUXDOWN_FFI_TEST_LIBRARY=${{ github.workspace }}/target/debug/libfluxdown_ffi.so
       - name: Configure Android release signing
         working-directory: apps/mobile/android
         shell: bash
@@ -280,6 +288,8 @@ jobs:
     name: iOS app
     needs: preflight
     runs-on: macos-latest
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: '15.0'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -288,7 +298,7 @@ jobs:
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -296,12 +306,10 @@ jobs:
       - name: Build Rust FFI static library for iOS
         run: |
           # 作者: long
-          # iOS 链接静态库需要改 Runner 工程文件，本轮先产出 .a 产物并校验，
-          # Xcode 链接与 dart:ffi 加载（DynamicLibrary.process）在后续版本接入。
-          cargo build -p fluxdown-ffi --release --target aarch64-apple-ios \
-            --features fluxdown-core/vendored-openssl
+          # 与 Runner 共用构建脚本，统一 Rust/C 的部署版本；模拟器库由 Runner 按架构构建。
+          bash scripts/build-ios-ffi.sh
           mkdir -p dist/ffi-ios
-          cp target/aarch64-apple-ios/release/libfluxdown_ffi.a dist/ffi-ios/
+          cp target/ffi-ios/iphoneos/libfluxdown_ffi.a dist/ffi-ios/
           node scripts/verify-artifacts.mjs file dist/ffi-ios/libfluxdown_ffi.a
       - name: Upload Rust FFI static library
         uses: actions/upload-artifact@v4
@@ -459,6 +467,8 @@ jobs:
           path: dist/github-release/raw
       - name: Prepare release assets
         run: node scripts/prepare-github-release-assets.mjs dist/github-release/raw dist/github-release/assets
+      - name: Verify public assets and checksums
+        run: npm run verify:github-release
       - name: Verify release tag version
         shell: bash
         run: |

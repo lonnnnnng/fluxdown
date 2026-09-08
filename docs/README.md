@@ -9,6 +9,8 @@
 - [技术架构](architecture.md)：仓库结构、核心模块、队列模型、协议调度、端侧边界和关键依赖。
 - [协议支持矩阵](protocols.md)：HTTP、FTP、BitTorrent、Magnet、ed2k、m3u8/HLS、SFTP、SMB 等协议在桌面端和移动端的支持状态。
 - [下载验证状态](download-verification.md)：区分构建/产物校验和真实下载端到端验证，记录各端与各协议当前验证边界。
+- [2026-09-08 修复验证与文档差异](bugfix-verification-20260908.md)：iOS 构建、移动 FFI、桌面 Torrent 分文件进度的修复与本地验证，区分源码能力、发布产物和未验证项。
+- [任务模型与 FFI](task-schema.md)：Rust 任务格式、FFI 请求/返回值和 Flutter 独立队列的实际边界。
 - [Apple 目标验收清单](apple-verification.md)：聚焦 macOS 桌面、macOS CLI 和 iOS 当前目标的通过项、待执行项和推荐命令。
 - [协议端到端测试用例](protocol-e2e-test-cases.md)：跨平台复用的 10 MB 以下协议下载测试矩阵。
 - [Android 真机协议测试报告](android-real-device-protocol-report.md)：Android 真机协议下载实测结果和未覆盖项。
@@ -17,6 +19,7 @@
 - [macOS 原生桌面端 12 协议验证报告](macos-desktop-protocol-e2e-report-20260805.md)：macOS 原生 Tauri 前台窗口下 11 类真实下载和 ed2k 系统移交证据。
 - [跨平台协议测试资源清单](protocol-test-resources.md)：保留公网小资源、动态实验室地址、复跑方式和跨端复用边界。
 - [构建与发布](build-release.md)：本地构建命令、CI 作业、发布产物、签名配置和版本发布流程。
+- [1.0.15 发行说明](releases/1.0.15.md)：精简公开资产策略、FFI/桌面修复及签名边界。
 - [第三方许可证清单](third-party-licenses.md)：项目自有许可证、主要直接依赖和移动端 GPL 风险边界。
 - [运维与安全](operations-security.md)：本地数据、凭据处理、第三方后端、许可证、隐私假设和排障入口。
 - [路线图](roadmap.md)：短期、中期和长期改进项。
@@ -28,20 +31,23 @@ FluxDown 是一个跨平台下载器工作区：
 - 桌面端：Windows、macOS、Linux，包含 CLI 和 Tauri + React GUI。
 - 移动端：Android 和 iPhone，使用 Flutter App。
 - 共享核心：Rust core crate 提供协议检测、任务模型、任务存储、队列运行器和桌面下载执行能力。
+- 移动 FFI：协议识别优先复用 Rust；Flutter 下载队列仍由 Dart/移动原生适配器执行，不是完整的跨端统一引擎。
 
-当前版本号为 `1.0.10`。发布流水线在 `.github/workflows/build.yml` 中定义，只允许在 GitHub Actions 页面手动触发，并且必须显式选择 `run_mode=package` 或 `run_mode=release`；普通代码推送和 `v*` 标签推送都不会自动执行。
+当前版本号为 `1.0.15`，纳入 2026-09-08 的 FFI/桌面详情修复，并将公开 Assets 从 21 项精简为 13 项（11 个上传文件与 2 个自动源码包）。内部调试、商店和 iOS 验证产物仍保留在 Actions Artifacts。发布流水线只允许手动选择 `run_mode=package` 或 `run_mode=release`，普通代码推送和 `v*` 标签推送都不会自动执行。各次构建与运行证据见 [下载验证状态](download-verification.md)。
 
 ## 当前版本重点
 
 - GitHub 默认 README 已切换为中文，英文入口保留为 `README.en.md`。
 - 桌面端已重构为紧凑的传输控制台：下载列表和设置保持两页结构，统一使用状态侧栏、指标栏、任务表格和 Lucide 图标；任务行支持点击开始/暂停，右键、长按和三点菜单打开操作面板。
-- macOS README 截图已按 `1280×820` 真实 Tauri 窗口重新采集，Retina PNG 为 `2560×1640`；桌面端与移动端当前统一使用天蓝色、白色和常规字重，侧栏菜单对比度已复验。
-- Android README 截图和本轮复验来自 Redmi Note 8 Pro 真机安装的 `1.0.10+11` release APK，覆盖任务页、新建弹框、设置页、扫码/剪切板入口和保存位置容量面板；这轮只复验启动、页面操作和视觉结果，不替代历史协议下载证据。
+- README 中 macOS 截图来自 2026-08-04 至 08-06 的真实 Tauri 窗口（逻辑 `1280×820`，Retina PNG `2560×1640`）；蓝白主题与常规字重仍保留，但旧图不包含后续新增的托盘、更新和 Torrent 详情。
+- Android README 使用 `docs/screenshots/android-*-gap-fixes.png` 中的三张 2026-08-20 Redmi Note 8 Pro 真机 `1.0.10+11` 截图，覆盖任务页、新建弹框和设置；没有重新采集当前源码截图，也不以旧图证明后来新增的 SHA-256 或 FFI 功能已在真机验证。
 - Android 队列页显示任务状态、开始/结束时间、总耗时、已下载/总大小、实时速度和平均速度。
-- 新建任务支持下载链接输入、自动识别、自动命名、另存文件名和保存位置选择；二维码扫描页面仍保留在代码中，但当前新建弹框尚未重新接入扫码和剪切板入口。
+- 新建任务支持下载链接输入、自动识别、自动命名、另存文件名和保存位置选择；移动端扫码与剪切板入口已接回弹框标题栏。
+- 桌面/CLI 与移动端均有可选 SHA-256 文件校验；桌面还提供 ETA、每任务限速、HLS 清晰度选择、分片缓存恢复和 TS 直出，后者不能视为已在移动 UI 同步。
+- 桌面 `1.0.12`/`1.0.14` 已加入更新检查/安装包下载、窗口尺寸恢复、托盘/关窗驻留、单实例、通知和可选剪贴板监听。
 - 设置页提供下载保存位置、并发下载数、下载线程数、自动重试数和最大下载网速。
 - 下载执行逻辑接入并发排队、线程数、失败重试和可选限速配置。
-- Torrent/Magnet 在获取 metadata 后使用真实文件名；Android 已支持多文件选择，桌面 CLI/Tauri command 已支持按文件编号选择下载内容。
+- Torrent/Magnet 在获取 metadata 后使用真实文件名；移动端支持多文件选择和文件夹详情，桌面 CLI/Tauri command 支持按文件编号选择。桌面详情已有 tracker/peer/会话速率；运行时分文件进度 UI 与轮询竞态修复纳入 `1.0.15`。
 - CLI JSON 输出、命令错误、桌面属性页和任务错误展示会脱敏 URL 用户名和密码，原始链接仍保留用于下载和复制。
 - CLI 和桌面端会把另存文件名规范化为单文件名，避免异常文件名写出保存目录。
 - 桌面队列默认使用平台原生数据目录，macOS 会从旧版 `~/.local/share/fluxdown/queue.json` 兼容迁移到 `~/Library/Application Support/FluxDown/queue.json`。
@@ -49,6 +55,7 @@ FluxDown 是一个跨平台下载器工作区：
 - Windows CLI 和原生 Tauri GUI 均已补充当前支持的 12 种协议真实用例验证，HTTP/HTTPS/WebDAV/WebDAVS/FTP/FTPS/m3u8/SFTP/SMB/Torrent/Magnet 均完成真实落盘和 SHA-256 校验，ed2k 完成系统移交通路验证；GUI 验证还覆盖了设置页各菜单切换、设置项编辑、后端自检和截图证据。
 - macOS CLI 已补充本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP、本地自签 HTTPS/WebDAVS/FTPS 真实下载验证，也覆盖限速、重试、暂停继续和并发排队；macOS 原生 GUI 于 2026-08-05 通过真实前台窗口覆盖 12 类任务，其中 HTTP、HTTPS、WebDAV(S) transport、FTP(S)、SFTP、SMB、HLS、Torrent、Magnet 均完成落盘和 SHA-256 校验，ed2k 完成系统移交。
 - iOS 已补充 Flutter 静态验证、simulator/unsigned device 构建产物、URL scheme 配置验证，以及 iOS simulator App 内 HTTP、fMP4 HLS、BYTERANGE HLS、TS HLS 下载 smoke；签名 IPA 和 iPhone 真机能力仍待证书、profile 与设备窗口补验。
+- 2026-09-08 本地验证通过 Flutter 50 项测试（含真实 host FFI）、iOS simulator/unsigned app 构建及 FFI 导出检查、桌面前端构建与 10 项隔离 UI 回归。这轮没有替代历史 Android/iOS/原生桌面协议 E2E。
 - Linux 当前仍只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。
 - 仓库根目录已补齐 MIT `LICENSE`，第三方依赖和移动端 GPL 风险见 [第三方许可证清单](third-party-licenses.md)。
 

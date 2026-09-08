@@ -196,6 +196,7 @@
 			buildPhases = (
 				1F5ED621C0A99F64F2946226 /* [CP] Check Pods Manifest.lock */,
 				9740EEB61CF901F6004384FC /* Run Script */,
+				F10D0A012026090800000001 /* Build FluxDown FFI */,
 				97C146EA1CF9000F007C117D /* Sources */,
 				97C146EB1CF9000F007C117D /* Frameworks */,
 				97C146EC1CF9000F007C117D /* Resources */,
@@ -273,6 +274,23 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		F10D0A012026090800000001 /* Build FluxDown FFI */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Build FluxDown FFI";
+			outputPaths = (
+				"$(FLUXDOWN_FFI_DIR)/libfluxdown_ffi.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "/bin/bash \"$PROJECT_DIR/../../../scripts/build-ios-ffi.sh\"";
+			showEnvVarsInLog = 0;
+		};
 		1F5ED621C0A99F64F2946226 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;

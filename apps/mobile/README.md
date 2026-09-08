@@ -4,24 +4,34 @@
 
 Flutter Android/iOS app for FluxDown.
 
-The app keeps a local JSON queue, lets a user start or pause individual tasks, and can run queued tasks with bounded concurrency from the queue toolbar.
+The app keeps a local JSON queue and automatically schedules waiting tasks up to the configured concurrency. Task rows start/pause on tap; long press opens actions. New tasks support QR/clipboard input, file naming, output location, and optional SHA-256 verification.
+
+Protocol detection tries Rust FFI before falling back to Dart. The actual queue/download controller still uses Dart and native mobile adapters, not the Rust queue engine. See [FFI build and test instructions](../../docs/build-release.md#移动端-rust-ffi) and [current verification boundaries](../../docs/bugfix-verification-20260908.md).
 
 ## Commands
+
+Run from `apps/mobile`. Android Rust `.so` files must be built separately using cargo-ndk before Flutter packaging. iOS requires the `aarch64-apple-ios`, `aarch64-apple-ios-sim`, and `x86_64-apple-ios` Rust targets; Runner builds/links FFI automatically with an iOS 15.0 minimum.
 
 ```sh
 flutter analyze
 flutter test
 flutter build apk --debug
 flutter build apk --release
-cd android && ./gradlew bundleRelease
+flutter build appbundle --release
 flutter build ios --simulator
 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release
 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ipa --export-options-plist=ios/ExportOptions.plist
 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
-cd ../.. && npm run mobile:ios:simulator:verify
-cd ../.. && npm run mobile:ios:verify
-cd ../.. && npm run mobile:ios:ipa:signed
 ```
+
+From the repository root, check the final iOS app bundles and FFI exports:
+
+```sh
+npm run mobile:ios:simulator:verify
+npm run mobile:ios:verify
+```
+
+Plain `flutter test` skips the four native-library cases. Pass `FLUXDOWN_FFI_TEST_LIBRARY` as described in the build guide to test a real host Rust library; this does not replace Android/iOS native-device verification.
 
 The Android debug APK is written to `build/app/outputs/flutter-apk/app-debug.apk`.
 The Android release APK is written to `build/app/outputs/flutter-apk/app-release.apk`.

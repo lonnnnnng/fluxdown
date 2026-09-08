@@ -1,7 +1,7 @@
 // Rust core（crates/fluxdown-ffi）的移动端桥接层。
 //
 // 策略：动态库加载成功时协议能力走 FFI 优先（与桌面端共享 Rust core），
-// 加载失败或调用异常一律回退 Dart 自实现，保证零行为回归。
+// 加载失败或调用异常回退 Dart 自实现；下载执行仍由移动端控制器负责。
 // 动态库由 CI 的 Android 构建打进 jniLibs（libfluxdown_ffi.so），
 // iOS 静态库产物见 docs/build-release.md 的 FFI 章节。
 
@@ -39,13 +39,14 @@ class FluxDownCoreBridge {
   }
 
   /// FFI 协议识别；不可用或调用失败返回 null（调用方回退 Dart 实现）。
-  static String? detectProtocol(String source) {
-    final core = _ffi;
-    if (core == null) return null;
+  static String? detectProtocol(String source, {FluxDownCoreFfi? core}) {
+    final engine = core ?? _ffi;
+    if (engine == null) return null;
     try {
-      final envelope = core.detect(source);
-      final data = envelope['data'];
-      if (data is Map && data['protocol'] is String) {
+      // 作者: long
+      // 绑定层已经解包 data，桥接层直接读取协议，避免二次解包误判为不可用并回退。
+      final data = engine.detect(source);
+      if (data['protocol'] is String) {
         return data['protocol'] as String;
       }
       return null;

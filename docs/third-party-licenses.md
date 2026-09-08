@@ -1,6 +1,6 @@
 # 第三方许可证清单
 
-截至 2026-07-26，本项目自有代码采用 MIT License，许可证正文见仓库根目录 [LICENSE](../LICENSE)。
+截至 2026-09-08，本项目自有代码采用 MIT License，许可证正文见仓库根目录 [LICENSE](../LICENSE)。
 
 本清单用于发布前审查和 README 说明，不替代各依赖包自带的完整许可证文本。最终对外发布时，应以锁文件、构建产物和依赖包随附许可证为准重新生成完整 NOTICE / licenses bundle。
 
@@ -17,11 +17,16 @@
 | `serde` / `serde_json` | 队列和命令 JSON 序列化 | MIT OR Apache-2.0 |
 | `sha2` | 下载完成后的 SHA-256 校验 | MIT OR Apache-2.0 |
 | `librqbit` | BitTorrent / Magnet 下载 | Apache-2.0 |
+| `librqbit-bencode` | Torrent 元数据编解码 | Apache-2.0 |
 | `m3u8-rs` | HLS playlist 解析 | MIT |
 | `suppaftp` | FTP/FTPS 下载 | MIT OR Apache-2.0 |
 | `ssh2` | SFTP 下载 | MIT OR Apache-2.0 |
 | `smb2` | SMB2/3 下载 | MIT |
 | `tauri` / `tauri-build` | 桌面 GUI 宿主和构建 | Apache-2.0 OR MIT |
+| `tauri-plugin-clipboard-manager` | 桌面剪贴板读写 | Apache-2.0 OR MIT |
+| `tauri-plugin-notification` | 桌面下载完成通知 | Apache-2.0 OR MIT |
+| `tauri-plugin-single-instance` | 桌面单实例与重复启动唤醒 | Apache-2.0 OR MIT |
+| `tauri-plugin-window-state` | 桌面窗口位置和尺寸持久化 | Apache-2.0 OR MIT |
 | `aes` / `cbc` | HLS AES-128 解密 | MIT OR Apache-2.0 |
 | `open` | ed2k 系统 URL handler 回退 | MIT |
 | `futures-util` | 下载流处理和异步组合 | MIT OR Apache-2.0 |
@@ -48,6 +53,7 @@
 | --- | --- | --- |
 | `http` | HTTP/WebDAV 下载 | 发布前需随锁文件生成完整许可证文本。 |
 | `cupertino_icons` | iOS 风格图标资源 | MIT |
+| `ffi` | Dart 与 Rust C ABI 之间的内存和字符串转换 | BSD-3-Clause |
 | `path` | 本地路径拼接和文件名处理 | BSD-3-Clause |
 | `path_provider` | Android/iOS 下载目录解析 | BSD-3-Clause |
 | `uuid` | 移动端下载任务 ID 生成 | MIT |
@@ -72,5 +78,6 @@
 
 - 已补齐项目自有 MIT License 文本。
 - 已列出当前主要直接依赖和移动端 GPL 风险点。
+- 2026-09-08 补齐 `librqbit-bencode`、四个 Tauri 插件和 Dart `ffi`；许可证分别核对当前锁定版本随包提供的 Cargo `license` 字段及 Dart `LICENSE` 正文，不表示完整传递依赖审计已完成。
 - 已增加轻量许可证清单校验：`npm run verify:licenses` 会检查 Rust workspace、桌面运行时依赖和 Flutter 移动端运行时依赖是否在本清单中出现，并校验 `libtorrent_flutter` GPL 风险提示仍然存在。
 - Release staging 和 GitHub Release 资产准备脚本已随包输出项目 `LICENSE` 与本清单；但还没有生成所有传递依赖的完整 LICENSE bundle，也未把许可证审计设为 GitHub Actions 阻断项。

@@ -1,307 +1,100 @@
 import { createHash } from 'node:crypto'
-import { spawnSync } from 'node:child_process'
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
+import { verifyPublicReleaseAssets } from './verify-github-release-assets.mjs'
 
 const root = resolve(import.meta.dirname, '..')
-const version = readPackageVersion()
+const version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
 const [rawArg = 'dist/github-release/raw', assetsArg = 'dist/github-release/assets'] = process.argv.slice(2)
 const rawDir = resolve(root, rawArg)
 const assetsDir = resolve(root, assetsArg)
-const outputRoot = dirname(assetsDir)
 const preparedAssets = []
 
-if (!existsSync(rawDir)) {
-  throw new Error(`downloaded artifact directory is missing: ${relativeFromRoot(rawDir)}`)
+if (!existsSync(rawDir)) throw new Error(`downloaded artifact directory is missing: ${rawDir}`)
+// 作者: long
+// 使用独立空目录避免历史版本或测试资产混入公开下载区，也不清理调用方传入的已有目录。
+if (existsSync(assetsDir) && readdirSync(assetsDir).length > 0) {
+  throw new Error(`public release output directory must be empty: ${assetsDir}`)
 }
-
-rmSync(assetsDir, { recursive: true, force: true })
 mkdirSync(assetsDir, { recursive: true })
 
-copyRequiredFile('fluxdown-cli-linux', (file) => basename(file) === 'fluxdown', `fluxdown-${version}-linux-amd64`)
-copyRequiredFile('fluxdown-cli-macos', (file) => basename(file) === 'fluxdown', `fluxdown-${version}-macos-aarch64`)
-copyRequiredFile(
-  'fluxdown-cli-windows',
-  (file) => basename(file).toLowerCase() === 'fluxdown.exe',
-  `fluxdown-${version}-windows-x86_64.exe`,
-)
+copyRequiredFile('fluxdown-cli-linux', (name) => name === 'fluxdown', `fluxdown-${version}-linux-amd64`)
+copyRequiredFile('fluxdown-cli-macos', (name) => name === 'fluxdown', `fluxdown-${version}-macos-aarch64`)
+copyRequiredFile('fluxdown-cli-windows', (name) => name === 'fluxdown.exe', `fluxdown-${version}-windows-x86_64.exe`)
+copyRequiredFile('fluxdown-desktop-macos', (name) => name.endsWith('.dmg'), `FluxDown-${version}-macos-aarch64.dmg`)
+copyRequiredFile('fluxdown-desktop-linux', (name) => name.endsWith('.deb'), `FluxDown-${version}-linux-amd64.deb`)
+copyRequiredFile('fluxdown-desktop-linux', (name) => name.endsWith('.rpm'), `FluxDown-${version}-linux-x86_64.rpm`)
+copyRequiredFile('fluxdown-desktop-windows', (name) => name.endsWith('-setup.exe'), `FluxDown-${version}-windows-x86_64-setup.exe`)
+copyRequiredFile('fluxdown-android-release-apk', (name) => name === 'app-release.apk', `FluxDown-${version}-android-release.apk`)
 
-copyRequiredFile(
-  'fluxdown-desktop-macos',
-  (file) => basename(file).toLowerCase().endsWith('.dmg'),
-  `FluxDown-${version}-macos-aarch64.dmg`,
-)
-archiveRequiredDirectory(
-  'fluxdown-desktop-macos',
-  (dir) => basename(dir) === 'FluxDown.app',
-  `FluxDown-${version}-macos-aarch64.app.tar.gz`,
-)
-
-copyRequiredFile(
-  'fluxdown-desktop-linux',
-  (file) => basename(file) === 'fluxdown-desktop',
-  `fluxdown-desktop-${version}-linux-amd64`,
-)
-copyRequiredFile(
-  'fluxdown-desktop-linux',
-  (file) => basename(file).toLowerCase().endsWith('.deb'),
-  `FluxDown-${version}-linux-amd64.deb`,
-)
-copyRequiredFile(
-  'fluxdown-desktop-linux',
-  (file) => basename(file).toLowerCase().endsWith('.rpm'),
-  `FluxDown-${version}-linux-x86_64.rpm`,
-)
-
-copyRequiredFile(
-  'fluxdown-desktop-windows',
-  (file) => basename(file).toLowerCase().endsWith('.msi'),
-  `FluxDown-${version}-windows-x86_64.msi`,
-)
-copyRequiredFile(
-  'fluxdown-desktop-windows',
-  (file) => basename(file).toLowerCase().endsWith('.exe') && basename(file).toLowerCase() !== 'fluxdown-desktop.exe',
-  `FluxDown-${version}-windows-x86_64-setup.exe`,
-)
-copyRequiredFile(
-  'fluxdown-desktop-windows',
-  (file) => basename(file).toLowerCase() === 'fluxdown-desktop.exe',
-  `fluxdown-desktop-${version}-windows-x86_64.exe`,
-)
-
-copyRequiredFile(
-  'fluxdown-android-debug-apk',
-  (file) => basename(file) === 'app-debug.apk',
-  `FluxDown-${version}-android-debug.apk`,
-)
-copyRequiredFile(
-  'fluxdown-android-release-apk',
-  (file) => basename(file) === 'app-release.apk',
-  `FluxDown-${version}-android-release.apk`,
-)
-copyRequiredFile(
-  'fluxdown-android-release-aab',
-  (file) => basename(file) === 'app-release.aab',
-  `FluxDown-${version}-android-release.aab`,
-)
-
-archiveRequiredIosApp(
-  'fluxdown-ios-simulator',
-  `FluxDown-${version}-ios-simulator-Runner.app.tar.gz`,
-)
-archiveRequiredIosApp(
-  'fluxdown-ios-device-unsigned',
-  `FluxDown-${version}-ios-device-unsigned-Runner.app.tar.gz`,
-)
-
-archiveOptionalDirectory(
-  'fluxdown-ios-debug-frameworks',
-  (dir) => basename(dir) === 'App.xcframework',
-  `FluxDown-${version}-ios-debug-App.xcframework.tar.gz`,
-)
-archiveOptionalDirectory(
-  'fluxdown-ios-debug-frameworks',
-  (dir) => basename(dir) === 'Flutter.xcframework',
-  `FluxDown-${version}-ios-debug-Flutter.xcframework.tar.gz`,
-)
-copyOptionalFile(
-  'fluxdown-ios-release-ipa',
-  (file) => basename(file).toLowerCase().endsWith('.ipa'),
-  `FluxDown-${version}-ios-release.ipa`,
-)
-
-copyProjectLegalAssets()
+// 作者: long
+// Debug APK、AAB、iOS 验证包、MSI、裸桌面程序与 macOS app 压缩包继续保留为 Actions Artifacts，不公开到 Release。
+copyAsset(resolve(root, 'LICENSE'), `FluxDown-${version}-LICENSE.txt`)
+copyAsset(resolve(root, 'docs/third-party-licenses.md'), `FluxDown-${version}-THIRD-PARTY-LICENSES.md`)
 writeManifest()
+verifyPublicReleaseAssets(assetsDir, version)
 writeReleaseNotes()
-
-console.log(`prepared ${preparedAssets.length} release assets in ${relativeFromRoot(assetsDir)}`)
+console.log(`prepared ${preparedAssets.length} public release assets in ${relative(root, assetsDir)}`)
 
 function copyRequiredFile(artifactName, predicate, assetName) {
-  const file = requireEntry(artifactName, 'file', predicate)
-  copyAsset(file, assetName)
-}
-
-function copyOptionalFile(artifactName, predicate, assetName) {
-  const file = findEntry(artifactName, 'file', predicate)
-  if (!file) {
-    console.warn(`optional artifact skipped: ${artifactName}`)
-    return
-  }
-  copyAsset(file, assetName)
-}
-
-function archiveRequiredDirectory(artifactName, predicate, assetName) {
-  const directory = requireEntry(artifactName, 'directory', predicate)
-  archivePaths([{ path: directory, name: basename(directory) }], assetName)
-}
-
-function archiveRequiredIosApp(artifactName, assetName) {
-  const bundleDirectory = findEntry(artifactName, 'directory', (dir) => basename(dir) === 'Runner.app')
-  if (bundleDirectory) {
-    archivePaths([{ path: bundleDirectory, name: 'Runner.app' }], assetName)
-    return
-  }
-
   const artifactDir = resolve(rawDir, artifactName)
-  const runnerBinary = resolve(artifactDir, 'Runner')
-  const infoPlist = resolve(artifactDir, 'Info.plist')
-  if (!existsSync(runnerBinary) || !existsSync(infoPlist)) {
-    throw new Error(`required iOS Runner.app contents not found in artifact ${artifactName}`)
-  }
-
-  archivePaths([{ path: artifactDir, name: 'Runner.app' }], assetName)
+  const matches = existsSync(artifactDir)
+    ? listFiles(artifactDir).filter((file) => predicate(basename(file).toLowerCase()))
+    : []
+  if (matches.length !== 1) throw new Error(`expected exactly one ${assetName} in ${artifactName}, found ${matches.length}`)
+  copyAsset(matches[0], assetName)
 }
 
-function archiveOptionalDirectory(artifactName, predicate, assetName) {
-  const directory = findEntry(artifactName, 'directory', predicate)
-  if (!directory) {
-    console.warn(`optional artifact skipped: ${artifactName}/${assetName}`)
-    return
-  }
-  archivePaths([{ path: directory, name: basename(directory) }], assetName)
-}
-
-function copyAsset(source, assetName) {
-  const destination = resolve(assetsDir, assetName)
-  copyFileSync(source, destination)
-  recordAsset(destination)
-}
-
-function copyProjectLegalAssets() {
-  // long: Release 页面直接暴露许可证文本，用户无需下载安装包也能审查自有 MIT 许可和第三方依赖风险。
-  copyAsset(resolve(root, 'LICENSE'), `FluxDown-${version}-LICENSE.txt`)
-  copyAsset(resolve(root, 'docs/third-party-licenses.md'), `FluxDown-${version}-THIRD-PARTY-LICENSES.md`)
-}
-
-function archivePaths(entries, assetName) {
-  const stagingDir = resolve(outputRoot, `.stage-${assetName}`)
-  const destination = resolve(assetsDir, assetName)
-  rmSync(stagingDir, { recursive: true, force: true })
-  mkdirSync(stagingDir, { recursive: true })
-
-  for (const entry of entries) {
-    const result = spawnSync('cp', ['-R', entry.path, resolve(stagingDir, entry.name)], { stdio: 'pipe' })
-    if (result.status !== 0) {
-      throw new Error(`failed to stage ${relativeFromRoot(entry.path)}: ${result.stderr.toString().trim()}`)
-    }
-  }
-
-  const result = spawnSync('tar', ['-czf', destination, '-C', stagingDir, '.'], { stdio: 'pipe' })
-  rmSync(stagingDir, { recursive: true, force: true })
-  if (result.status !== 0) {
-    throw new Error(`failed to archive ${assetName}: ${result.stderr.toString().trim()}`)
-  }
-
-  recordAsset(destination)
-}
-
-function requireEntry(artifactName, kind, predicate) {
-  const entry = findEntry(artifactName, kind, predicate)
-  if (!entry) {
-    throw new Error(`required ${kind} not found in artifact ${artifactName}`)
-  }
-  return entry
-}
-
-function findEntry(artifactName, kind, predicate) {
-  const artifactDir = resolve(rawDir, artifactName)
-  if (!existsSync(artifactDir)) {
-    return null
-  }
-
-  const entries = listEntries(artifactDir)
-  return entries
-    .filter((entry) => {
-      const stat = statSync(entry)
-      return kind === 'file' ? stat.isFile() : stat.isDirectory()
-    })
-    .filter(predicate)
-    .sort((a, b) => a.localeCompare(b))[0] ?? null
-}
-
-function listEntries(path) {
-  const entries = []
-  for (const child of readdirSync(path, { withFileTypes: true })) {
-    const childPath = join(path, child.name)
-    entries.push(childPath)
-    if (child.isDirectory()) {
-      entries.push(...listEntries(childPath))
-    }
-  }
-  return entries
-}
-
-function recordAsset(path) {
-  const stat = statSync(path)
-  if (!stat.isFile() || stat.size === 0) {
-    throw new Error(`prepared asset is empty or invalid: ${relativeFromRoot(path)}`)
-  }
-
-  preparedAssets.push({
-    name: basename(path),
-    bytes: stat.size,
-    sha256: hashFile(path),
+function listFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name)
+    return entry.isDirectory() ? listFiles(path) : entry.isFile() ? [path] : []
   })
 }
 
+function copyAsset(source, name) {
+  const destination = resolve(assetsDir, name)
+  copyFileSync(source, destination)
+  const bytes = statSync(destination).size
+  if (!bytes) throw new Error(`prepared asset is empty: ${name}`)
+  preparedAssets.push({ name, bytes, sha256: createHash('sha256').update(readFileSync(destination)).digest('hex') })
+}
+
 function writeManifest() {
-  const manifestPath = resolve(assetsDir, `FluxDown-${version}-release-manifest.json`)
-  const manifest = {
-    product: 'FluxDown',
-    version,
-    generatedAt: new Date().toISOString(),
-    assets: preparedAssets.sort((a, b) => a.name.localeCompare(b.name)),
-  }
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
-  recordAsset(manifestPath)
+  const name = `FluxDown-${version}-release-manifest.json`
+  const manifest = { product: 'FluxDown', version, generatedAt: new Date().toISOString(), assets: [...preparedAssets].sort((a, b) => a.name.localeCompare(b.name)) }
+  const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)
+  writeFileSync(resolve(assetsDir, name), bytes)
+  preparedAssets.push({ name, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
 }
 
 function writeReleaseNotes() {
-  const assetList = preparedAssets
-    .filter((asset) => !asset.name.endsWith('-release-manifest.json'))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((asset) => `- ${asset.name}`)
-    .join('\n')
-
+  const changelog = readFileSync(resolve(root, `docs/releases/${version}.md`), 'utf8').trim()
+  const download = (name) => `https://github.com/lonnnnnng/fluxdown/releases/download/v${version}/${name}`
   const notes = `# FluxDown ${version}
 
-这是由 GitHub Actions 构建的多平台发布版本。
+${changelog}
 
-## 本次重点
+## 下载安装
 
-- 桌面端重构为白色、天蓝色的紧凑传输工作台，重新设计侧栏、指标栏、任务列表、任务弹框、操作菜单和设置页。
-- 桌面字体统一使用常规字重，并提升辅助文字、菜单、选中态和计数信息的对比度，改善长时间使用的可读性。
-- macOS 真实 Tauri 前台窗口已完成 12 类协议任务验证；其中 11 类完成真实落盘、大小和 SHA-256 校验，ed2k 按产品定义完成外部客户端移交。
-- Android 移动端补齐限速取消、分块取消、ed2k handedOff 状态和新建任务/保存位置容量面板；1.0.10+11 release APK 已在 Redmi Note 8 Pro 真机完成 UI 与启动复验。
-- README 已替换新版 macOS 下载列表截图，中文、英文说明和验证边界同步更新。
-- iPhone 真机、签名 IPA 和 Linux GUI 真实下载仍按验证文档所列边界处理；WebDAV/WebDAVS 当前验证的是传输映射，不代表完整目录遍历能力。
+| 平台 | 推荐下载 |
+| --- | --- |
+| Android | [Release APK](${download(`FluxDown-${version}-android-release.apk`)}) |
+| Windows x64 | [安装向导 EXE](${download(`FluxDown-${version}-windows-x86_64-setup.exe`)}) |
+| macOS Apple Silicon | [DMG](${download(`FluxDown-${version}-macos-aarch64.dmg`)}) |
+| Linux x64 | [DEB](${download(`FluxDown-${version}-linux-amd64.deb`)}) / [RPM](${download(`FluxDown-${version}-linux-x86_64.rpm`)}) |
 
-## Assets
+## 命令行版本
 
-${assetList}
+[Windows x64](${download(`fluxdown-${version}-windows-x86_64.exe`)}) · [macOS ARM64](${download(`fluxdown-${version}-macos-aarch64`)}) · [Linux x64](${download(`fluxdown-${version}-linux-amd64`)})
 
-签名 iOS IPA 和 iOS debug framework CI 产物仅在 Apple signing secrets 配置完成后包含；无签名 iPhone device app 和 iOS simulator app 仍会作为编译验证产物发布。
+## 资产说明
+
+本次公开 11 个文件，加上 GitHub 自动提供的 2 个源码压缩包，Assets 共 13 项。文件大小与 SHA-256 见 [release manifest](${download(`FluxDown-${version}-release-manifest.json`)})。
+
+Debug APK、AAB、iOS simulator/unsigned app、MSI、裸桌面程序和 macOS app 构建目录仅保留在对应 Actions Artifacts，不再混入用户下载区。iOS 目前没有面向普通用户的可安装发行包。
+
+[项目许可证](${download(`FluxDown-${version}-LICENSE.txt`)}) · [第三方许可证](${download(`FluxDown-${version}-THIRD-PARTY-LICENSES.md`)})
 `
-  writeFileSync(resolve(outputRoot, 'RELEASE_NOTES.md'), notes)
-}
-
-function hashFile(path) {
-  return createHash('sha256').update(readFileSync(path)).digest('hex')
-}
-
-function readPackageVersion() {
-  return JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
-}
-
-function relativeFromRoot(path) {
-  return relative(root, path) || '.'
+  writeFileSync(resolve(dirname(assetsDir), 'RELEASE_NOTES.md'), notes)
 }

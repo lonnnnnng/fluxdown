@@ -4,9 +4,9 @@
 
 FluxDown 是一个多语言 monorepo：
 
-- Rust workspace：共享下载核心、任务队列和 CLI。
+- Rust workspace：共享下载核心、任务队列、CLI 和 C ABI 桥接库。
 - Tauri + React：桌面 GUI，调用 Rust core 暴露的 Tauri commands。
-- Flutter：Android/iOS App，移动端使用 Dart 实现本地队列和下载调度。
+- Flutter：Android/iOS App，协议识别优先经 FFI 调用 Rust；本地队列与下载调度仍使用 Dart 和移动原生适配器。
 - Node scripts：构建、验证、打包、Release staging 和 manifest 生成。
 - GitHub Actions：多平台 CI 构建和 GitHub Release 发布。
 
@@ -27,6 +27,9 @@ flowchart TD
     Engine --> DesktopBackends["HTTP / FTP / SFTP / SMB / Torrent / HLS  / ed2k handoff"]
 
     Mobile --> MobileStore["移动 JSON 队列"]
+    Mobile --> Detection["协议识别：FFI 优先 / Dart 回退"]
+    Detection --> FFI["fluxdown-ffi C ABI"]
+    FFI --> Protocol
     Mobile --> MobileRunner["MobileDownloadRunner"]
     MobileRunner --> MobileBackends["HTTP / FTP / SFTP / SMB / libtorrent / HLS  / ed2k handoff"]
 
@@ -40,10 +43,11 @@ flowchart TD
 | --- | --- |
 | `crates/fluxdown-core` | Rust 核心库：协议检测、支持状态、任务模型、任务存储、队列运行器、桌面下载引擎。 |
 | `crates/fluxdown-cli` | CLI 入口，基于 `clap` 暴露检测、诊断、下载和队列命令。 |
+| `crates/fluxdown-ffi` | ABI 1：协议识别/支持、原生队列 add/list/run 和 UTF-8 结果释放；移动产品目前只接入协议识别。 |
 | `apps/desktop` | Tauri + React 桌面 GUI。前端在 `src`，Rust Tauri 入口在 `src-tauri`。 |
 | `apps/mobile` | Flutter Android/iOS App。下载调度和协议适配在 `lib/src`。 |
 | `scripts` | 本地构建、Docker 交叉构建、产物校验、发布 staging 和 manifest 脚本。 |
-| `.github/workflows/build.yml` | 多端 CI 和标签发布流水线。 |
+| `.github/workflows/build.yml` | 仅手动触发的多端打包/发布流水线，普通 push/tag 不触发。 |
 | `docs` | 产品、业务、技术、发布和运维文档。 |
 
 ## Rust core
@@ -68,11 +72,13 @@ flowchart TD
 - 状态：桌面 Rust core 使用 `queued`、`running`、`finished`、`failed`、`paused`；移动端额外使用 `handedOff` 表示 ed2k 已交给外部兼容 App，不能把外部 App 的传输结果当作 FluxDown 内建下载完成。
 - 输出：`output_dir`、`file_name`。
 - 校验：`expected_sha256`。
+- 每任务选项：`torrent_file_indices`、`speed_limit_mbps`、`hls_variant_index`、`hls_keep_transport_stream`。
 - 进度：`total_bytes`、`downloaded_bytes`。
+- 速率：`current_speed_bytes_per_second`；桌面 UI 根据剩余字节与速率计算 ETA。
 - 错误：`error`。
-- 时间：`created_at_ms`、`updated_at_ms`。
+- 时间：`created_at_ms`、`updated_at_ms`、`started_at_ms`、`finished_at_ms`。
 
-这个模型被 CLI、桌面 GUI 和桌面队列运行器共享。移动端有 Dart 版本的 `DownloadTask`，字段语义保持接近，但 JSON 文件格式和存储位置不同。
+这个模型被 CLI、桌面 GUI 和桌面队列运行器共享。移动端有独立 Dart `DownloadTask`，FFI 的 `FluxDownCoreTask` 只是 Rust 任务的字段子集投影，不能替代移动端任务持久化。字段和边界见 [任务模型与 FFI](task-schema.md)，当前没有跨端队列自动转换器。
 
 ### 队列存储
 
@@ -102,6 +108,8 @@ flowchart TD
 - 为支持的协议写入输出目录和文件。
 - 报告 `DownloadProgress` 和 `DownloadSummary`。
 - 处理取消、部分文件和断点续传。
+- 桌面/core HLS 支持 master variant 选择、分片缓存恢复和可选 TS 直出；移动端 HLS 实现及可配置项独立。
+- Torrent 引擎保留活动会话，供详情接口读取分文件字节数、tracker、peer 和会话速率；静态 metadata 只有文件清单与大小，不代表已下载进度。
 
 主要依赖：
 
@@ -143,14 +151,20 @@ Tauri commands 包括：
 - `remove_download`
 - `start_download`
 - `run_queue`
+- `torrent_task_details`、`list_hls_variants`
 
 这些 commands 直接调用 Rust core，因此桌面 GUI 和 CLI 的协议能力基本一致。
 
+前端从队列获取活动任务状态，在运行或排队中轮询 Torrent 会话详情。详情关闭或切换任务后丢弃迟到响应；静态详情的未知进度显示为未知，不从总任务状态推断每个文件已完成。分文件进度 UI 修复纳入 `1.0.15`，见 [验证记录](bugfix-verification-20260908.md)。
+
+桌面壳还承担托盘、关窗驻留、单实例、系统通知、剪贴板监听和窗口尺寸持久化；更新检查/安装包下载经 Tauri 后端执行。这些是桌面平台能力，不是 Flutter 已同步的功能。
+
 ## 移动端
 
-Flutter App 没有直接复用 Rust core。当前移动端在 Dart 层实现协议检测、队列和下载调度：
+Flutter 当前部分复用 Rust core：协议识别走 `protocol.dart` → `FluxDownCoreBridge` → `FluxDownCoreFfi`；加载失败或调用异常回退 Dart。实际移动队列和下载尚未迁移到 Rust：
 
 - `protocol.dart`：协议识别和移动端支持说明。
+- `core_bridge.dart` / `ffi/fluxdown_ffi.dart`：加载 ABI 1、UTF-8 JSON 信封解码与结果释放。Android 打包 `.so`；iOS Runner 构建时静态链接，使用 `DynamicLibrary.process()`。
 - `download_task.dart`：任务模型、文件名推断、格式化。
 - `task_store.dart`：App documents 目录下的 `fluxdown/queue.json`。
 - `download_controller.dart`：添加、删除、暂停、启动和有界并发队列运行。
@@ -160,9 +174,12 @@ Flutter App 没有直接复用 Rust core。当前移动端在 Dart 层实现协�
 移动端与桌面端的主要差异：
 
 - 移动端任务 JSON 是数组，桌面端队列 JSON 是 `{ "tasks": [...] }`。
-- 移动端输出目录在 App 沙盒内由 UI 选择或默认生成。
+- 移动端保存位置由设置提供默认值，新建任务可覆盖；Android 系统目录选择/导出受目录权限约束，不能等同于桌面任意路径写入。
 - 移动端 ed2k 只能移交给已安装兼容 App；移交成功后任务状态为 `handedOff`。
 - 移动端 torrent 依赖 `libtorrent_flutter` 原生组件。
+- 移动端已接入新建弹框扫码/剪切板与可选 SHA-256 文件校验；不依赖 Rust 下载控制器。
+
+FFI `queueRun` 会同步等待任务结束，当前仅在独立 host 测试中调用，不能直接接入 Flutter UI isolate。生产迁移还需要非阻塞执行、进度/取消接口、设置透传和队列模型转换。构建细节见 [移动端 Rust FFI](build-release.md#移动端-rust-ffi)。
 
 ## 数据流
 
@@ -219,7 +236,7 @@ sequenceDiagram
 
 ## 设计取舍
 
-- Rust core 先服务桌面端，移动端使用 Dart 原生实现，避免早期引入复杂 FFI。
+- Rust core 先服务桌面端，移动端分阶段引入 FFI；目前只共享协议识别，下载路径仍分离，不能把绑定层存在写成引擎迁移完成。
 - 队列采用本地 JSON，便于调试和迁移，但不适合多进程高并发写入。
 - ed2k 采用外部移交，缩小实现面，但进度和完成状态不可由 FluxDown 完整掌控。
-- HLS 当前聚焦 VOD 下载，不承诺直播、DRM 或复杂多码率选择策略。
+- HLS 当前聚焦 VOD 下载；桌面支持显式 variant 选择，但不承诺直播录制、DRM 或自适应码率切换。

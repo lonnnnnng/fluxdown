@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is `1.0.14`; see the latest release at [FluxDown 1.0.14](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.14).
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.15](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.15). Features below describe the current source; historical verification is labeled separately.
 
 ## Current Status
 
@@ -10,18 +10,27 @@ FluxDown is a multi-protocol downloader for desktop and mobile. The current vers
 - Mobile supports Android and iPhone through a Flutter app.
 - The desktop GUI is focused on two pages, download queue and settings, with a compact state rail, transfer metrics, and task table. The mobile home screen keeps the queue and settings entry.
 - Desktop task rows start or pause on click; right-click, long press, or the overflow button opens actions for copy, open, share, properties, redownload, and delete.
-- New task creation supports link input, automatic protocol detection, automatic naming, save-as file names, and output location selection. Desktop additionally supports SHA-256 verification.
+- New tasks support link input, automatic protocol detection and naming, save-as names, and output locations. Desktop, CLI, and mobile support optional SHA-256 file verification. Mobile also offers QR scanning and clipboard input.
 - Settings cover download location, concurrent downloads, download thread count, auto retry count, and max download speed.
+- Desktop supports a system tray, close-to-tray behavior, single-instance protection, completion/failure notifications, and optional clipboard monitoring, plus update checks, installer downloads, and window-size restoration.
+- Desktop tasks show ETA and support per-task limits that override the global download speed limit. Mobile currently uses global download settings.
 - Supported protocols include HTTP/HTTPS, WebDAV/WebDAVS, FTP/FTPS, m3u8/HLS, SFTP, SMB, `.torrent`, Magnet, and ed2k handoff.
-- Torrent and Magnet tasks switch to the real file name after metadata is available. Android supports multi-file selection, while desktop CLI/Tauri commands support selecting files by torrent file index.
-- Mobile HLS downloads produce a final `.mp4`, with smoke coverage for fMP4, BYTERANGE, and TS HLS. Desktop output follows the core and available FFmpeg capabilities.
+- Torrent/Magnet tasks use real names after metadata is available. Mobile supports file selection and folder details; desktop CLI/Tauri commands accept file indices. Desktop details show files, trackers, peers, and session rates. Current source adds runtime per-file progress; static metadata does not imply downloaded bytes.
+- Mobile HLS produces `.mp4`, with historical fMP4, BYTERANGE, and TS HLS smoke coverage. Desktop/core additionally supports master variant selection, cached-segment resume, and keeping TS output; default remuxing depends on FFmpeg availability.
 - Mobile speed limiting, cancellation-aware pause, chunk cancellation for FTP/SFTP/SMB/HLS, and Torrent speed settings are wired through the download controller. Successful ed2k handoff uses `handedOff` and is not reported as an internal FluxDown download completion.
 - CLI and desktop redact usernames and passwords in URLs, and sanitize save-as names to a single file name.
+- Mobile protocol detection tries Rust through FFI, with a Dart fallback when unavailable. Its queue and actual downloads still use Dart/native mobile adapters; migration to the Rust download engine is not complete.
 - Normal commits and tag pushes do not trigger GitHub Actions. CI is run manually only for explicit packaging or release work.
+
+### 1.0.15 Update (2026-09-08)
+
+Fixed the iOS Rust deployment target and Runner linkage, mobile FFI JSON decoding/memory ownership, and desktop Torrent per-file progress/polling races. Public assets now contain 11 uploaded files, or 13 entries including source archives. Local builds and targeted tests pass; full platform protocol downloads have not been rerun. See the [release notes](docs/releases/1.0.15.md) and [fix verification report](docs/bugfix-verification-20260908.md) (Chinese).
 
 ## Screenshots
 
 ### macOS Desktop
+
+Historical captures from 2026-08-04 through 08-06 (`1.0.8`/`1.0.9` development). They do not show later tray, update, or Torrent details enhancements.
 
 | Queue | New Task | Settings |
 | --- | --- | --- |
@@ -29,9 +38,11 @@ FluxDown is a multi-protocol downloader for desktop and mobile. The current vers
 
 ### Android Real Device (Redmi Note 8 Pro)
 
+Captured on 2026-08-20 using the `1.0.10+11` release APK, not the current source. These images predate the SHA-256 input.
+
 | Queue | New Task | Settings |
 | --- | --- | --- |
-| <img src="docs/artifacts/readme/android-real-device/queue.png" alt="Android real-device queue" width="220"> | <img src="docs/artifacts/readme/android-real-device/new-task.png" alt="Android real-device new task" width="220"> | <img src="docs/artifacts/readme/android-real-device/settings.png" alt="Android real-device settings" width="220"> |
+| <img src="docs/screenshots/android-redmi-gap-fixes.png" alt="Android real-device queue" width="220"> | <img src="docs/screenshots/android-new-task-gap-fixes.png" alt="Android real-device new task" width="220"> | <img src="docs/screenshots/android-settings-gap-fixes.png" alt="Android real-device settings" width="220"> |
 
 ## Verification Boundary
 
@@ -40,10 +51,10 @@ FluxDown is a multi-protocol downloader for desktop and mobile. The current vers
 | macOS Desktop/CLI | Release CLI covers HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet plus queue controls. Foreground desktop GUI has completed real validation for 12 protocol cases. Tauri commands cover HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet. | ed2k is handed off to an external client by product definition; WebDAV/WebDAVS transport mapping is verified, while full directory traversal still needs a separate pass. |
 | Windows Desktop/CLI | CI artifacts have been published. A Windows development machine completed CLI real-download validation for 12 protocol cases and native Tauri GUI foreground validation for 12 protocol cases. ed2k completed the product-defined system handoff flow. In `1.0.11`, CLI and native GUI were re-verified against real public internet resources (Cloudflare, curl.se, Apple BipBop, Rebex, Debian) covering HTTP/HTTPS, FTP, SFTP, HLS, queue controls, and speed limiting; see the [Windows real-resource verification report](docs/windows-real-resource-verification.md). | ed2k is not completed by FluxDown's own internal downloader. GUI verification used a dedicated E2E window and isolated queue. FTPS servers that enforce TLS session reuse (vsftpd default config, Rebex) are not supported for data transfer yet; this is an upstream suppaftp engine limitation ([suppaftp#93](https://github.com/veeso/suppaftp/issues/93)). |
 | Linux Desktop/CLI | CI builds Linux CLI, GUI executable, `.deb`, and `.rpm` artifacts and checks that they are non-empty. | Installing the Linux GUI in a desktop environment and completing a real download is still pending. |
-| Android App | Historical `1.0.4` real-device coverage includes local HTTP/HTTPS/FTP/FTPS/SFTP/SMB, small HLS, small torrent, small magnet, media-sized HLS, single/multi-file torrent, and magnet. The current `1.0.10+11` release APK was installed on a Redmi Note 8 Pro and its queue, new-task dialog, settings, QR/clipboard entry points, and storage-capacity panel were rechecked. | Full protocol downloads still need to be rerun on the current version. Store distribution also needs signing, license, and background-behavior checks. |
-| iOS App | CI builds the iOS simulator app and unsigned device app. iOS simulator smoke covers HTTP, fMP4 HLS, BYTERANGE HLS, and TS HLS downloads. | Signed IPA, iPhone installation, QR scanning, file picking, share/open flows, and physical-device capabilities are still pending. |
+| Android App | Historical `1.0.4` coverage includes multiple protocols and single/multi-file Torrent/Magnet. The `1.0.10+11` Redmi Note 8 Pro pass covered installation, startup, queue, dialogs, settings, QR/clipboard entries, and storage capacity. This fix passes 50 Flutter tests, including host Rust FFI tests, not Android native-device validation. | Rerun current-source protocols and native FFI packaging/loading on device. Store distribution also needs signing, license, and background checks. |
+| iOS App | Historical simulator smoke covers HTTP and fMP4/BYTERANGE/TS HLS. Local simulator and unsigned device builds pass on 2026-09-08, with all 8 FFI exports checked in the linked binaries. Build outputs remain in Actions Artifacts. | No new in-app download pass. Signed IPA and physical iPhone QR, file picking, and share/open checks remain pending. There is no end-user iOS installation package in Release. |
 
-See [Download verification status](docs/download-verification.md) for detailed evidence.
+Historical download results do not replace regression testing on current source. See [Download verification status](docs/download-verification.md) for evidence.
 
 ## Quick Start
 
@@ -62,11 +73,11 @@ cargo run -p fluxdown-cli -- run --concurrency 2
 ### Desktop
 
 ```sh
-npm install
+npm ci
 npm run desktop:build
 ```
 
-On macOS, the app bundle is generated at `target/release/bundle/macos/FluxDown.app`. For development, run `npm run desktop:web` and `npm run desktop:dev`.
+On macOS, the app bundle is generated at `target/release/bundle/macos/FluxDown.app`. Run `npm run desktop:dev` for native development, or `npm run desktop:web` for a frontend-only preview.
 
 ### Android
 
@@ -78,28 +89,33 @@ flutter build apk --debug
 flutter build apk --release
 ```
 
+These Flutter commands do not compile Android Rust libraries. Follow [mobile FFI builds](docs/build-release.md#移动端-rust-ffi) to populate `jniLibs` first. Without the library, protocol detection falls back to Dart; a working app alone does not prove FFI works.
+
 ### iOS
 
 ```sh
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 cd apps/mobile
 flutter build ios --simulator
 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --no-codesign
 ```
 
-A signed IPA requires an Apple certificate, provisioning profile, Team ID, and keychain password. See [Build and release](docs/build-release.md).
+Runner automatically builds and statically links Rust FFI, targeting iOS 15.0 or later. A signed IPA additionally requires an Apple certificate, provisioning profile, Team ID, and keychain password. See [Build and release](docs/build-release.md).
 
 ## Release Assets
 
-The `v1.0.10` release includes:
+Starting with `v1.0.15`, a standard release contains 11 uploaded files, plus GitHub's two automatic source archives, for 13 entries:
 
-- Android debug APK, release APK, and release AAB
-- iOS simulator app and unsigned device app
-- macOS CLI, `.app.tar.gz`, and DMG
-- Windows CLI, desktop exe, MSI, and NSIS installer
-- Linux CLI, desktop executable, deb, and rpm
-- Release manifest, LICENSE, and third-party license notices
+| Purpose | Downloads |
+| --- | --- |
+| Mobile installation | Android release APK |
+| Desktop installation | Windows x64 Setup EXE, macOS ARM64 DMG, Linux x64 DEB/RPM |
+| Command line | Windows x64, macOS ARM64, Linux x64 CLI |
+| Verification and notices | Release manifest (sizes/SHA-256), LICENSE, third-party license notices |
 
-Release page: [FluxDown 1.0.10](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.10)
+Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.15.md) for signing and verification limits.
+
+Release page: [FluxDown 1.0.15](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.15).
 
 ## Documentation
 
@@ -108,6 +124,7 @@ Release page: [FluxDown 1.0.10](https://github.com/lonnnnnng/fluxdown/releases/t
 - [Technical architecture](docs/architecture.md)
 - [Protocol support matrix](docs/protocols.md)
 - [Download verification status](docs/download-verification.md)
+- [2026-09-08 fix verification and documentation audit](docs/bugfix-verification-20260908.md)
 - [Build and release](docs/build-release.md)
 - [Third-party licenses](docs/third-party-licenses.md)
 - [Operations and security](docs/operations-security.md)

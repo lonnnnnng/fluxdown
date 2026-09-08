@@ -934,27 +934,9 @@ function App() {
     }
   }, [updateReport]);
 
-  async function fetchTorrentDetails(task: DownloadTask) {
-    try {
-      const details = await invoke<TorrentDetails>("torrent_task_details", {
-        taskId: task.state === "running" || task.state === "queued" ? task.id : null,
-        source: task.source,
-      });
-      setTorrentDetails(details);
-    } catch (error) {
-      setTorrentDetails({
-        runtime: false,
-        files: [],
-        trackers: [],
-        error: safeErrorText(error),
-      });
-    }
-  }
-
   function openTorrentDetails(task: DownloadTask) {
     setTorrentDetailsTask(task);
     setTorrentDetails(null);
-    void fetchTorrentDetails(task);
   }
 
   function closeTorrentDetails() {
@@ -962,16 +944,43 @@ function App() {
     setTorrentDetails(null);
   }
 
+  const inspectedTorrent = tasks.find((task) => task.id === torrentDetailsTask?.id)
+    ?? torrentDetailsTask;
+  const inspectedTorrentId = inspectedTorrent?.id;
+  const inspectedTorrentSource = inspectedTorrent?.source;
+  const inspectedTorrentState = inspectedTorrent?.state;
+
   // 作者: long
-  // 详情面板打开且任务仍在运行时轮询刷新，关闭后停止，避免无谓的会话查询。
+  // 详情跟随队列当前状态刷新；关闭或切换任务后丢弃旧响应，防止慢请求覆盖新任务的文件进度。
   useEffect(() => {
-    if (!torrentDetailsTask) return;
-    if (torrentDetailsTask.state !== "running" && torrentDetailsTask.state !== "queued") return;
-    const timer = window.setInterval(() => {
-      void fetchTorrentDetails(torrentDetailsTask);
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [torrentDetailsTask]);
+    if (!inspectedTorrentId || !inspectedTorrentSource) return;
+    let cancelled = false;
+    let pending = false;
+    const active = inspectedTorrentState === "running" || inspectedTorrentState === "queued";
+    const refresh = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const details = await invoke<TorrentDetails>("torrent_task_details", {
+          taskId: active ? inspectedTorrentId : null,
+          source: inspectedTorrentSource,
+        });
+        if (!cancelled) setTorrentDetails(details);
+      } catch (error) {
+        if (!cancelled) {
+          setTorrentDetails({ runtime: false, files: [], trackers: [], error: safeErrorText(error) });
+        }
+      } finally {
+        pending = false;
+      }
+    };
+    void refresh();
+    const timer = active ? window.setInterval(() => void refresh(), 2000) : null;
+    return () => {
+      cancelled = true;
+      if (timer != null) window.clearInterval(timer);
+    };
+  }, [inspectedTorrentId, inspectedTorrentSource, inspectedTorrentState]);
 
   useEffect(() => {
     refreshTasks();
@@ -1959,6 +1968,39 @@ function TaskRow({
   );
 }
 
+function TorrentFileProgressRow({ file }: { file: TorrentDetailsFile }) {
+  const size = Number.isFinite(file.size) ? Math.max(0, file.size) : 0;
+  const downloaded = file.progress_bytes != null && Number.isFinite(file.progress_bytes)
+    ? Math.min(size, Math.max(0, file.progress_bytes))
+    : null;
+  // 作者: long
+  // 静态种子没有下载进度，不能冒充 0% 或完成；只有引擎返回已下载量时才显示确定进度。
+  const percent = downloaded == null ? null : size === 0 ? 100 : downloaded / size * 100;
+  return (
+    <div className="torrentFileRow torrentTransferRow" data-file-index={file.index}>
+      <span className="torrentFileIndex">#{file.index}</span>
+      <div className="torrentFileContent">
+        <span className="torrentFilePath" title={file.path}>{file.path || "-"}</span>
+        <div className="torrentFileMetrics">
+          <span>{downloaded == null ? "--" : formatBytes(downloaded)} / {formatBytes(size)}</span>
+          <span>{percent == null ? "进度未知" : `${percent.toFixed(1)}%`}</span>
+        </div>
+        <div
+          className="torrentFileProgress"
+          role="progressbar"
+          aria-label={`${file.path || `文件 ${file.index}`} 下载进度`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent ?? undefined}
+          aria-valuetext={percent == null ? "进度未知" : `${percent.toFixed(1)}%`}
+        >
+          <span style={{ width: `${percent ?? 0}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TorrentDetailsDialog({
   details,
   onClose,
@@ -2042,11 +2084,7 @@ function TorrentDetailsDialog({
                 <span>文件列表（{details.files.length}）</span>
                 <div className="torrentFileList" data-testid="torrent-files">
                   {details.files.map((file) => (
-                    <div className="torrentFileRow" key={file.index}>
-                      <span className="torrentFileIndex">#{file.index}</span>
-                      <span className="torrentFilePath">{file.path || "-"}</span>
-                      <span className="torrentFileSize">{formatBytes(file.size)}</span>
-                    </div>
+                    <TorrentFileProgressRow file={file} key={file.index} />
                   ))}
                 </div>
               </div>

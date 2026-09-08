@@ -1,0 +1,5 @@
+// 作者: long
+// C ABI 通过 dlsym 调用，显式保留导出符号，防止 Release 的 dead-strip 将其当作未使用代码移除。
+FLUXDOWN_FFI_DIR = $(PROJECT_DIR)/../../../target/ffi-ios/$(PLATFORM_NAME)
+LIBRARY_SEARCH_PATHS = $(inherited) "$(FLUXDOWN_FFI_DIR)"
+OTHER_LDFLAGS = $(inherited) -lfluxdown_ffi -lz -liconv -framework Security -framework SystemConfiguration -Wl,-u,_fluxdown_ffi_abi -Wl,-u,_fluxdown_version -Wl,-u,_fluxdown_detect -Wl,-u,_fluxdown_support -Wl,-u,_fluxdown_queue_list -Wl,-u,_fluxdown_queue_add -Wl,-u,_fluxdown_queue_run -Wl,-u,_fluxdown_string_free -Wl,-export_dynamic

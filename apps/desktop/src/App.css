@@ -1697,6 +1697,40 @@ textarea:focus-visible,
   flex: 0 0 auto;
 }
 
+.torrentTransferRow {
+  align-items: start;
+  padding-block: 8px;
+}
+
+.torrentFileContent {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.torrentFileMetrics {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  margin-top: 3px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.torrentFileProgress {
+  height: 3px;
+  margin-top: 5px;
+  overflow: hidden;
+  background: var(--line);
+}
+
+.torrentFileProgress > span {
+  display: block;
+  height: 100%;
+  background: var(--primary-ink);
+}
+
 /* ---- 剪贴板监听提示条 ---- */
 .clipboardSuggestion {
   display: flex;
