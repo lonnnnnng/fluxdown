@@ -1,17 +1,17 @@
 # 下载验证状态
 
-## 2026-09-08 `1.0.16` 压缩与补丁准备
+## 2026-09-08 `1.0.16` 发布与回验
 
-- 保留 `v1.0.15` 标签，不覆盖失败记录；后续版本升为 `1.0.16+17`。公开仍为 11 个上传文件、含源码包 13 项，CLI 改为 ZIP/TAR.GZ。
+- 保留 `v1.0.15` 标签，不覆盖失败记录；`v1.0.16+17` 已发布。Release API 确认 11 个上传文件，GitHub 页面另含 2 个自动源码包，共 13 项；CLI 使用 ZIP/TAR.GZ。
 - 队列增加跨进程文件锁，修复进度覆盖删除和并发添加丢任务。本地先在旧实现复现新增回归失败，修复后 debug 和 Release Core/CLI 各 113 项通过；桌面 Rust 另有 33 项通过、7 项外部环境用例忽略。
 - Rust 链接裁剪、Dart 调试符号分离、未使用字体清理和标准安装包压缩已配置。优化后的 Release host FFI 通过 50 项 Flutter 测试；11 项发行策略回归通过。完整策略与测量口径见 [包体优化记录](release-size-optimization.md)。
-- 本地 macOS App/DMG、iOS unsigned Release 构建通过，最终 iOS Runner 的 8 个 FFI 导出完整。优化后的 macOS Release CLI 实际执行版本检查、detect/add/pause/resume/run/list/download，两份 256 KiB 文件的大小和 SHA-256 均正确；三平台 CI 使用同一隔离脚本，不访问用户队列。
-- 远端 `1.0.16` 尚未运行，最终资产大小、各平台构建和回验结论待补，不用本地候选或旧版结果冒充。
+- 远端流水线 [34193842586](https://github.com/lonnnnnng/fluxdown/actions/runs/34193842586) 的 preflight、三平台 Rust/CLI、三平台桌面、Android、iOS 和 Publish 全部成功。三平台 Release CLI 均实际执行版本检查、detect/add/pause/resume/run/list/download，隔离 HTTP/Range 文件的大小和 SHA-256 正确；报告保留在对应 Actions Artifacts。
+- 正式 Release 全套 11 个附件已重新下载；manifest、文件大小、SHA-256、APK 元数据和三 ABI 均通过回验。macOS CLI 归档再次 smoke 通过，macOS DMG checksum 有效且为 UDZO；本轮未启动 GUI 或设备，不把隔离 CLI smoke 写成全协议真机验收。
 
-## 2026-09-08 `1.0.15` 发版阻断
+## 2026-09-08 `1.0.15` 发版阻断（历史）
 
 - 已提交推送 `a90e63c` 并创建 `v1.0.15`，只手动触发一次 [34191232572](https://github.com/lonnnnnng/fluxdown/actions/runs/34191232572)。Linux CLI 的 `queue_run_can_remove_running_task_from_separate_cli_process` 断言失败：删除后 `finished=1`，期望 `0`；发布作业被阻断，未创建 Release。
-- macOS/Windows CLI、三平台桌面、Android 和 iOS 作业均成功；流水线最终为 failure，Publish 作业 skipped。已下载成功平台产物用于压缩基线，不是已发布的资产。
+- macOS/Windows CLI、三平台桌面、Android 和 iOS 作业均成功；流水线最终为 failure，Publish 作业 skipped。已下载成功平台产物用于压缩基线，不是已发布的资产；修复结果见本节上方的 `1.0.16`。
 
 ## 2026-09-08 `1.0.15` 发行准备
 
