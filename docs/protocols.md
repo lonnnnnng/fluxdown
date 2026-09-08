@@ -1,10 +1,10 @@
 # 协议支持矩阵
 
-本文档记录当前代码库的协议支持状态。状态分为：
+本文档按 `1.0.17` 源码记录协议支持状态（2026-09-08 核对），不代表各端当前版本均已实际下载通过；运行证据见 [下载验证状态](download-verification.md)，功能缺口与后续计划见 [路线图](roadmap.md)。状态分为：
 
 - 内建：FluxDown 自身实现下载流程。
 - 移交：提交给外部命令、系统 URL handler 或已安装 App。
-- 计划中：已识别但当前不可执行。
+- 不支持：当前无法识别或执行，不代表已承诺加入路线图。
 
 ## 总表
 
@@ -21,8 +21,8 @@
 | `.torrent` | URL 或路径以 `.torrent` 结尾 | 内建 | 内建 | 桌面用 `librqbit`，移动端用 `libtorrent_flutter`。 |
 | Magnet | `magnet:?` | 内建 | 内建 | 依赖 torrent 后端。 |
 | ed2k | `ed2k://` | 移交 | 移交 | 桌面优先 aMule `ed2k` CLI，否则系统 handler；移动端移交兼容 App。 |
-| m3u8/HLS | URL 或路径以 `.m3u8` 结尾 | 内建 | 内建 | VOD 播放列表，支持 AES-128 分片；移动端 Android 转封装输出 `.mp4`。 |
-| Unknown | 未匹配 | 计划中 | 计划中 | 不会执行下载。 |
+| m3u8/HLS | URL 或路径以 `.m3u8` 结尾 | 内建 | 内建 | VOD、AES-128；移动端输出 `.mp4`，桌面默认尝试 FFmpeg 转 MP4，失败保留 TS。 |
+| Unknown | 未匹配 | 不支持 | 不支持 | 不会执行下载。 |
 
 ## 桌面端细节
 
@@ -71,9 +71,10 @@
 - 使用 `librqbit`。
 - `.torrent` 可以是本地文件或 URL。
 - Magnet 通过 torrent session 添加。
-- 桌面 CLI 和 Tauri command 支持传入 torrent 文件编号，只下载选中的文件；编号留空时下载整个种子。
+- 桌面 CLI、Tauri command 和新建弹框支持传入 torrent 文件编号，只下载选中的文件；编号留空时下载整个种子。桌面新建尚无 metadata 文件树勾选交互。
 - 任务完成后会用 metadata 中的真实文件名或目录名更新任务展示，单选多文件种子时也会递归定位真实落盘文件。
-- 当前任务模型记录整体任务状态，不提供每个文件、peer、tracker 的完整细节。
+- 桌面详情可显示文件清单、运行时逐文件已下载量/百分比、tracker、peer、会话速度和 ETA。静态 metadata 没有实时下载信息时显示未知，不按整体进度推算文件完成量。
+- 当前 CLI 没有对应的详情命令；桌面文件行尚无点击预览或逐文件实时速度。
 
 ### ed2k
 
@@ -86,10 +87,11 @@
 
 - 使用 `m3u8-rs` 解析播放列表。
 - 支持 VOD media playlist。
-- 遇到 master playlist 时选择第一个 variant。
+- 遇到 master playlist 时默认选择第一个 variant；core 和桌面 GUI 可指定 variant，CLI 尚未提供对应参数。
 - 支持 AES-128 CBC 分片解密。
-- 将分片顺序写入一个 `.ts` 文件。
-- 不支持 DRM、SAMPLE-AES、直播滚动窗口、复杂码率选择或转封装。
+- 支持 BYTERANGE、并发分片下载和分片缓存恢复，最终按顺序合并。
+- 默认调用 FFmpeg 转封装为 `.mp4`；FFmpeg 不可用或转封装失败时保留 `.ts`。桌面 GUI 可选择直接保留 TS，CLI 暂无此选项。
+- 不支持 DRM、SAMPLE-AES 或直播滚动窗口；variant 选择不等于完整的多音轨/字幕轨选择。
 
 ## 移动端细节
 
@@ -126,6 +128,7 @@
   并把未选文件的 libtorrent priority 设为 0。
 - 任务 JSON 会保存 `torrentName`、`torrentFiles` 和
   `selectedTorrentFileIndexes`，用于恢复展示、打开和分享。
+- 文件夹详情支持查看文件清单和预览已落盘文件。当前 `libtorrent_flutter 2.0.0` 只提供整体任务进度；下载中逐文件完成量显示未知，尚无真实逐文件速度，不能视为与桌面详情完全对齐。
 - 该依赖带有 GPL 原生组件，正式分发前必须审查许可证义务。
 
 ### ed2k
@@ -138,7 +141,9 @@
 ### m3u8/HLS
 
 - 支持 VOD playlist、master playlist 首个 variant 和 AES-128 分片解密。
-- Android 端先写入临时 TS，再转封装为最终 `.mp4` 文件。
+- Android/iOS 下载路径均支持 fMP4 初始化段（`EXT-X-MAP`）、BYTERANGE、并发分片和最终 `.mp4` 输出。
+- TS 分片先合并为临时文件，再尝试 Dart 内置转封装，失败时走原生平台通道兜底。iOS simulator 已有 TS/fMP4/BYTERANGE 历史 smoke，不能据此认定 iPhone 真机已验收。
+- 移动 UI 暂无桌面端的 variant 选择和保留 TS 选项。
 - 暂不承诺直播、DRM 或复杂码率选择。
 
 ## 支持状态命令
@@ -155,7 +160,7 @@ cargo run -p fluxdown-cli -- doctor
 
 ## 已知限制
 
-- URL 中携带的用户名和密码可能进入队列 JSON 和日志输出，不建议在共享环境中明文使用敏感凭据。
+- 原始 URL 凭据仍保存在队列 JSON 中用于下载；CLI JSON 输出/命令错误及桌面属性/任务错误展示已有脱敏。这不等于队列已加密或所有第三方日志都经过脱敏，不建议在共享环境中明文使用敏感凭据。
 - 断点续传依赖服务端或后端支持，不能保证所有资源都可恢复。
 - 移交型协议无法提供完整进度和完成状态。
 - 移动端后台下载能力受 Android/iOS 系统策略影响，当前以 App 前台执行为主要路径。

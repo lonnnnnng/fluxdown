@@ -24,7 +24,7 @@
 - [包体优化记录](release-size-optimization.md)：R8、Rust/Flutter 裁剪、CLI 压缩包、实际大小对比和验证边界。
 - [第三方许可证清单](third-party-licenses.md)：项目自有许可证、主要直接依赖和移动端 GPL 风险边界。
 - [运维与安全](operations-security.md)：本地数据、凭据处理、第三方后端、许可证、隐私假设和排障入口。
-- [路线图](roadmap.md)：短期、中期和长期改进项。
+- [路线图](roadmap.md)：已有功能与各端差异、当前版本验证缺口，以及近期/中期/长期任务和验收标准。
 
 ## 当前产品面
 
@@ -58,7 +58,7 @@ FluxDown 是一个跨平台下载器工作区：
 - macOS CLI 已补充本地 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet、公网 WebDAVS/FTP/SFTP、本地自签 HTTPS/WebDAVS/FTPS 真实下载验证，也覆盖限速、重试、暂停继续和并发排队；macOS 原生 GUI 于 2026-08-05 通过真实前台窗口覆盖 12 类任务，其中 HTTP、HTTPS、WebDAV(S) transport、FTP(S)、SFTP、SMB、HLS、Torrent、Magnet 均完成落盘和 SHA-256 校验，ed2k 完成系统移交。
 - iOS 已补充 Flutter 静态验证、simulator/unsigned device 构建产物、URL scheme 配置验证，以及 iOS simulator App 内 HTTP、fMP4 HLS、BYTERANGE HLS、TS HLS 下载 smoke；签名 IPA 和 iPhone 真机能力仍待证书、profile 与设备窗口补验。
 - 2026-09-08 本地验证通过 Flutter 50 项测试（含真实 host FFI）、iOS simulator/unsigned app 构建及 FFI 导出检查、桌面前端构建与 10 项隔离 UI 回归。这轮没有替代历史 Android/iOS/原生桌面协议 E2E。
-- Linux 当前仍只有 CLI/GUI 构建产物和包文件存在性检查，尚未在 Linux 桌面环境完成真实 GUI 下载验证。
+- `1.0.17` 的 Windows/macOS/Linux Release CLI 均已跑通 HTTP/Range 下载、队列暂停/恢复和大小/SHA-256 smoke；Linux GUI 已构建，但仍未在 Linux 桌面环境完成真实下载验证。当前版本与历史全协议运行证据分开记录，见 [路线图](roadmap.md) 和 [下载验证状态](download-verification.md)。
 - 仓库根目录已补齐 MIT `LICENSE`，第三方依赖和移动端 GPL 风险见 [第三方许可证清单](third-party-licenses.md)。
 
 ## 维护原则
