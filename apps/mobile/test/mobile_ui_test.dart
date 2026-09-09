@@ -41,6 +41,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(_text(tester, 'new-task-source'), contains('index.m3u8'));
     expect(_text(tester, 'new-task-file-name'), 'index.mp4');
+    expect(find.byKey(const ValueKey('new-task-hls-variant')), findsOneWidget);
+    expect(find.byKey(const ValueKey('new-task-hls-keep-ts')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('new-task-hls-variant')),
+      '1',
+    );
+    expect(_text(tester, 'new-task-hls-variant'), '1');
 
     await tester.tap(find.byKey(const ValueKey('new-task-pick-folder')));
     await tester.pumpAndSettle();
@@ -177,6 +184,8 @@ Future<bool> _acceptTask({
   List<TorrentFileEntry> torrentFiles = const [],
   List<int>? selectedTorrentFileIndexes,
   String? expectedSha256,
+  int? hlsVariantIndex,
+  bool hlsKeepTransportStream = false,
 }) async {
   return true;
 }

@@ -22,4 +22,6 @@ pub use task::{
     redact_url_credentials_in_text, sanitize_download_file_name, suggested_download_file_name,
     validate_sha256_text,
 };
-pub use torrent_details::{TorrentDetails, TorrentDetailsFile, TorrentPeerSummary, torrent_details};
+pub use torrent_details::{
+    TorrentDetails, TorrentDetailsFile, TorrentPeerSummary, torrent_details,
+};

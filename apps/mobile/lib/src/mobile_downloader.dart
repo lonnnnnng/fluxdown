@@ -536,8 +536,26 @@ class MobileDownloadRunner {
     final speedLimiter = DownloadSpeedLimiter.fromKbps(speedLimitKbps);
     final outputDir = Directory(task.outputFolder);
     await outputDir.create(recursive: true);
+    final playlistUri = Uri.parse(task.source);
+    final playlistText = await _readText(playlistUri);
+    final mediaPlaylistUri = await _mediaPlaylistUri(
+      playlistUri,
+      playlistText,
+      variantIndex: task.hlsVariantIndex,
+    );
+    final mediaText = mediaPlaylistUri == playlistUri
+        ? playlistText
+        : await _readText(mediaPlaylistUri);
+    final hlsParts = _hlsSegments(mediaPlaylistUri, mediaText);
+    // 作者: long
+    // 只有 MPEG-TS 播放列表适合“保留 TS”；fMP4 已经是 MP4 容器，不能仅因开关状态把扩展名伪装成 .ts。
+    final keepTransportStream =
+        task.hlsKeepTransportStream && hlsParts.initSegment == null;
     final outputFile = File(
-      p.join(outputDir.path, _hlsFileName(task.fileName)),
+      p.join(
+        outputDir.path,
+        _hlsOutputFileName(task.fileName, keepTransportStream),
+      ),
     );
     final tempTsFile = File(
       p.join(
@@ -546,13 +564,6 @@ class MobileDownloadRunner {
       ),
     );
     final segmentDir = Directory('${tempTsFile.path}.segments');
-    final playlistUri = Uri.parse(task.source);
-    final playlistText = await _readText(playlistUri);
-    final mediaPlaylistUri = await _mediaPlaylistUri(playlistUri, playlistText);
-    final mediaText = mediaPlaylistUri == playlistUri
-        ? playlistText
-        : await _readText(mediaPlaylistUri);
-    final hlsParts = _hlsSegments(mediaPlaylistUri, mediaText);
     final segments = hlsParts.segments;
     if (segments.isEmpty) {
       throw const FormatException(
@@ -574,9 +585,6 @@ class MobileDownloadRunner {
     }
     if (await tempTsFile.exists()) {
       await tempTsFile.delete();
-    }
-    if (await segmentDir.exists()) {
-      await segmentDir.delete(recursive: true);
     }
     await segmentDir.create(recursive: true);
 
@@ -616,6 +624,16 @@ class MobileDownloadRunner {
       if (_cancelled.contains(task.id)) {
         throw const DownloadCancelled();
       }
+      final cachedFile = segmentFiles[index];
+      final cached = await cachedFile.exists()
+          ? await cachedFile.readAsBytes()
+          : null;
+      if (cached != null && cached.isNotEmpty) {
+        downloaded += cached.length;
+        completedSegments += 1;
+        await reportProgress(force: completedSegments == segments.length);
+        return;
+      }
       final bytes = await _readHlsResourceBytes(
         uri: segment.uri,
         byteRange: segment.byteRange,
@@ -626,7 +644,7 @@ class MobileDownloadRunner {
         throw const DownloadCancelled();
       }
       final segmentBytes = await _decodeHlsSegment(segment, bytes, keyCache);
-      await segmentFiles[index].writeAsBytes(segmentBytes);
+      await cachedFile.writeAsBytes(segmentBytes);
       downloaded += segmentBytes.length;
       completedSegments += 1;
       await reportProgress(force: completedSegments == segments.length);
@@ -684,19 +702,19 @@ class MobileDownloadRunner {
         await tempTsFile.delete();
       }
       rethrow;
-    } finally {
-      if (await segmentDir.exists()) {
-        await segmentDir.delete(recursive: true);
-      }
     }
 
     final outputBytes =
         fragmentedOutputBytes ??
-        await _remuxHlsTransportStream(
-          sourceTs: tempTsFile,
-          outputMp4: outputFile,
-          playlistUri: mediaPlaylistUri,
-        );
+        (keepTransportStream
+            ? await tempTsFile
+                  .rename(outputFile.path)
+                  .then((_) => outputFile.length())
+            : await _remuxHlsTransportStream(
+                sourceTs: tempTsFile,
+                outputMp4: outputFile,
+                playlistUri: mediaPlaylistUri,
+              ));
     try {
       if (await tempTsFile.exists()) {
         await tempTsFile.delete();
@@ -704,10 +722,14 @@ class MobileDownloadRunner {
     } catch (_) {
       // Leaving a hidden temporary TS is safer than failing a completed MP4.
     }
+    if (await segmentDir.exists()) {
+      await segmentDir.delete(recursive: true);
+    }
 
     _cancelled.remove(task.id);
     return current.copyWith(
       state: DownloadState.finished,
+      fileName: p.basename(outputFile.path),
       downloadedBytes: outputBytes,
       totalBytes: outputBytes,
       clearError: true,
@@ -860,16 +882,31 @@ class MobileDownloadRunner {
     return builder.takeBytes();
   }
 
-  Future<Uri> _mediaPlaylistUri(Uri playlistUri, String playlistText) async {
+  Future<Uri> _mediaPlaylistUri(
+    Uri playlistUri,
+    String playlistText, {
+    int? variantIndex,
+  }) async {
     final lines = _playlistLines(playlistText);
+    final variants = <Uri>[];
     for (var index = 0; index < lines.length; index += 1) {
       if (lines[index].startsWith('#EXT-X-STREAM-INF')) {
         for (var next = index + 1; next < lines.length; next += 1) {
           if (!lines[next].startsWith('#')) {
-            return playlistUri.resolve(lines[next]);
+            variants.add(playlistUri.resolve(lines[next]));
+            break;
           }
         }
       }
+    }
+    if (variants.isNotEmpty) {
+      final selectedIndex = variantIndex ?? 0;
+      if (selectedIndex < 0 || selectedIndex >= variants.length) {
+        throw FormatException(
+          'HLS variant index $selectedIndex is out of range (available: ${variants.length}).',
+        );
+      }
+      return variants[selectedIndex];
     }
     return playlistUri;
   }
@@ -964,8 +1001,13 @@ class MobileDownloadRunner {
         .toList(growable: false);
   }
 
-  String _hlsFileName(String fileName) {
+  String _hlsOutputFileName(String fileName, bool keepTransportStream) {
     final extension = p.extension(fileName).toLowerCase();
+    if (keepTransportStream) {
+      return extension == '.ts'
+          ? fileName
+          : '${p.basenameWithoutExtension(fileName)}.ts';
+    }
     if (extension == '.mp4') {
       return fileName;
     }

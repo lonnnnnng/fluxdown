@@ -34,7 +34,7 @@
 | `xcrun vtool -show-build` 检查真机 Runner | `minos 15.0`、SDK 18.2 | 确认最终二进制部署目标。 |
 | `npm --workspace apps/desktop run build` | TypeScript/Vite 通过 | 前端编译，不是原生桌面协议 E2E。 |
 | `cargo test --locked -p fluxdown-core torrent_details` | 2 项通过 | Torrent 静态详情解析测试。 |
-| [桌面进度回归脚本](../scripts/verify-desktop-torrent-progress.js) | 10 项通过 | 隔离浏览器 mock Tauri IPC，无真实队列或真实 P2P 传输。 |
+| [桌面进度回归脚本](../scripts/verify-desktop-torrent-progress.js) | 18 项通过 | 隔离浏览器 mock Tauri IPC，无真实队列或真实 P2P 传输；覆盖文件树默认选择、改名保留选择、空选择阻止提交、文件打开权限和逐文件采样速度。 |
 | `npm run verify:ci-config` | 通过 | 手动打包/发版触发策略未改变；没有远端运行。 |
 | `plutil -lint`、`bash -n`、`node --check`、`git diff --check` | 通过 | Xcode 配置、脚本语法和差异检查。 |
 | 文档链接检查 | 12 份 Markdown，110 个本地引用无缺失 | 检查相对链接、图片路径及所用标题锚点，不代表外部 URL 的可达性。 |
@@ -59,7 +59,7 @@ flutter test --no-pub --dart-define=FLUXDOWN_FFI_TEST_LIBRARY="$(cd ../.. && pwd
 playwright-cli --session fluxdown-fixes run-code --filename scripts/verify-desktop-torrent-progress.js
 ```
 
-10 个检查点：字节数、零字节文件、宽/紧凑窗口长文件名、25% 到 75% 刷新、静态进度未知、暂停停止轮询、错误后恢复、旧响应不能覆盖重开详情、关闭停止轮询。
+18 个检查点：字节数、零字节文件、宽/紧凑窗口长文件名、25% 到 75% 刷新、逐文件采样速度、静态进度/速度未知、暂停停止轮询、错误后恢复、旧响应不能覆盖重开详情、关闭停止轮询、完成文件打开权限、metadata 默认全选、改名保留选择、空选择阻止提交及选择编号进入队列。
 
 本地截图为 `output/playwright/torrent-progress-wide.png`（1280×820 视口）和 `output/playwright/torrent-progress-compact.png`（980×680 视口），已人工查看文件名换行、进度条及无溢出。这些是隔离 UI 样例证据，位于忽略目录，不替换 README 的真实 App 截图。
 
@@ -83,6 +83,6 @@ playwright-cli --session fluxdown-fixes run-code --filename scripts/verify-deskt
 - 本次没有重跑 Android/iOS 真机或原生 macOS/Windows/Linux 的完整协议下载，不把历史报告当成当前版本全量验收。
 - iPhone 签名、扫码/目录/分享/打开能力和 Linux 原生 GUI 下载仍待验证。
 - 移动端真实下载仍由 Dart/移动原生适配器执行；完整 Rust 引擎迁移及跨端队列转换仍待完成。
-- 桌面非活动 Torrent 静态详情无法推断分文件真实完成量；GUI 中的 metadata 多文件选择完整前台流程仍需要单独补证据。
+- 桌面非活动 Torrent 静态详情无法推断分文件真实完成量；metadata 多文件选择、文件打开、运行中逐文件采样速度和安全路径校验已补入源码，并由隔离 UI、桌面命令层和本地 tracker/seeder P2P 回归覆盖。隔离 UI 与命令层证据仍不能替代原生 GUI 前台交互验收；Linux GUI 及移动端逐文件实时速度仍需单独补证据。
 
 历史协议记录见 [下载验证状态](download-verification.md)，当前建设项见 [路线图](roadmap.md)。

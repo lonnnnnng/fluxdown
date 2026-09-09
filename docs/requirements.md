@@ -31,6 +31,7 @@ CLI 需要支持：
 - `download`：立即执行单个下载并输出 JSON 摘要。
 - `add`、`list`、`start`、`run`、`pause`、`resume`、`remove`：管理本地下载队列。
 - `download` 和 `add` 支持可选 `--sha256`；配置后下载完成必须校验最终文件，直连下载校验失败返回错误，队列任务校验失败进入 `failed`。
+- `download`、`add`、`start`、`run` 支持 `--hls-variant-index`（从 0 开始）和 `--hls-keep-ts`；前两者保存 HLS 任务配置，后两者可在本次执行中指定 variant 或启用 TS 输出。
 - 通过 `--store` 覆盖默认队列文件路径。
 
 ### 桌面端 GUI
@@ -101,7 +102,7 @@ CLI 需要支持：
 | BitTorrent `.torrent` | 支持本地或远程 torrent 源，下载到指定目录；拿到 metadata 后使用真实文件列表更新任务名，多文件种子必须允许用户选择下载内容。 |
 | Magnet | 通过 torrent 引擎添加 magnet 链接；拿到 metadata 后使用真实文件列表更新任务名，多文件 magnet 必须允许用户选择下载内容。 |
 | ed2k | 桌面优先使用 aMule `ed2k` CLI，否则系统 URL handler；移动端移交系统兼容 App。 |
-| m3u8/HLS | 支持 VOD 播放列表、主播放列表首个变体、AES-128 分片解密；移动端 Android 输出最终 `.mp4`。 |
+| m3u8/HLS | 支持 VOD 播放列表、主播放列表 variant 选择、AES-128 分片解密；桌面、CLI 和移动端可选择保留 TS，否则按平台能力输出 `.mp4`。 |
 
 ## 非功能需求
 

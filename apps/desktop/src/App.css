@@ -1628,6 +1628,105 @@ textarea:focus-visible,
   padding: 0 8px;
 }
 
+.fieldLabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fieldLabelRow small {
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.torrentSelectionBlock {
+  gap: 7px;
+}
+
+.torrentSelectionList {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f7fafc;
+}
+
+.torrentSelectionRow {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 9px;
+  border-bottom: 1px solid #edf3f6;
+  color: var(--ink);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.torrentSelectionRow:last-child {
+  border-bottom: none;
+}
+
+.torrentSelectionRow:hover {
+  background: #eef8fd;
+}
+
+.torrentSelectionRow input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--primary-ink);
+}
+
+.torrentSelectionPath {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.torrentSelectionSize {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.torrentMetadataState {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f7fafc;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.torrentMetadataState.warning {
+  border-color: #f0d8aa;
+  background: #fffaf0;
+  color: #7a5d25;
+}
+
+.torrentIndexFallback {
+  display: grid;
+  gap: 6px;
+  margin-top: 7px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.torrentIndexFallback input {
+  width: 100%;
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+}
+
 .torrentDetailsDialog {
   width: min(640px, 100%);
 }
@@ -1700,6 +1799,30 @@ textarea:focus-visible,
 .torrentTransferRow {
   align-items: start;
   padding-block: 8px;
+}
+
+.torrentFileOpen {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-top: 1px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--primary-ink);
+}
+
+.torrentFileOpen:hover:not(:disabled) {
+  border-color: var(--primary-ink);
+  background: var(--primary-soft);
+}
+
+.torrentFileOpen:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
 }
 
 .torrentFileContent {

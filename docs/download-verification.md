@@ -1,5 +1,14 @@
 # 下载验证状态
 
+## 2026-09-09 未发布 HLS 配置跨端对齐验证
+
+- 代码范围：Rust core/CLI/FFI 的 HLS variant 与 TS 输出选项、移动端 `DownloadTask` 持久化、新建任务 HLS 配置入口、移动 HLS 下载器的 variant 选择/TS 输出/分片缓存恢复，以及对应文档同步。
+- Flutter：在 `apps/mobile` 执行 `flutter test`，48 项通过，4 项需要显式 `FLUXDOWN_FFI_TEST_LIBRARY` 的 host FFI 测试按环境跳过；新增移动任务字段序列化、HLS variant=1 和保留 TS 下载用例通过。
+- Rust CLI：执行 `cargo test --locked --workspace`，CLI 单元 1 项、集成 36 项全部通过；旧调用点已补齐 HLS 参数。`download`、`add`、`start`、`run` 的帮助均包含 `--hls-variant-index` 与 `--hls-keep-ts`。
+- Rust 编译：执行 `cargo check --locked -p fluxdown-core -p fluxdown-cli -p fluxdown-desktop -p fluxdown-ffi` 通过。
+- 代码边界：桌面/core、CLI、移动 Dart 下载器已实现 HLS 选项；Rust FFI 入队接口也会保存 `hlsVariantIndex`/`hlsKeepTransportStream`，但移动端实际下载仍由 Dart/移动原生适配器执行，尚未迁移到 FFI `queueRun`。该项属于代码与自动化测试验收，不等于 Android/iPhone 真机新建任务的 variant/TS 真实下载验收。
+- 未触发发布流水线，也未创建提交或 Release；只有用户明确要求发版/打包时才运行流水线。
+
 ## 2026-09-08 `1.0.17` Windows 启动控制台修复、发布与回验
 
 - 用户反馈：启动桌面应用同时出现命令行窗口，关闭该窗口后应用退出。
@@ -39,8 +48,8 @@
 ## 2026-09-08 未发布修复验证
 
 - 基线为最新 `main` / `e0f2a69`，版本号仍为 `1.0.14`。iOS FFI 部署目标/Runner 静态链接、移动 FFI JSON 解码/桥接和内存释放、桌面 Torrent 分文件进度及轮询竞态已修复；详细命令和代码/README 差异见 [本次修复验证报告](bugfix-verification-20260908.md)。
-- 本地通过 Flutter analyze、50 项 Flutter 测试（含真实 host Rust FFI 与本地 HTTP 文件校验）、iOS simulator/unsigned device 构建及 8 个 FFI 导出检查、桌面前端构建、2 项 Torrent core 测试、10 项隔离 UI 回归与 CI 配置检查。
-- 本次未在 Android/iOS 真机或原生桌面重新跑完整协议下载；UI 回归使用隔离 mock IPC，不是真实 Torrent 下载证据。下列旧版记录保留原有日期与范围。
+- 本地通过 Flutter analyze、50 项 Flutter 测试（含真实 host Rust FFI 与本地 HTTP 文件校验）、iOS simulator/unsigned device 构建及 8 个 FFI 导出检查、桌面前端构建、2 项 Torrent core 测试、18 项隔离 UI 回归、34 项桌面 Rust 测试（另有 7 项外部环境用例按配置忽略）与 CI 配置检查。
+- 本轮另通过 `scripts/verify-macos-desktop-p2p.sh` 的真实本地 tracker/seeder 传输：单文件 Torrent、单文件 Magnet、多文件 Torrent 单文件选择、多文件 Magnet 单文件选择；真实文件名、落盘路径和 SHA-256 均匹配。隔离 UI 回归使用 mock IPC，不是真实 Torrent 下载证据；本轮未在 Android/iOS 真机或 Linux 原生 GUI 重新跑完整协议下载。下列旧版记录保留原有日期与范围。
 - 最新远端 [34037218884](https://github.com/lonnnnnng/fluxdown/actions/runs/34037218884) 仍为历史 iOS 构建失败，修复尚未提交/发布或重跑 CI。移动端仅协议识别接入 Rust，实际下载引擎迁移仍未完成。
 
 ## 2026-09-06 `1.0.14` 桌面驻留体验发版
@@ -178,12 +187,12 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 | --- | --- | --- |
 | HTTP/HTTPS | CLI 和核心层有本地下载验证；macOS GUI、Windows GUI 均已通过真实前台操作完成 HTTP/HTTPS 新建任务、自动下载、文件落盘和 SHA-256 校验；macOS HTTPS 使用本地自签证书及显式 opt-in。 | 证据最充分。 |
 | WebDAV/WebDAVS | 核心层和 macOS/Windows 原生 GUI 均验证了 URL 到 HTTP/HTTPS transport 的映射和真实落盘。 | 仍未覆盖完整 WebDAV 方法，例如 `PROPFIND` 和目录遍历。 |
-| m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片、master playlist 首个变体和 TS BYTERANGE 分片；Android 真机和 macOS CLI 均已验证媒体级 HLS 可生成最终 `.mp4`，CLI 直连/队列、桌面 command 和 macOS 纯 GUI 均有本地 HLS fixture 回归；macOS CLI release 与桌面 command 已验证 HLS BYTERANGE 真实落盘；纯 GUI 真实媒体 HLS 输出 `index.mp4` 并通过 `ffprobe` 识别为 MP4 容器；iOS simulator 已通过 App 内 fMP4 HLS、fMP4 BYTERANGE HLS 和 TS HLS smoke，输出文件头均包含 `ftyp`。 | iOS TS HLS 当前先覆盖 H.264/AAC VOD 主流路径，仍需要更多公网、长视频、多音轨、B 帧和异常 playlist 验证。 |
+| m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片、master playlist variant 选择和 TS BYTERANGE 分片；Android 真机和 macOS CLI 均已验证媒体级 HLS 可生成最终 `.mp4`，CLI 直连/队列、桌面 command 和 macOS 纯 GUI 均有本地 HLS fixture 回归；macOS CLI release 与桌面 command 已验证 HLS BYTERANGE 真实落盘；纯 GUI 真实媒体 HLS 输出 `index.mp4` 并通过 `ffprobe` 识别为 MP4 容器；iOS simulator 已通过 App 内 fMP4 HLS、fMP4 BYTERANGE HLS 和 TS HLS smoke，输出文件头均包含 `ftyp`。本轮新增移动新建任务 HLS variant/TS 控件、移动 variant/TS 下载测试和 CLI HLS 参数测试。 | iOS TS HLS 当前先覆盖 H.264/AAC VOD 主流路径，Android/iPhone 真机尚未针对可配置 variant/TS 重新跑 App 内下载；仍需要更多公网、长视频、多音轨、B 帧和异常 playlist 验证。 |
 | FTP/FTPS | macOS CLI 已验证公网 FTP、本地 FTP/FTPS；2026-08-05 macOS 原生 GUI 又通过前台操作完成局域网 FTP 和显式 FTPS 真实落盘及 SHA-256 校验。 | Rebex 公网 FTPS 仍失败，错误为 `InvalidContentType`；本地可控 FTPS fixture 已通过。 |
 | SFTP | macOS CLI 已验证公网 SFTP 和本地 Docker SFTP；2026-08-05 macOS 原生 GUI 已通过 Docker SFTP 完成前台真实落盘和 SHA-256 校验。 | 公网 Rebex 仍作为兼容性 smoke；可重复脚本不依赖公网源。 |
 | SMB | macOS CLI、Android 真机、Windows GUI 均已有局域网 SMB 证据；2026-08-05 macOS 原生 GUI 又通过 Docker Samba 完成前台新建任务、下载、真实落盘和 SHA-256 校验。 | 仍未覆盖 Linux 桌面真实运行。 |
-| BitTorrent `.torrent` | Android 真机已验证本地小种子、媒体级单文件种子和多文件种子选择下载；macOS CLI 已验证单文件、多文件本地种子和按文件编号选择下载，包含真实文件名/目录名和 SHA-256，并通过 `scripts/verify-macos-cli-p2p.sh` 验证小 torrent 队列下载和多文件 torrent 单文件选择；macOS GUI command 层和纯 GUI 均已通过临时本地 tracker/seeder 验证小 torrent 下载、真实文件名回写和 SHA-256，Tauri command 层已补充多文件 torrent 单文件选择和真实落盘路径定位；Windows 原生 Tauri GUI 已通过 Docker Transmission seeder 完成前台 torrent 下载闭环。 | Linux GUI 仍需要 torrent 前台真实下载验证；桌面前台 GUI metadata 文件列表交互本阶段跳过。 |
-| Magnet | Android 真机已验证本地小磁力、媒体级单文件 magnet 和多文件 magnet 选择下载；macOS CLI 已验证本地 magnet metadata 获取、真实文件名、SHA-256 和按文件编号选择下载，并通过 `scripts/verify-macos-cli-p2p.sh` 验证小 magnet 单任务启动和多文件 magnet 单文件选择；macOS GUI command 层和纯 GUI 均已通过临时本地 tracker/seeder 验证小 magnet 下载、metadata 文件名回写和 SHA-256，Tauri command 层已补充多文件 magnet 单文件选择和真实落盘路径定位；Windows 原生 Tauri GUI 已通过同一 Docker Transmission seeder 完成前台 magnet 下载闭环。 | Linux GUI 仍需要 magnet 前台真实下载验证；桌面前台 GUI metadata 文件列表交互本阶段跳过。 |
+| BitTorrent `.torrent` | Android 真机已验证本地小种子、媒体级单文件种子和多文件种子选择下载；macOS CLI 已验证单文件、多文件本地种子和按文件编号选择下载，包含真实文件名/目录名和 SHA-256，并通过 `scripts/verify-macos-cli-p2p.sh` 验证小 torrent 队列下载和多文件 torrent 单文件选择；macOS GUI command 层和纯 GUI 均已通过临时本地 tracker/seeder 验证小 torrent 下载、真实文件名回写和 SHA-256，Tauri command 层已补充多文件 torrent 单文件选择和真实落盘路径定位；Windows 原生 Tauri GUI 已通过 Docker Transmission seeder 完成前台 torrent 下载闭环。 | Linux GUI 仍需要 torrent 前台真实下载验证；桌面 metadata 文件树选择已有代码和隔离 UI 回归，原生 GUI 前台交互及打开文件仍待复验。 |
+| Magnet | Android 真机已验证本地小磁力、媒体级单文件 magnet 和多文件 magnet 选择下载；macOS CLI 已验证本地 magnet metadata 获取、真实文件名、SHA-256 和按文件编号选择下载，并通过 `scripts/verify-macos-cli-p2p.sh` 验证小 magnet 单任务启动和多文件 magnet 单文件选择；macOS GUI command 层和纯 GUI 均已通过临时本地 tracker/seeder 验证小 magnet 下载、metadata 文件名回写和 SHA-256，Tauri command 层已补充多文件 magnet 单文件选择和真实落盘路径定位；Windows 原生 Tauri GUI 已通过同一 Docker Transmission seeder 完成前台 magnet 下载闭环。 | Linux GUI 仍需要 magnet 前台真实下载验证；桌面 metadata 文件树选择已有代码和隔离 UI 回归，原生 GUI 前台交互及打开文件仍待复验。 |
 | ed2k | 核心层验证了 aMule `ed2k` CLI 移交路径。 | FluxDown 不掌控外部客户端的实际下载完成状态。 |
 
 ## 当前准确表述
@@ -286,7 +295,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `cargo test -p fluxdown-core -- --nocapture` + `cargo test -p fluxdown-cli --test download_command -- --nocapture` + `cargo test -p fluxdown-desktop resolves_legacy_unsafe_file_name_inside_output_dir -- --nocapture` | 通过：下载文件名统一规范化为单文件名，覆盖用户自定义文件名、HTTP/HLS/FTP/SFTP/SMB 推断文件名、旧队列任务重跑候选路径、CLI 真实 HTTP 落盘和桌面 command 输出路径解析，避免 `../`、路径分隔符和跨平台非法字符写出保存目录。 |
 | `cargo test -p fluxdown-core task::tests::validates_sha256_text_before_queueing_tasks -- --nocapture` + `cargo test -p fluxdown-cli --test download_command queue_add_rejects_invalid_sha256_without_writing_queue -- --nocapture` | 通过：共享 SHA-256 规则接受 `sha256:` 前缀和大小写输入，拒绝非法值；CLI `add --sha256 not-a-sha256` 会直接失败，且不会创建队列文件。 |
 | `cargo test -p fluxdown-core task::tests::normalizes_expected_sha256_when_creating_task -- --nocapture` + `cargo test -p fluxdown-cli --test download_command -- --nocapture` | 通过：验证 `expected_sha256` 兼容旧队列 JSON、输入规范化为小写 64 位 hash、CLI `download --sha256` 成功时 summary 返回实际 hash、hash 不匹配时直连命令失败，非法 hash 不会在 `--restart` 时先删除旧文件，非法 hash 不会进入队列，队列任务校验失败时进入 `failed` 并记录 mismatch 错误。 |
-| `cargo test -p fluxdown-desktop -- --nocapture` | 通过：desktop 非 ignored 用例 31 个通过，7 个 live fixture 用例保持 ignored；验证桌面新建任务可保存可选 SHA-256 和 torrent 文件编号，非法 SHA-256 会在 `enqueue_download` 阶段直接拒绝且不写入队列，队列下载成功时保留期望 hash，hash 不匹配时任务进入 `failed` 并记录 mismatch 错误；覆盖首次 HTTP 500 后按 `retry_attempts` 再次请求并下载成功；覆盖已完成任务通过 `restart_existing` 重新下载时删除旧文件、重新请求且不走 Range 续传；覆盖列表刷新会把异常残留的 running 任务恢复为 `paused` 并保留已下载进度，暂停按钮可直接保留为 `paused` 并展示中断提示，删除入口可先恢复中断态再移出队列，继续按钮可直接把这类任务恢复为 `queued`；覆盖运行中任务暂停为 `paused`、恢复为 `queued`、再次运行后通过 Range 续传完成并校验最终文件内容。 |
+| `cargo test --locked -p fluxdown-desktop -- --nocapture` | 通过：34 个非 ignored 用例通过，7 个 live fixture 用例保持 ignored；除既有队列、暂停/恢复、重试、Range 和 hash 校验外，新增 Torrent 文件打开的选择状态、完成状态、大小、相对路径和符号链接逃逸校验，以及真实文件路径回写断言。 |
 | `cargo test -p fluxdown-cli --test download_command queue_commands_use_macos_native_default_store_path -- --nocapture` | 通过：在隔离临时 `HOME` 且空 `XDG_DATA_HOME` 下执行真实 CLI `add/list`，队列写入 `home/Library/Application Support/FluxDown/queue.json`，且不会新建旧版 `home/.local/share/fluxdown/queue.json`。 |
 | `cargo test -p fluxdown-cli --test download_command queue_commands_migrate_legacy_macos_store_on_next_write -- --nocapture` | 通过：先用真实 CLI 在旧版 `home/.local/share/fluxdown/queue.json` 写入任务，再用默认 macOS 环境执行 `list` 读取旧任务，随后执行默认 `add`，确认新旧任务一起写入 `home/Library/Application Support/FluxDown/queue.json`。 |
 | `cargo test -p fluxdown-cli --test download_command queue_resume_recovers_stale_running_task_before_transition -- --nocapture` | 通过：构造异常残留的 running 队列任务后直接执行真实 CLI `resume`，确认无需先 `list`，任务会恢复为 `queued`，保留已下载进度并清理旧中断提示。 |

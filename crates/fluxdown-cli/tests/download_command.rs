@@ -516,6 +516,51 @@ fn spawn_hls_http_server() -> (String, Vec<u8>, thread::JoinHandle<()>) {
     (format!("http://{address}/playlist.m3u8"), expected, server)
 }
 
+fn spawn_hls_master_http_server() -> (String, Vec<u8>, thread::JoinHandle<()>) {
+    let expected = b"cli hls selected high variant".to_vec();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn({
+        let expected = expected.clone();
+        move || {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0; 1024];
+                let read = stream.read(&mut buffer).unwrap();
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let body = match path {
+                    "/master.m3u8" => {
+                        b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nlow.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2\nhigh.m3u8\n".to_vec()
+                    }
+                    "/high.m3u8" => {
+                        b"#EXTM3U\n#EXTINF:1,\nhigh.ts\n#EXT-X-ENDLIST\n".to_vec()
+                    }
+                    "/high.ts" => expected.clone(),
+                    _ => Vec::new(),
+                };
+                let status = if path == "/master.m3u8" || path == "/high.m3u8" || path == "/high.ts"
+                {
+                    "200 OK"
+                } else {
+                    "404 Not Found"
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+                stream.write_all(&body).unwrap();
+            }
+        }
+    });
+    (format!("http://{address}/master.m3u8"), expected, server)
+}
+
 fn spawn_checked_http_server(
     payload: &'static [u8],
     expected_path: &'static str,
@@ -1032,6 +1077,40 @@ fn download_command_fetches_hls_playlist() {
         summary["output_path"].as_str().unwrap(),
         temp_dir.path().join("cli-hls.ts").to_string_lossy()
     );
+}
+
+#[test]
+fn download_command_applies_hls_variant_and_keep_ts_options() {
+    let (source, expected_payload, server) = spawn_hls_master_http_server();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "download",
+            &source,
+            "--output",
+            temp_dir.path().to_str().unwrap(),
+            "--name",
+            "selected.m3u8",
+            "--hls-variant-index",
+            "1",
+            "--hls-keep-ts",
+        ])
+        .output()
+        .unwrap();
+
+    server.join().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // 作者: long
+    // CLI 选项必须真正影响 master playlist 的分支和最终扩展名，不能只停留在 clap 帮助文本。
+    let output_path = temp_dir.path().join("selected.ts");
+    assert_eq!(std::fs::read(&output_path).unwrap(), expected_payload);
+    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["display_name"], "selected.ts");
+    assert_eq!(summary["segments_written"], 1);
 }
 
 #[test]

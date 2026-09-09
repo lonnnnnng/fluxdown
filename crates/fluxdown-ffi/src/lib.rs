@@ -114,7 +114,7 @@ pub extern "C" fn fluxdown_queue_list(store_path: *const c_char) -> *mut c_char 
 }
 
 /// 入队任务：`request_json` 为统一任务请求对象
-/// `{"source":..,"outputDir":..,"fileName":..,"expectedSha256":..,"torrentFileIndices":[..],"speedLimitMbps":..}`。
+/// `{"source":..,"outputDir":..,"fileName":..,"expectedSha256":..,"torrentFileIndices":[..],"speedLimitMbps":..,"hlsVariantIndex":..,"hlsKeepTransportStream":..}`。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxdown_queue_add(
     store_path: *const c_char,
@@ -140,20 +140,42 @@ pub extern "C" fn fluxdown_queue_add(
         if let Some(name) = payload.get("fileName").and_then(|value| value.as_str()) {
             request.file_name = Some(name.to_string());
         }
-        if let Some(sha) = payload.get("expectedSha256").and_then(|value| value.as_str()) {
+        if let Some(sha) = payload
+            .get("expectedSha256")
+            .and_then(|value| value.as_str())
+        {
             request.expected_sha256 = fluxdown_core::validate_sha256_text(sha)
                 .map_err(|error| format!("SHA-256 无效: {error}"))
                 .map(Some)?;
         }
-        if let Some(indices) = payload.get("torrentFileIndices").and_then(|value| value.as_array())
+        if let Some(indices) = payload
+            .get("torrentFileIndices")
+            .and_then(|value| value.as_array())
         {
             request.torrent_file_indices = indices
                 .iter()
                 .filter_map(|value| value.as_u64().map(|value| value as usize))
                 .collect();
         }
-        if let Some(limit) = payload.get("speedLimitMbps").and_then(|value| value.as_f64()) {
+        if let Some(limit) = payload
+            .get("speedLimitMbps")
+            .and_then(|value| value.as_f64())
+        {
             request.speed_limit_mbps = Some(limit);
+        }
+        // 作者: long
+        // HLS 的清晰度和输出格式必须随任务保存，移动端或其他 FFI 调用方重启后才能复用同一选择。
+        if let Some(index) = payload
+            .get("hlsVariantIndex")
+            .and_then(|value| value.as_u64())
+        {
+            request.hls_variant_index = Some(index as usize);
+        }
+        if let Some(keep_ts) = payload
+            .get("hlsKeepTransportStream")
+            .and_then(|value| value.as_bool())
+        {
+            request.hls_keep_transport_stream = Some(keep_ts);
         }
         let task = open_store(&store_path)
             .enqueue(request)
@@ -198,6 +220,47 @@ fn default_store_path_dir() -> std::path::PathBuf {
         .parent()
         .map(std::path::Path::to_path_buf)
         .unwrap_or_else(default_store_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        ffi::{CStr, CString},
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn queue_add_maps_hls_options_from_camel_case_payload() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("fluxdown-ffi-hls-{suffix}"));
+        fs::create_dir_all(&root).expect("create temporary queue directory");
+        let store = CString::new(root.join("queue.json").to_string_lossy().as_bytes())
+            .expect("queue path contains no NUL");
+        let payload = CString::new(
+            r#"{"source":"https://example.com/master.m3u8","outputDir":"/tmp/downloads","hlsVariantIndex":2,"hlsKeepTransportStream":true}"#,
+        )
+        .expect("payload contains no NUL");
+
+        // 作者: long
+        // 通过真实 C ABI 调用验证移动端字段命名能保存到 Rust 队列，防止跨语言边界静默丢配置。
+        let pointer = fluxdown_queue_add(store.as_ptr(), payload.as_ptr());
+        assert!(!pointer.is_null());
+        let response = unsafe { CStr::from_ptr(pointer) }
+            .to_str()
+            .expect("FFI response is UTF-8");
+        let value: serde_json::Value = serde_json::from_str(response).expect("valid response JSON");
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["data"]["hls_variant_index"], 2);
+        assert_eq!(value["data"]["hls_keep_transport_stream"], true);
+        fluxdown_string_free(pointer);
+
+        let _ = fs::remove_dir_all(root);
+    }
 }
 
 /// FFI 层版本号，供绑定层做兼容性自检。

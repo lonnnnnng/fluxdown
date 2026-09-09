@@ -234,8 +234,7 @@ pub fn normalize_torrent_file_indices(indices: Vec<usize>) -> Vec<usize> {
 pub fn normalize_speed_limit_mbps(value: Option<f64>) -> Option<f64> {
     // 作者: long
     // 每任务限速只在大于 0 的有限数值时生效，0/负数/NaN 都视为不限制，与全局设置语义一致。
-    value
-        .filter(|limit| limit.is_finite() && *limit > 0.0)
+    value.filter(|limit| limit.is_finite() && *limit > 0.0)
 }
 
 pub fn normalize_sha256_text(value: &str) -> String {

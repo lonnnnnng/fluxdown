@@ -15,8 +15,8 @@ FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版�
 - 桌面端支持系统托盘、关闭窗口驻留、单实例、完成/失败通知和可关闭的剪贴板监听；包含检查更新、下载安装包和窗口尺寸恢复。
 - 桌面任务显示预计剩余时间（ETA），支持每任务限速；每任务配置优先于全局限速。移动端目前仍使用全局下载设置。
 - 支持 HTTP/HTTPS、WebDAV/WebDAVS、FTP/FTPS、m3u8/HLS、SFTP、SMB、`.torrent`、Magnet 和 ed2k 移交。
-- Torrent/Magnet 获取 metadata 后会展示真实文件名；移动端支持文件选择和文件夹详情，桌面 CLI/Tauri command 支持按文件编号选择。桌面详情面板展示文件、tracker、peer 和会话速率；当前源码已补齐运行中分文件进度，静态 metadata 不冒充下载进度。
-- 移动端 HLS 会输出最终 `.mp4`，已有 fMP4、BYTERANGE 和 TS HLS smoke。桌面/core 另支持 master 清晰度选择、分片缓存恢复和保留 TS；默认转封装取决于 FFmpeg 可用性。
+- Torrent/Magnet 获取 metadata 后会展示真实文件名；桌面新建弹框会展示文件树并支持多选，移动端支持文件选择和文件夹详情，CLI/Tauri command 支持按文件编号选择。桌面详情面板展示文件、tracker、peer 和会话速率，完成文件可直接打开；当前源码已补齐运行中分文件进度，静态 metadata 不冒充下载进度。
+- HLS 支持 master 清晰度编号、分片缓存恢复和可选保留 TS；桌面、CLI 与移动端新建任务均可配置，默认按平台能力转封装为 `.mp4`，失败时安全回退为 `.ts`。
 - 移动端限速、暂停取消、FTP/SFTP/SMB/HLS 分块取消和 Torrent 速度配置已接入统一下载控制器；ed2k 外部移交成功后使用 `handedOff` 状态，不冒充 FluxDown 内建下载完成。
 - CLI 和桌面端会脱敏 URL 中的用户名和密码，并把另存文件名规范化为单文件名。
 - 移动端协议识别优先通过 FFI 调用 Rust，库不可用时回退 Dart；队列与实际下载仍由 Dart/移动原生适配器执行，尚未统一到 Rust 下载引擎。
@@ -70,9 +70,11 @@ cargo run -p fluxdown-cli -- detect "https://example.com/file.zip"
 cargo run -p fluxdown-cli -- download "https://example.com/file.zip" --output ./downloads
 cargo run -p fluxdown-cli -- add "https://example.com/file.zip" --output ./downloads
 cargo run -p fluxdown-cli -- run --concurrency 2
+# HLS 主播放列表选择第 2 个 variant，并保留 TS 原始输出
+cargo run -p fluxdown-cli -- download "https://example.com/master.m3u8" --output ./downloads --hls-variant-index 1 --hls-keep-ts
 ```
 
-`download` 会立即执行下载并打印 JSON 摘要；`add` 会写入队列；`run` 按并发数执行队列。`--sha256 <64位hex>` 可用于校验最终文件。
+`download` 会立即执行下载并打印 JSON 摘要；`add` 会写入队列；`run` 按并发数执行队列。`--sha256 <64位hex>` 可用于校验最终文件。HLS 命令支持 `--hls-variant-index <下标>`（从 0 开始）和 `--hls-keep-ts`；`download`/`add` 用于保存任务配置，`start`/`run` 可临时指定 variant 或启用 TS 输出。
 
 ### 桌面端
 

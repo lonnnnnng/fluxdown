@@ -49,6 +49,13 @@ enum Command {
         expected_sha256: Option<String>,
         #[arg(long = "torrent-file-index")]
         torrent_file_indices: Vec<usize>,
+        #[arg(long = "hls-variant-index", help = "HLS master playlist variant index")]
+        hls_variant_index: Option<usize>,
+        #[arg(
+            long = "hls-keep-ts",
+            help = "Keep HLS transport stream output instead of remuxing to MP4"
+        )]
+        hls_keep_ts: bool,
         #[arg(long)]
         restart: bool,
     },
@@ -62,6 +69,13 @@ enum Command {
         expected_sha256: Option<String>,
         #[arg(long = "torrent-file-index")]
         torrent_file_indices: Vec<usize>,
+        #[arg(long = "hls-variant-index", help = "HLS master playlist variant index")]
+        hls_variant_index: Option<usize>,
+        #[arg(
+            long = "hls-keep-ts",
+            help = "Keep HLS transport stream output instead of remuxing to MP4"
+        )]
+        hls_keep_ts: bool,
     },
     List,
     Start {
@@ -74,6 +88,13 @@ enum Command {
         threads: usize,
         #[arg(long = "speed-limit-mbps")]
         speed_limit_mbps: Option<f64>,
+        #[arg(long = "hls-variant-index", help = "HLS master playlist variant index")]
+        hls_variant_index: Option<usize>,
+        #[arg(
+            long = "hls-keep-ts",
+            help = "Keep HLS transport stream output instead of remuxing to MP4"
+        )]
+        hls_keep_ts: bool,
     },
     Run {
         #[arg(short, long, default_value_t = DEFAULT_CONCURRENCY)]
@@ -86,6 +107,13 @@ enum Command {
         threads: usize,
         #[arg(long = "speed-limit-mbps")]
         speed_limit_mbps: Option<f64>,
+        #[arg(long = "hls-variant-index", help = "HLS master playlist variant index")]
+        hls_variant_index: Option<usize>,
+        #[arg(
+            long = "hls-keep-ts",
+            help = "Keep HLS transport stream output instead of remuxing to MP4"
+        )]
+        hls_keep_ts: bool,
     },
     Pause {
         id: String,
@@ -132,16 +160,21 @@ async fn run_cli() -> Result<()> {
             speed_limit_mbps,
             expected_sha256,
             torrent_file_indices,
+            hls_variant_index,
+            hls_keep_ts,
             restart,
         } => {
             let mut request = DownloadRequest::new(source, output);
             request.file_name = name;
             request.expected_sha256 = validated_expected_sha256(expected_sha256)?;
             request.torrent_file_indices = torrent_file_indices;
+            request.hls_variant_index = hls_variant_index;
+            request.hls_keep_transport_stream = Some(hls_keep_ts);
             let summary = DownloadEngine::new()
                 .download_with_options(
                     request,
-                    download_options(threads, speed_limit_mbps).with_restart_existing(restart),
+                    download_options(threads, speed_limit_mbps, hls_variant_index, hls_keep_ts)
+                        .with_restart_existing(restart),
                 )
                 .await?;
             println!("{}", serde_json::to_string_pretty(&summary)?);
@@ -152,11 +185,15 @@ async fn run_cli() -> Result<()> {
             name,
             expected_sha256,
             torrent_file_indices,
+            hls_variant_index,
+            hls_keep_ts,
         } => {
             let mut request = DownloadRequest::new(source, output);
             request.file_name = name;
             request.expected_sha256 = validated_expected_sha256(expected_sha256)?;
             request.torrent_file_indices = torrent_file_indices;
+            request.hls_variant_index = hls_variant_index;
+            request.hls_keep_transport_stream = Some(hls_keep_ts);
             let task = store.enqueue(request).await?;
             println!(
                 "{}",
@@ -181,11 +218,20 @@ async fn run_cli() -> Result<()> {
             restart,
             threads,
             speed_limit_mbps,
+            hls_variant_index,
+            hls_keep_ts,
         } => {
             let report = QueueRunner::new(store)
                 .run_task_with_options(
                     &id,
-                    runner_options(retry_attempts, threads, speed_limit_mbps, restart),
+                    runner_options(
+                        retry_attempts,
+                        threads,
+                        speed_limit_mbps,
+                        restart,
+                        hls_variant_index,
+                        hls_keep_ts,
+                    ),
                 )
                 .await?;
             println!(
@@ -199,11 +245,20 @@ async fn run_cli() -> Result<()> {
             restart,
             threads,
             speed_limit_mbps,
+            hls_variant_index,
+            hls_keep_ts,
         } => {
             let report = QueueRunner::new(store)
                 .run_queued_with_options(
                     clamp_concurrency(concurrency),
-                    runner_options(retry_attempts, threads, speed_limit_mbps, restart),
+                    runner_options(
+                        retry_attempts,
+                        threads,
+                        speed_limit_mbps,
+                        restart,
+                        hls_variant_index,
+                        hls_keep_ts,
+                    ),
                 )
                 .await?;
             println!(
@@ -242,18 +297,26 @@ fn runner_options(
     threads: usize,
     speed_limit_mbps: Option<f64>,
     restart_existing: bool,
+    hls_variant_index: Option<usize>,
+    hls_keep_ts: bool,
 ) -> QueueRunnerOptions {
     QueueRunnerOptions {
         // 作者: long
         // CLI 和桌面设置共用同一条业务边界：失败重试最多 10 次，避免终端误传大数导致任务长时间循环。
         retry_attempts: clamp_retry_attempts(retry_attempts),
-        download: download_options(threads, speed_limit_mbps),
+        download: download_options(threads, speed_limit_mbps, hls_variant_index, hls_keep_ts),
         restart_existing,
     }
 }
 
-fn download_options(threads: usize, speed_limit_mbps: Option<f64>) -> DownloadOptions {
+fn download_options(
+    threads: usize,
+    speed_limit_mbps: Option<f64>,
+    hls_variant_index: Option<usize>,
+    hls_keep_ts: bool,
+) -> DownloadOptions {
     DownloadOptions::new(threads, speed_limit_mbps_to_bps(speed_limit_mbps))
+        .with_hls_options(hls_variant_index, hls_keep_ts)
 }
 
 fn validated_expected_sha256(value: Option<String>) -> Result<Option<String>> {
@@ -333,7 +396,7 @@ mod tests {
 
     #[test]
     fn cli_queue_limits_match_product_settings() {
-        let options = runner_options(99, 99, Some(-1.0), false);
+        let options = runner_options(99, 99, Some(-1.0), false, None, false);
 
         assert_eq!(DEFAULT_CONCURRENCY, 1);
         assert_eq!(DEFAULT_RETRY_ATTEMPTS, 1);

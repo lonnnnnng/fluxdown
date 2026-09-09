@@ -48,8 +48,10 @@ Rust 请求包含 `source`、`output_dir`、可选 `file_name`、`expected_sha25
 | `expectedSha256` | 否 | 校验格式后保存期望 hash |
 | `torrentFileIndices` | 否 | 无符号文件编号列表，核心排序去重；空列表代表全部 |
 | `speedLimitMbps` | 否 | 对应 `speed_limit_mbps`，同样按字节速率换算 |
+| `hlsVariantIndex` | 否 | HLS master playlist 的 zero-based variant 编号；缺省使用第一个 |
+| `hlsKeepTransportStream` | 否 | 为 true 时保留 HLS TS 原始流，不尝试转封装为 MP4 |
 
-FFI 当前不读取 HLS variant/TS 选项。未知字段被忽略，不能把 Rust 请求的所有选项都视为已透传。
+当前 FFI 队列新增接口会读取并映射 `hlsVariantIndex` 与 `hlsKeepTransportStream`；移动端下载器同时通过自己的 camelCase 队列字段执行这些选项。FFI 只负责 Rust 队列投影和同步 `queue_run` 调用，不能把 Rust 运行器的全局并发、线程数、重试或限速配置视为已由移动端透传。
 
 ### 返回值与执行边界
 
@@ -73,6 +75,8 @@ FFI 当前不读取 HLS variant/TS 选项。未知字段被忽略，不能把 Ru
 | `expected_sha256` | `expectedSha256` | 命名差异 |
 | `total_bytes` / `downloaded_bytes` | `totalBytes` / `downloadedBytes` | 命名差异 |
 | `current_speed_bytes_per_second` | `currentSpeedBytesPerSecond` | 命名差异 |
+| `hls_variant_index` | `hlsVariantIndex` | 移动端新建任务可选，null 使用第一个 master variant |
+| `hls_keep_transport_stream` | `hlsKeepTransportStream` | 移动端新建任务可选，默认 false；true 时保留 TS |
 | `created_at_ms` 等 | `createdAt` 等 `DateTime` | 移动端以 ISO-8601 字符串存储；当前没有与 Rust 毫秒时间戳互转的队列导入/导出流程 |
 | 无 | `pausedAt` | 移动端专属暂停时间 |
 | 无直接同构对象 | `torrentName` / `torrentFiles` / `selectedTorrentFileIndexes` | 移动端保存 metadata/选择信息；Rust 用选择编号及独立会话快照 |

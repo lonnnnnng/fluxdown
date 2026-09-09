@@ -16,7 +16,7 @@ FluxDown is a multi-protocol downloader for desktop and mobile. The current vers
 - Desktop tasks show ETA and support per-task limits that override the global download speed limit. Mobile currently uses global download settings.
 - Supported protocols include HTTP/HTTPS, WebDAV/WebDAVS, FTP/FTPS, m3u8/HLS, SFTP, SMB, `.torrent`, Magnet, and ed2k handoff.
 - Torrent/Magnet tasks use real names after metadata is available. Mobile supports file selection and folder details; desktop CLI/Tauri commands accept file indices. Desktop details show files, trackers, peers, and session rates. Current source adds runtime per-file progress; static metadata does not imply downloaded bytes.
-- Mobile HLS produces `.mp4`, with historical fMP4, BYTERANGE, and TS HLS smoke coverage. Desktop/core additionally supports master variant selection, cached-segment resume, and keeping TS output; default remuxing depends on FFmpeg availability.
+- HLS supports master variant selection, cached-segment resume, and optional TS output across desktop, CLI, and the mobile new-task form. Remuxing to `.mp4` is attempted when supported; failures safely fall back to `.ts`.
 - Mobile speed limiting, cancellation-aware pause, chunk cancellation for FTP/SFTP/SMB/HLS, and Torrent speed settings are wired through the download controller. Successful ed2k handoff uses `handedOff` and is not reported as an internal FluxDown download completion.
 - CLI and desktop redact usernames and passwords in URLs, and sanitize save-as names to a single file name.
 - Mobile protocol detection tries Rust through FFI, with a Dart fallback when unavailable. Its queue and actual downloads still use Dart/native mobile adapters; migration to the Rust download engine is not complete.
@@ -70,9 +70,11 @@ cargo run -p fluxdown-cli -- detect "https://example.com/file.zip"
 cargo run -p fluxdown-cli -- download "https://example.com/file.zip" --output ./downloads
 cargo run -p fluxdown-cli -- add "https://example.com/file.zip" --output ./downloads
 cargo run -p fluxdown-cli -- run --concurrency 2
+# Select the second master-playlist variant and keep the TS output
+cargo run -p fluxdown-cli -- download "https://example.com/master.m3u8" --output ./downloads --hls-variant-index 1 --hls-keep-ts
 ```
 
-`download` runs immediately and prints a JSON summary. `add` writes a task into the queue. `run` executes queued tasks with the requested concurrency. `--sha256 <64-char-hex>` verifies the final file.
+`download` runs immediately and prints a JSON summary. `add` writes a task into the queue. `run` executes queued tasks with the requested concurrency. `--sha256 <64-char-hex>` verifies the final file. HLS commands accept `--hls-variant-index <index>` (zero-based) and `--hls-keep-ts`; `download`/`add` save these task options, while `start`/`run` can temporarily select a variant or enable TS output.
 
 ### Desktop
 

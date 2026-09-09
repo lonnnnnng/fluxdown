@@ -62,6 +62,8 @@ class DownloadTask {
     this.torrentFiles = const [],
     this.selectedTorrentFileIndexes,
     this.expectedSha256,
+    this.hlsVariantIndex,
+    this.hlsKeepTransportStream = false,
   });
 
   factory DownloadTask.create({
@@ -72,6 +74,8 @@ class DownloadTask {
     List<TorrentFileEntry> torrentFiles = const [],
     List<int>? selectedTorrentFileIndexes,
     String? expectedSha256,
+    int? hlsVariantIndex,
+    bool hlsKeepTransportStream = false,
   }) {
     final now = DateTime.now().toUtc();
     final protocol = detectProtocol(source);
@@ -94,6 +98,8 @@ class DownloadTask {
           ? null
           : List.unmodifiable(selectedTorrentFileIndexes),
       expectedSha256: expectedSha256,
+      hlsVariantIndex: hlsVariantIndex,
+      hlsKeepTransportStream: hlsKeepTransportStream,
     );
   }
 
@@ -137,6 +143,8 @@ class DownloadTask {
               .whereType<int>()
               .toList(growable: false),
       expectedSha256: json['expectedSha256'] as String?,
+      hlsVariantIndex: _intFromJson(json['hlsVariantIndex']),
+      hlsKeepTransportStream: json['hlsKeepTransportStream'] as bool? ?? false,
     );
   }
 
@@ -159,6 +167,8 @@ class DownloadTask {
   final List<TorrentFileEntry> torrentFiles;
   final List<int>? selectedTorrentFileIndexes;
   final String? expectedSha256;
+  final int? hlsVariantIndex;
+  final bool hlsKeepTransportStream;
 
   double? get progress {
     final total = totalBytes;
@@ -270,6 +280,8 @@ class DownloadTask {
     bool clearSelectedTorrentFileIndexes = false,
     bool clearTorrentMetadata = false,
     String? expectedSha256,
+    int? hlsVariantIndex,
+    bool? hlsKeepTransportStream,
   }) {
     return DownloadTask(
       id: id,
@@ -299,6 +311,9 @@ class DownloadTask {
           ? null
           : selectedTorrentFileIndexes ?? this.selectedTorrentFileIndexes,
       expectedSha256: expectedSha256 ?? this.expectedSha256,
+      hlsVariantIndex: hlsVariantIndex ?? this.hlsVariantIndex,
+      hlsKeepTransportStream:
+          hlsKeepTransportStream ?? this.hlsKeepTransportStream,
     );
   }
 
@@ -323,6 +338,8 @@ class DownloadTask {
       'torrentFiles': torrentFiles.map((file) => file.toJson()).toList(),
       'selectedTorrentFileIndexes': selectedTorrentFileIndexes,
       'expectedSha256': expectedSha256,
+      'hlsVariantIndex': hlsVariantIndex,
+      'hlsKeepTransportStream': hlsKeepTransportStream,
     };
   }
 }
@@ -436,8 +453,11 @@ String normalizeFileName(String value) {
 /// 归一化 SHA-256 输入：去掉可选的 "sha256:" 前缀并转小写；空串返回 null。
 String? normalizeSha256Text(String? value) {
   if (value == null) return null;
-  final normalized =
-      value.trim().toLowerCase().replaceFirst(RegExp('^sha256:'), '').trim();
+  final normalized = value
+      .trim()
+      .toLowerCase()
+      .replaceFirst(RegExp('^sha256:'), '')
+      .trim();
   if (normalized.isEmpty) return null;
   return normalized;
 }

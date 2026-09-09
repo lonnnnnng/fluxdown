@@ -159,6 +159,7 @@ type TorrentDetailsFile = {
   path: string;
   size: number;
   progress_bytes?: number | null;
+  sampled_speed_bps?: number | null;
 };
 
 type TorrentPeerSummary = {
@@ -765,7 +766,7 @@ function App() {
   const [source, setSource] = useState("");
   const [sourceSupport, setSourceSupport] = useState<SupportStatus | null>(null);
   const [fileName, setFileName] = useState("");
-  const [fileNameEdited, setFileNameEdited] = useState(false);
+  const fileNameEditedRef = useRef(false);
   const [expectedSha256, setExpectedSha256] = useState("");
   const [torrentFileIndices, setTorrentFileIndices] = useState("");
   const [outputDir, setOutputDir] = useState(settings.outputDir);
@@ -784,6 +785,10 @@ function App() {
   const [hlsVariantIndex, setHlsVariantIndex] = useState("");
   const [hlsKeepTs, setHlsKeepTs] = useState(false);
   const [taskSpeedLimit, setTaskSpeedLimit] = useState("");
+  const [torrentFiles, setTorrentFiles] = useState<TorrentDetailsFile[]>([]);
+  const [selectedTorrentFileIndices, setSelectedTorrentFileIndices] = useState<number[]>([]);
+  const [torrentMetadataLoading, setTorrentMetadataLoading] = useState(false);
+  const [torrentMetadataError, setTorrentMetadataError] = useState("");
   const [torrentDetailsTask, setTorrentDetailsTask] =
     useState<DownloadTask | null>(null);
   const [torrentDetails, setTorrentDetails] = useState<TorrentDetails | null>(
@@ -795,8 +800,6 @@ function App() {
   const lastClipboardRef = useRef<string | null>(null);
   const clipboardSeenRef = useRef(false);
   const dismissedClipboardRef = useRef<Set<string>>(new Set());
-  const clipboardMonitorRef = useRef(settings.clipboardMonitor);
-  clipboardMonitorRef.current = settings.clipboardMonitor;
   const autoRunKeyRef = useRef("");
 
   const counts = useMemo(() => taskCounts(tasks), [tasks]);
@@ -866,6 +869,48 @@ function App() {
     settings.speedLimitMbps,
     settings.threadCount,
   ]);
+
+  // 作者: long
+  // 完成通知：对比上一轮任务状态，只有从进行中转为完成/失败的任务才通知，
+  // 避免启动时对历史任务重复提醒；窗口隐藏（托盘驻留）时这是唯一的完成感知。
+  const previousStatesRef = useRef<Map<string, DownloadState>>(new Map());
+
+  const notifyFinishedTasks = useCallback(async (nextTasks: DownloadTask[]) => {
+    const previous = previousStatesRef.current;
+    const events: Array<{ title: string; body: string }> = [];
+    for (const task of nextTasks) {
+      const before = previous.get(task.id);
+      previous.set(task.id, task.state);
+      if (!before || before === task.state) continue;
+      if (before !== "running" && before !== "queued") continue;
+      const title = taskTitle(task);
+      if (task.state === "finished") {
+        events.push({ title: "下载完成", body: `${title} 已完成` });
+      } else if (task.state === "failed") {
+        events.push({
+          title: "下载失败",
+          body: `${title} 失败：${displayTaskError(task) || "未知错误"}`,
+        });
+      }
+    }
+    if (!events.length || !settings.notifyOnFinish) return;
+    for (const event of events) {
+      await invoke("send_notification", {
+        title: event.title,
+        body: event.body,
+      }).catch(() => null);
+    }
+  }, [settings.notifyOnFinish]);
+
+  const refreshTasks = useCallback(async () => {
+    const result = await invoke<DownloadTask[]>("list_downloads").catch(
+      () => null,
+    );
+    if (result) {
+      setTasks(result);
+      void notifyFinishedTasks(result);
+    }
+  }, [notifyFinishedTasks]);
 
   useEffect(() => {
     saveSettings(settings);
@@ -956,6 +1001,7 @@ function App() {
     if (!inspectedTorrentId || !inspectedTorrentSource) return;
     let cancelled = false;
     let pending = false;
+    let fileSamples = new Map<number, { bytes: number; at: number }>();
     const active = inspectedTorrentState === "running" || inspectedTorrentState === "queued";
     const refresh = async () => {
       if (pending) return;
@@ -965,9 +1011,30 @@ function App() {
           taskId: active ? inspectedTorrentId : null,
           source: inspectedTorrentSource,
         });
-        if (!cancelled) setTorrentDetails(details);
+        if (!cancelled) {
+          // 作者: long
+          // 文件速率只取同一活动会话两次已下载量的差值，不按文件大小分摊总速率；
+          // 暂停、切换、重下或首次采样都重置基线，避免旧任务速度串入新快照。
+          const at = performance.now();
+          const nextSamples = new Map<number, { bytes: number; at: number }>();
+          const files = details.files.map((file) => {
+            const bytes = file.progress_bytes;
+            const previous = fileSamples.get(file.index);
+            let speed: number | null = null;
+            if (active && details.runtime && bytes != null && Number.isFinite(bytes) && bytes >= 0) {
+              if (previous && at > previous.at && bytes >= previous.bytes) {
+                speed = (bytes - previous.bytes) * 1000 / (at - previous.at);
+              }
+              nextSamples.set(file.index, { bytes, at });
+            }
+            return { ...file, sampled_speed_bps: speed };
+          });
+          fileSamples = nextSamples;
+          setTorrentDetails({ ...details, files });
+        }
       } catch (error) {
         if (!cancelled) {
+          fileSamples.clear();
           setTorrentDetails({ runtime: false, files: [], trackers: [], error: safeErrorText(error) });
         }
       } finally {
@@ -983,7 +1050,7 @@ function App() {
   }, [inspectedTorrentId, inspectedTorrentSource, inspectedTorrentState]);
 
   useEffect(() => {
-    refreshTasks();
+    queueMicrotask(() => void refreshTasks());
     invoke<string>("default_output_dir")
       .then((defaultDir) => {
         setSettings((current) =>
@@ -1002,13 +1069,13 @@ function App() {
     invoke<DoctorReport>("doctor")
       .then(setDoctorReport)
       .catch(() => setDoctorReport(null));
-  }, []);
+  }, [refreshTasks]);
 
   useEffect(() => {
     if (!queueActive && !tasks.some((task) => task.state === "running")) return;
     const timer = window.setInterval(refreshTasks, settings.refreshIntervalMs);
     return () => window.clearInterval(timer);
-  }, [queueActive, settings.refreshIntervalMs, tasks]);
+  }, [queueActive, refreshTasks, settings.refreshIntervalMs, tasks]);
 
   // 作者: long
   // 新建任务里输入 m3u8 源时，拉取 master playlist 的清晰度列表供用户选择；
@@ -1017,7 +1084,6 @@ function App() {
     const normalizedSource = source.trim();
     const protocol = sourceSupport?.protocol ?? fallbackDetect(normalizedSource);
     if (!newDialogOpen || protocol !== "m3u8" || !normalizedSource) {
-      setHlsVariants([]);
       return;
     }
     let cancelled = false;
@@ -1038,7 +1104,6 @@ function App() {
   // 可下载链接时显示提示条。首次读取只记录不提示，避免启动时弹旧链接。
   useEffect(() => {
     if (!settings.clipboardMonitor) {
-      setClipboardSuggestion(null);
       return;
     }
     let cancelled = false;
@@ -1143,49 +1208,53 @@ function App() {
     };
   }, [newDialogOpen, source]);
 
-  async function refreshTasks() {
-    const result = await invoke<DownloadTask[]>("list_downloads").catch(
-      () => null,
-    );
-    if (result) {
-      setTasks(result);
-      notifyFinishedTasks(result);
+  useEffect(() => {
+    const normalizedSource = source.trim();
+    const protocol = sourceSupport?.protocol ?? fallbackDetect(normalizedSource);
+    const isTorrentLike = protocol === "torrent" || protocol === "magnet";
+    if (!newDialogOpen || !isTorrentLike || !normalizedSource) {
+      return;
     }
-  }
 
-  // 作者: long
-  // 完成通知：对比上一轮任务状态，只有从进行中转为完成/失败的任务才通知，
-  // 避免启动时对历史任务重复提醒；窗口隐藏（托盘驻留）时这是唯一的完成感知。
-  const previousStatesRef = useRef<Map<string, DownloadState>>(new Map());
-  const notifyOnFinishRef = useRef(settings.notifyOnFinish);
-  notifyOnFinishRef.current = settings.notifyOnFinish;
-
-  async function notifyFinishedTasks(tasks: DownloadTask[]) {
-    const previous = previousStatesRef.current;
-    const events: Array<{ title: string; body: string }> = [];
-    for (const task of tasks) {
-      const before = previous.get(task.id);
-      previous.set(task.id, task.state);
-      if (!before || before === task.state) continue;
-      if (before !== "running" && before !== "queued") continue;
-      const title = taskTitle(task);
-      if (task.state === "finished") {
-        events.push({ title: "下载完成", body: `${title} 已完成` });
-      } else if (task.state === "failed") {
-        events.push({
-          title: "下载失败",
-          body: `${title} 失败：${displayTaskError(task) || "未知错误"}`,
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setTorrentMetadataLoading(true);
+      setTorrentMetadataError("");
+      invoke<TorrentDetails>("torrent_task_details", {
+        taskId: null,
+        source: normalizedSource,
+      })
+        .then((details) => {
+          if (cancelled) return;
+          if (details.files.length === 0) {
+            setTorrentFiles([]);
+            setSelectedTorrentFileIndices([]);
+            setTorrentMetadataError(details.error || "暂未获取到文件列表，请检查 tracker 或网络");
+            return;
+          }
+          const indices = details.files.map((file) => file.index);
+          setTorrentFiles(details.files);
+          setSelectedTorrentFileIndices(indices);
+          setTorrentFileIndices(indices.join(","));
+          if (!fileNameEditedRef.current && details.name) setFileName(details.name);
+          setTorrentMetadataError("");
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setTorrentFiles([]);
+            setSelectedTorrentFileIndices([]);
+            setTorrentMetadataError(safeErrorText(error));
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setTorrentMetadataLoading(false);
         });
-      }
-    }
-    if (!events.length || !notifyOnFinishRef.current) return;
-    for (const event of events) {
-      await invoke("send_notification", {
-        title: event.title,
-        body: event.body,
-      }).catch(() => null);
-    }
-  }
+    }, 260);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [newDialogOpen, source, sourceSupport?.protocol]);
 
   async function refreshTasksWithMessage() {
     await refreshTasks();
@@ -1206,6 +1275,7 @@ function App() {
   }
 
   function updateSettings(patch: Partial<Settings>) {
+    if (patch.clipboardMonitor === false) setClipboardSuggestion(null);
     setSettings((current) => ({ ...current, ...patch }));
   }
 
@@ -1213,6 +1283,10 @@ function App() {
     const normalizedSource = source.trim();
     if (!normalizedSource) {
       setMessage("下载链接不能为空");
+      return;
+    }
+    if (torrentMetadataLoading) {
+      setMessage("正在解析 Torrent 文件列表");
       return;
     }
     const normalizedOutput = outputDir.trim() || settings.outputDir;
@@ -1224,6 +1298,12 @@ function App() {
     const selectedTorrentFiles = parseTorrentFileIndices(torrentFileIndices);
     if (selectedTorrentFiles === undefined) {
       setMessage("Torrent 文件编号只能填写非负整数");
+      return;
+    }
+    // 作者: long
+    // 旧队列用空编号表示下载全部；文件树显式取消全选时必须阻止提交，不能反向变成全量下载。
+    if (torrentFiles.length > 0 && selectedTorrentFileIndices.length === 0) {
+      setMessage("Torrent 至少选择一个文件");
       return;
     }
     const parsedSpeedLimit = Number.parseFloat(taskSpeedLimit.trim());
@@ -1273,7 +1353,7 @@ function App() {
     setNewDialogOpen(false);
     updateNewTaskSource("");
     setFileName("");
-    setFileNameEdited(false);
+    fileNameEditedRef.current = false;
     setExpectedSha256("");
     setTorrentFileIndices("");
     setOutputDir(settings.outputDir);
@@ -1333,6 +1413,15 @@ function App() {
       setMessage(safeErrorText(error));
     } finally {
       setAction("idle");
+    }
+  }
+
+  async function openTorrentFile(task: DownloadTask, fileIndex: number) {
+    try {
+      await invoke("open_torrent_file", { id: task.id, fileIndex });
+      setMessage("已打开 Torrent 文件");
+    } catch (error) {
+      setMessage(safeErrorText(error));
     }
   }
 
@@ -1437,21 +1526,47 @@ function App() {
   function openNewDialog() {
     setOutputDir(settings.outputDir);
     setSourceSupport(source.trim() ? fallbackSupport(source.trim()) : null);
-    setFileNameEdited(false);
+    setHlsVariants([]);
+    setTorrentFiles([]);
+    setSelectedTorrentFileIndices([]);
+    const protocol = fallbackDetect(source.trim());
+    setTorrentMetadataLoading(protocol === "torrent" || protocol === "magnet");
+    setTorrentMetadataError("");
+    fileNameEditedRef.current = false;
     setNewDialogOpen(true);
   }
 
   function closeNewDialog() {
     setNewDialogOpen(false);
     setSourceSupport(null);
-    setFileNameEdited(false);
+    setHlsVariants([]);
+    setTorrentFiles([]);
+    setSelectedTorrentFileIndices([]);
+    setTorrentMetadataLoading(false);
+    setTorrentMetadataError("");
+    fileNameEditedRef.current = false;
   }
 
   function updateNewTaskSource(value: string) {
     const normalizedSource = value.trim();
+    const detectedProtocol = normalizedSource ? fallbackDetect(normalizedSource) : null;
     setSource(value);
     setSourceSupport(normalizedSource ? fallbackSupport(normalizedSource) : null);
-    if (!fileNameEdited) setFileName(normalizedSource ? suggestedFileName(value) : "");
+    setHlsVariants([]);
+    setTorrentFiles([]);
+    setSelectedTorrentFileIndices([]);
+    setTorrentFileIndices("");
+    setTorrentMetadataLoading(detectedProtocol === "torrent" || detectedProtocol === "magnet");
+    setTorrentMetadataError("");
+    if (!fileNameEditedRef.current) setFileName(normalizedSource ? suggestedFileName(value) : "");
+  }
+
+  function toggleTorrentFile(index: number) {
+    const next = selectedTorrentFileIndices.includes(index)
+      ? selectedTorrentFileIndices.filter((item) => item !== index)
+      : [...selectedTorrentFileIndices, index].sort((left, right) => left - right);
+    setSelectedTorrentFileIndices(next);
+    setTorrentFileIndices(next.join(","));
   }
 
   const currentMenuTask = tasks.find((task) => task.id === menuTaskId) ?? null;
@@ -1674,12 +1789,18 @@ function App() {
           hlsVariants={hlsVariants}
           hlsVariantIndex={hlsVariantIndex}
           hlsKeepTs={hlsKeepTs}
+          selectedTorrentFileIndices={selectedTorrentFileIndices}
           taskSpeedLimit={taskSpeedLimit}
+          torrentFiles={torrentFiles}
+          torrentMetadataError={torrentMetadataError}
+          torrentMetadataLoading={torrentMetadataLoading}
           onClose={closeNewDialog}
           onCreate={createTask}
           onExpectedSha256Change={setExpectedSha256}
           onFileNameChange={(value) => {
-            setFileNameEdited(true);
+            // 作者: long
+            // 手工命名只阻止 metadata 覆盖名称，不重新解析链接或重置用户已经勾选的文件。
+            fileNameEditedRef.current = true;
             setFileName(value);
           }}
           onHlsKeepTsChange={setHlsKeepTs}
@@ -1689,6 +1810,7 @@ function App() {
           onSourceChange={updateNewTaskSource}
           onTaskSpeedLimitChange={setTaskSpeedLimit}
           onTorrentFileIndicesChange={setTorrentFileIndices}
+          onToggleTorrentFile={toggleTorrentFile}
           outputDir={outputDir}
           source={source}
           support={sourceSupport}
@@ -1699,8 +1821,11 @@ function App() {
       {torrentDetailsTask ? (
         <TorrentDetailsDialog
           details={torrentDetails}
+          onOpenFile={(fileIndex) => {
+            if (inspectedTorrent) void openTorrentFile(inspectedTorrent, fileIndex);
+          }}
           onClose={closeTorrentDetails}
-          task={torrentDetailsTask}
+          task={inspectedTorrent ?? torrentDetailsTask}
         />
       ) : null}
 
@@ -1968,7 +2093,17 @@ function TaskRow({
   );
 }
 
-function TorrentFileProgressRow({ file }: { file: TorrentDetailsFile }) {
+function TorrentFileProgressRow({
+  file,
+  onOpen,
+  speedBps,
+  canOpen,
+}: {
+  file: TorrentDetailsFile;
+  onOpen: (fileIndex: number) => void;
+  speedBps?: number | null;
+  canOpen: boolean;
+}) {
   const size = Number.isFinite(file.size) ? Math.max(0, file.size) : 0;
   const downloaded = file.progress_bytes != null && Number.isFinite(file.progress_bytes)
     ? Math.min(size, Math.max(0, file.progress_bytes))
@@ -1976,6 +2111,7 @@ function TorrentFileProgressRow({ file }: { file: TorrentDetailsFile }) {
   // 作者: long
   // 静态种子没有下载进度，不能冒充 0% 或完成；只有引擎返回已下载量时才显示确定进度。
   const percent = downloaded == null ? null : size === 0 ? 100 : downloaded / size * 100;
+  const fileReady = canOpen;
   return (
     <div className="torrentFileRow torrentTransferRow" data-file-index={file.index}>
       <span className="torrentFileIndex">#{file.index}</span>
@@ -1984,6 +2120,7 @@ function TorrentFileProgressRow({ file }: { file: TorrentDetailsFile }) {
         <div className="torrentFileMetrics">
           <span>{downloaded == null ? "--" : formatBytes(downloaded)} / {formatBytes(size)}</span>
           <span>{percent == null ? "进度未知" : `${percent.toFixed(1)}%`}</span>
+          <span>{speedBps != null ? `${formatBytes(speedBps)}/s` : "速度未知"}</span>
         </div>
         <div
           className="torrentFileProgress"
@@ -1997,19 +2134,35 @@ function TorrentFileProgressRow({ file }: { file: TorrentDetailsFile }) {
           <span style={{ width: `${percent ?? 0}%` }} />
         </div>
       </div>
+      <button
+        aria-label={`打开 ${file.path || `文件 ${file.index}`}`}
+        className="torrentFileOpen"
+        disabled={!fileReady}
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpen(file.index);
+        }}
+        title={fileReady ? "打开文件" : "文件完成后可打开"}
+      >
+        <Icon name="external-link" />
+      </button>
     </div>
   );
 }
 
 function TorrentDetailsDialog({
   details,
+  onOpenFile,
   onClose,
   task,
 }: {
   details: TorrentDetails | null;
+  onOpenFile: (fileIndex: number) => void;
   onClose: () => void;
   task: DownloadTask;
 }) {
+  const selectedTorrentFileIndices = task.torrent_file_indices ?? [];
+
   return (
     <div
       className="modalBackdrop"
@@ -2084,7 +2237,16 @@ function TorrentDetailsDialog({
                 <span>文件列表（{details.files.length}）</span>
                 <div className="torrentFileList" data-testid="torrent-files">
                   {details.files.map((file) => (
-                    <TorrentFileProgressRow file={file} key={file.index} />
+                    <TorrentFileProgressRow
+                      canOpen={(selectedTorrentFileIndices.length === 0
+                        || selectedTorrentFileIndices.includes(file.index))
+                        && (task.state === "finished"
+                          || (file.progress_bytes != null && file.progress_bytes >= file.size))}
+                      file={file}
+                      key={file.index}
+                      onOpen={onOpenFile}
+                      speedBps={file.sampled_speed_bps}
+                    />
                   ))}
                 </div>
               </div>
@@ -2263,7 +2425,11 @@ function NewTaskDialog({
   hlsVariants,
   hlsVariantIndex,
   hlsKeepTs,
+  selectedTorrentFileIndices,
   taskSpeedLimit,
+  torrentFiles,
+  torrentMetadataError,
+  torrentMetadataLoading,
   onClose,
   onCreate,
   onExpectedSha256Change,
@@ -2275,6 +2441,7 @@ function NewTaskDialog({
   onSourceChange,
   onTaskSpeedLimitChange,
   onTorrentFileIndicesChange,
+  onToggleTorrentFile,
   outputDir,
   source,
   support,
@@ -2285,7 +2452,11 @@ function NewTaskDialog({
   hlsVariants: HlsVariantInfo[];
   hlsVariantIndex: string;
   hlsKeepTs: boolean;
+  selectedTorrentFileIndices: number[];
   taskSpeedLimit: string;
+  torrentFiles: TorrentDetailsFile[];
+  torrentMetadataError: string;
+  torrentMetadataLoading: boolean;
   onClose: () => void;
   onCreate: () => void;
   onExpectedSha256Change: (value: string) => void;
@@ -2297,6 +2468,7 @@ function NewTaskDialog({
   onSourceChange: (value: string) => void;
   onTaskSpeedLimitChange: (value: string) => void;
   onTorrentFileIndicesChange: (value: string) => void;
+  onToggleTorrentFile: (index: number) => void;
   outputDir: string;
   source: string;
   support: SupportStatus | null;
@@ -2365,15 +2537,47 @@ function NewTaskDialog({
           />
         </label>
         {isTorrentLike ? (
-          <label className="fieldBlock">
-            <span>Torrent 文件编号</span>
-            <input
-              data-testid="new-task-torrent-indices"
-              onChange={(event) => onTorrentFileIndicesChange(event.target.value)}
-              placeholder="可选，如 0,2；留空下载全部文件"
-              value={torrentFileIndices}
-            />
-          </label>
+          <div className="fieldBlock torrentSelectionBlock">
+            <div className="fieldLabelRow">
+              <span>选择下载文件</span>
+              {torrentFiles.length > 0 ? (
+                <small>{selectedTorrentFileIndices.length} / {torrentFiles.length}</small>
+              ) : null}
+            </div>
+            {torrentMetadataLoading ? (
+              <div className="torrentMetadataState" data-testid="torrent-metadata-loading">正在获取文件列表…</div>
+            ) : torrentFiles.length > 0 ? (
+              <div className="torrentSelectionList" data-testid="new-task-torrent-files">
+                {torrentFiles.map((file) => (
+                  <label className="torrentSelectionRow" key={file.index}>
+                    <input
+                      checked={selectedTorrentFileIndices.includes(file.index)}
+                      data-testid={`new-task-torrent-file-${file.index}`}
+                      onChange={() => onToggleTorrentFile(file.index)}
+                      type="checkbox"
+                    />
+                    <span className="torrentSelectionPath" title={file.path}>{file.path}</span>
+                    <span className="torrentSelectionSize">{formatBytes(file.size)}</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <>
+                <div className="torrentMetadataState warning" data-testid="torrent-metadata-error">
+                  {torrentMetadataError || "暂未获取到 metadata，可先创建任务，运行后再查看文件列表。"}
+                </div>
+                <label className="torrentIndexFallback">
+                  <span>文件编号（可选）</span>
+                  <input
+                    data-testid="new-task-torrent-indices"
+                    onChange={(event) => onTorrentFileIndicesChange(event.target.value)}
+                    placeholder="如 0,2；留空下载全部文件"
+                    value={torrentFileIndices}
+                  />
+                </label>
+              </>
+            )}
+          </div>
         ) : null}
         {protocol === "m3u8" && hlsVariants.length > 0 ? (
           <label className="fieldBlock">
@@ -2418,7 +2622,7 @@ function NewTaskDialog({
         </label>
         <footer className="dialogFooter">
           <button data-testid="new-task-cancel" onClick={onClose}>取消</button>
-          <button className="primary" data-testid="new-task-create" onClick={onCreate}>
+          <button className="primary" data-testid="new-task-create" disabled={isTorrentLike && torrentMetadataLoading} onClick={onCreate}>
             创建任务
           </button>
         </footer>

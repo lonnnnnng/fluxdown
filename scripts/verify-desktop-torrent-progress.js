@@ -18,13 +18,21 @@ async (page) => {
       total_bytes: 4096, downloaded_bytes: 1024, current_speed_bytes_per_second: 512,
       created_at_ms: Date.now(), updated_at_ms: Date.now(), started_at_ms: Date.now(),
     };
-    window.__torrentProgressTest = { task, bytes: 1024, calls: 0, delay: 0, error: false };
+    window.__torrentProgressTest = { task, bytes: 1024, calls: 0, delay: 0, error: false, enqueued: null, opened: null };
     window.__TAURI_INTERNALS__ = {
       invoke: async (command, args) => {
         const fixture = window.__torrentProgressTest;
         if (command === 'list_downloads') return [{ ...fixture.task }];
         if (command === 'default_output_dir') return '/tmp/fluxdown-ui-regression';
         if (command === 'doctor') return { backends: [], protocols: [] };
+        if (command === 'open_torrent_file') {
+          fixture.opened = args;
+          return null;
+        }
+        if (command === 'enqueue_download') {
+          fixture.enqueued = args.payload;
+          return { ...fixture.task, ...args.payload, id: 'selection-regression', state: 'queued' };
+        }
         if (command !== 'torrent_task_details') return null;
         fixture.calls++;
         const bytes = fixture.bytes;
@@ -66,10 +74,13 @@ async (page) => {
   await page.evaluate(() => { window.__torrentProgressTest.bytes = 3072; });
   await waitPercent('75');
   results.push('polling updates 25% to 75%');
+  check(await page.locator('[data-file-index="0"] .torrentFileMetrics span').last().innerText()
+    .then((text) => text.endsWith('/s')), 'per-file speed derives from successive samples');
 
   await page.evaluate(() => { window.__torrentProgressTest.task.state = 'paused'; });
   await waitPercent(null);
   check(await page.locator('[data-file-index="0"]').innerText().then((text) => text.includes('进度未知')), 'static metadata does not claim completion');
+  check(await page.locator('[data-file-index="0"]').innerText().then((text) => text.includes('速度未知')), 'paused details clear sampled speed');
   const stoppedCalls = await page.evaluate(() => window.__torrentProgressTest.calls);
   await page.waitForTimeout(2300);
   check(await page.evaluate(() => window.__torrentProgressTest.calls) === stoppedCalls, 'paused task stops polling');
@@ -96,5 +107,40 @@ async (page) => {
   const closedCalls = await page.evaluate(() => window.__torrentProgressTest.calls);
   await page.waitForTimeout(2300);
   check(await page.evaluate(() => window.__torrentProgressTest.calls) === closedCalls, 'closed dialog stops polling');
+
+  await page.evaluate(() => {
+    window.__torrentProgressTest.task.state = 'finished';
+    window.__torrentProgressTest.task.torrent_file_indices = [0];
+  });
+  await page.getByRole('button', { name: '刷新列表', exact: true }).click();
+  await open();
+  check(await page.locator('[data-file-index="0"] button').isEnabled()
+    && await page.locator('[data-file-index="1"] button').isDisabled(), 'finished selected files can open but unselected files cannot');
+  await page.locator('[data-file-index="0"] button').click();
+  check(await page.evaluate(() => window.__torrentProgressTest.opened.fileIndex) === 0, 'file open passes the metadata index');
+  await page.getByTestId('torrent-details-close').click();
+
+  await page.getByTestId('new-task-button').click();
+  await page.getByTestId('new-task-source').fill('https://example.com/selection.torrent');
+  await page.getByTestId('new-task-torrent-files').waitFor();
+  check(await page.getByTestId('new-task-torrent-file-0').isChecked()
+    && await page.getByTestId('new-task-torrent-file-1').isChecked(), 'metadata files initially selected');
+  await page.getByTestId('new-task-dialog').screenshot({ path: 'output/playwright/torrent-new-task-compact.png' });
+  await page.getByTestId('new-task-torrent-file-1').uncheck();
+  const callsBeforeRename = await page.evaluate(() => window.__torrentProgressTest.calls);
+  await page.getByTestId('new-task-file-name').fill('手工命名');
+  await page.waitForTimeout(400);
+  check(!await page.getByTestId('new-task-torrent-file-1').isChecked()
+    && await page.evaluate(() => window.__torrentProgressTest.calls) === callsBeforeRename,
+  'renaming preserves selection without refetch');
+  await page.getByTestId('new-task-torrent-file-0').uncheck();
+  await page.getByTestId('new-task-create').click();
+  check(await page.getByTestId('new-task-dialog').isVisible()
+    && await page.evaluate(() => window.__torrentProgressTest.enqueued) === null,
+  'empty explicit selection cannot become download all');
+  await page.getByTestId('new-task-torrent-file-1').check();
+  await page.getByTestId('new-task-create').click();
+  check(await page.evaluate(() => JSON.stringify(window.__torrentProgressTest.enqueued.torrent_file_indices)) === '[1]',
+    'selected file indices reach enqueue payload');
   return { passed: results.length, checks: results };
 }

@@ -78,10 +78,7 @@ async fn main() -> anyhow::Result<()> {
         out_dir.clone(),
     );
     request.file_name = Some("probe6-readme.txt".to_string());
-    match fluxdown_core::DownloadEngine::new()
-        .download(request)
-        .await
-    {
+    match fluxdown_core::DownloadEngine::new().download(request).await {
         Ok(summary) => println!(
             "variant 6 OK: bytes={} path={}",
             summary.bytes_written,
@@ -125,7 +122,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Variant 9: implicit FTPS with resumption disabled, full transfer
     println!("variant 9: implicit FTPS resumption-disabled full transfer...");
-    let root_store = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let root_store =
+        rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let mut config = rustls::ClientConfig::builder()
         .with_root_certificates(root_store)
         .with_no_client_auth();
@@ -164,7 +162,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Variant 11: force TLS1.2 on the whole FTPS session, full transfer
     println!("variant 11: implicit FTPS forced-TLS1.2 full transfer...");
-    let root_store = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let root_store =
+        rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let config = rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS12])
         .with_root_certificates(root_store)
         .with_no_client_auth();
@@ -207,15 +206,15 @@ async fn main() -> anyhow::Result<()> {
     let tcp = tokio::net::TcpStream::connect(address).await?;
     let config = rustls_client_config();
     let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
-    match connector
-        .connect(host.try_into().unwrap(), tcp)
-        .await
-    {
+    match connector.connect(host.try_into().unwrap(), tcp).await {
         Ok(mut tls) => {
             use tokio::io::AsyncReadExt;
             let mut buf = [0u8; 128];
             let n = tls.read(&mut buf).await?;
-            println!("variant 4 OK, banner: {:?}", String::from_utf8_lossy(&buf[..n]));
+            println!(
+                "variant 4 OK, banner: {:?}",
+                String::from_utf8_lossy(&buf[..n])
+            );
         }
         Err(error) => println!("variant 4 FAIL: {error}"),
     }
@@ -224,7 +223,8 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn rustls_client_config() -> rustls::ClientConfig {
-    let root_store = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let root_store =
+        rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     rustls::ClientConfig::builder()
         .with_root_certificates(root_store)
         .with_no_client_auth()

@@ -109,7 +109,7 @@ flowchart TD
 - 为支持的协议写入输出目录和文件。
 - 报告 `DownloadProgress` 和 `DownloadSummary`。
 - 处理取消、部分文件和断点续传。
-- 桌面/core HLS 支持 master variant 选择、分片缓存恢复和可选 TS 直出；移动端 HLS 实现及可配置项独立。
+- 桌面/core HLS 支持 master variant 选择、分片缓存恢复和可选 TS 直出；移动端 Dart 下载器也支持相同的 variant/TS 任务选项，但与 Rust FFI 队列投影独立。
 - Torrent 引擎保留活动会话，供详情接口读取分文件字节数、tracker、peer 和会话速率；静态 metadata 只有文件清单与大小，不代表已下载进度。
 
 主要依赖：
@@ -240,4 +240,4 @@ sequenceDiagram
 - Rust core 先服务桌面端，移动端分阶段引入 FFI；目前只共享协议识别，下载路径仍分离，不能把绑定层存在写成引擎迁移完成。
 - 队列采用本地 JSON，便于调试和迁移，但不适合多进程高并发写入。
 - ed2k 采用外部移交，缩小实现面，但进度和完成状态不可由 FluxDown 完整掌控。
-- HLS 当前聚焦 VOD 下载；桌面支持显式 variant 选择，但不承诺直播录制、DRM 或自适应码率切换。
+- HLS 当前聚焦 VOD 下载；桌面、CLI 和移动新建任务支持显式 variant 选择，但不承诺直播录制、DRM 或自适应码率切换。

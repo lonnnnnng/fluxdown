@@ -1,15 +1,17 @@
 //! Torrent 详情：文件列表、tracker、peer 聚合计数与实时速率。
 //!
 //! 运行中的下载会把会话句柄注册到进程内注册表，详情查询优先走运行时快照；
-//! 任务不在运行时回退到静态解析（.torrent 本地文件或 URL 下载），magnet
-//! 链接在未运行时只能给出元数据提示，文件列表需要 DHT 解析。
+//! 任务不在运行时回退到静态解析（.torrent 本地文件或 URL 下载）；magnet
+//! 链接会在未运行时使用零文件选择的临时 session 尝试获取 metadata，失败时保留
+//! info-hash/name 提示，不创建实际下载任务。
 
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, OnceLock},
+    time::Duration,
 };
 
-use librqbit::ManagedTorrent;
+use librqbit::{AddTorrent, AddTorrentOptions, ManagedTorrent, Session};
 use serde::Serialize;
 use url::Url;
 
@@ -121,9 +123,7 @@ fn runtime_details(task_id: &str) -> Option<TorrentDetails> {
         .as_ref()
         .map(|live| live.download_speed.mbps * 1024.0 * 1024.0);
     let eta_seconds = match (metadata_total, stats.progress_bytes, download_speed_bps) {
-        (total, progress, Some(speed))
-            if total > progress && speed > 0.0 && total > 0 =>
-        {
+        (total, progress, Some(speed)) if total > progress && speed > 0.0 && total > 0 => {
             Some(((total - progress) as f64 / speed).ceil() as u64)
         }
         _ => None,
@@ -256,7 +256,11 @@ fn static_details_from_torrent_bytes(bytes: &[u8]) -> Result<TorrentDetails, Dow
         info_hash: None,
         files,
         trackers,
-        total_bytes: if total_bytes > 0 { Some(total_bytes) } else { None },
+        total_bytes: if total_bytes > 0 {
+            Some(total_bytes)
+        } else {
+            None
+        },
         progress_bytes: None,
         uploaded_bytes: None,
         download_speed_bps: None,
@@ -293,6 +297,57 @@ fn static_details_from_magnet(source: &str) -> TorrentDetails {
     }
 }
 
+/// 只解析 magnet 的 metadata，不创建可下载任务。
+///
+/// 作者: long
+/// 新建任务需要先看到真实文件树再选择内容；librqbit 的 list_only 会用 port=0
+/// 请求 tracker，部分 tracker 会拒绝。零文件选择保留正常 peer 发现但不下载内容，
+/// 获取 metadata 后停止会话，临时目录仅容纳引擎创建的空占位文件并自动释放。
+async fn metadata_details_from_magnet(source: &str) -> Result<TorrentDetails, DownloadError> {
+    let metadata_dir = tempfile::tempdir()?;
+    let session = Session::new_with_opts(
+        metadata_dir.path().to_path_buf(),
+        crate::downloader::torrent_session_options(None),
+    )
+    .await
+    .map_err(|error| {
+        DownloadError::TorrentSourceUnreadable(format!("初始化 magnet 解析失败: {error}"))
+    })?;
+
+    let response = tokio::time::timeout(
+        Duration::from_secs(30),
+        session.add_torrent(
+            AddTorrent::from_url(source.to_string()),
+            Some(AddTorrentOptions {
+                only_files: Some(Vec::new()),
+                ..Default::default()
+            }),
+        ),
+    )
+    .await;
+    // 作者: long
+    // metadata 预览不应把临时 session 留在后台；无论获取成功、失败还是文件列表解析失败，
+    // 都先停止 session，再把原始错误交给上层回退为可保存任务。
+    let _ = session.stop().await;
+    let response = response
+        .map_err(|_| {
+            DownloadError::TorrentSourceUnreadable(
+                "Magnet 元数据解析超时，请检查 tracker 或网络后重试".into(),
+            )
+        })?
+        .map_err(|error| {
+            DownloadError::TorrentSourceUnreadable(format!("解析 magnet 元数据失败: {error}"))
+        })?;
+
+    let handle = response.into_handle().ok_or_else(|| {
+        DownloadError::TorrentSourceUnreadable("Magnet metadata 会话未返回文件列表".into())
+    })?;
+    let mut details = handle
+        .with_metadata(|metadata| static_details_from_torrent_bytes(&metadata.torrent_bytes))??;
+    details.info_hash = Some(handle.info_hash().as_string());
+    Ok(details)
+}
+
 pub async fn torrent_details(
     source: &str,
     task_id: Option<&str>,
@@ -305,16 +360,25 @@ pub async fn torrent_details(
 
     let trimmed = source.trim();
     if trimmed.starts_with("magnet:") {
-        return Ok(static_details_from_magnet(trimmed));
+        // 已有运行任务优先走 runtime_details；未运行时尝试获取 metadata，
+        // 网络或 tracker 不可用则保留 hash/name 提示，用户仍可先保存任务。
+        return match metadata_details_from_magnet(trimmed).await {
+            Ok(details) => Ok(details),
+            Err(error) => {
+                let mut details = static_details_from_magnet(trimmed);
+                details.error = Some(error.to_string());
+                Ok(details)
+            }
+        };
     }
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
         let bytes = crate::downloader::read_torrent_bytes_from_url(trimmed).await?;
         return static_details_from_torrent_bytes(&bytes);
     }
     let local_path = trimmed.strip_prefix("file://").unwrap_or(trimmed);
-    let bytes = tokio::fs::read(local_path)
-        .await
-        .map_err(|error| DownloadError::TorrentSourceUnreadable(format!("读取种子文件失败: {error}")))?;
+    let bytes = tokio::fs::read(local_path).await.map_err(|error| {
+        DownloadError::TorrentSourceUnreadable(format!("读取种子文件失败: {error}"))
+    })?;
     static_details_from_torrent_bytes(&bytes)
 }
 
@@ -349,14 +413,11 @@ e";
         assert_eq!(details.total_bytes, Some(5));
     }
 
-    #[tokio::test]
-    async fn magnet_details_carry_infohash_hint() {
-        let details = torrent_details(
+    #[test]
+    fn magnet_details_carry_infohash_hint() {
+        let details = static_details_from_magnet(
             "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=demo",
-            None,
-        )
-        .await
-        .unwrap();
+        );
 
         assert!(!details.runtime);
         assert_eq!(

@@ -8,7 +8,7 @@
 use fluxdown_core::{
     DoctorReport, DownloadOptions, DownloadRequest, DownloadState, DownloadTask, Protocol,
     QueueRunReport, QueueRunner, QueueRunnerOptions, RuntimeSupportStatus, TaskRunReport,
-    TaskStore, default_store_path, detect_protocol, doctor_report, hls_variants,
+    TaskStore, TorrentDetails, default_store_path, detect_protocol, doctor_report, hls_variants,
     runtime_support_status, sanitize_download_file_name, torrent_details, validate_sha256_text,
 };
 use serde::Deserialize;
@@ -82,7 +82,9 @@ async fn enqueue_download(payload: AddPayload) -> Result<DownloadTask, String> {
     request.file_name = payload.file_name;
     request.expected_sha256 = validated_expected_sha256(payload.expected_sha256)?;
     request.torrent_file_indices = payload.torrent_file_indices;
-    request.speed_limit_mbps = payload.speed_limit_mbps.filter(|limit| limit.is_finite() && *limit > 0.0);
+    request.speed_limit_mbps = payload
+        .speed_limit_mbps
+        .filter(|limit| limit.is_finite() && *limit > 0.0);
     request.hls_variant_index = payload.hls_variant_index;
     request.hls_keep_transport_stream = payload.hls_keep_transport_stream;
     TaskStore::new(default_store_path())
@@ -99,7 +101,10 @@ async fn list_hls_variants(source: String) -> Result<Vec<fluxdown_core::HlsVaria
 }
 
 #[tauri::command]
-async fn torrent_task_details(task_id: Option<String>, source: String) -> Result<serde_json::Value, String> {
+async fn torrent_task_details(
+    task_id: Option<String>,
+    source: String,
+) -> Result<serde_json::Value, String> {
     let details = torrent_details(&source, task_id.as_deref())
         .await
         .map_err(|error| error.to_string())?;
@@ -204,6 +209,80 @@ async fn open_task_output(id: String) -> Result<(), String> {
     let task = load_task(&id).await?;
     let path = existing_task_output_path(&task);
     open::that(path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn open_torrent_file(id: String, file_index: usize) -> Result<(), String> {
+    let task = load_task(&id).await?;
+    let details = torrent_details(&task.source, Some(&task.id))
+        .await
+        .map_err(|error| error.to_string())?;
+    let path = torrent_file_output_path(&task, &details, file_index)?;
+    open::that(path).map_err(|error| error.to_string())
+}
+
+fn torrent_file_output_path(
+    task: &DownloadTask,
+    details: &TorrentDetails,
+    file_index: usize,
+) -> Result<PathBuf, String> {
+    let file = details
+        .files
+        .iter()
+        .find(|file| file.index == file_index)
+        .ok_or_else(|| format!("Torrent 文件 #{file_index} 不存在"))?;
+    // 作者: long
+    // 未选文件可能因跨文件 piece 预分配而出现在磁盘上，文件存在不能代表用户下载过它。
+    if !task.torrent_file_indices.is_empty() && !task.torrent_file_indices.contains(&file_index) {
+        return Err("该文件未被选中下载".to_string());
+    }
+    if task.state != DownloadState::Finished
+        && !file.progress_bytes.is_some_and(|bytes| bytes >= file.size)
+    {
+        return Err("文件尚未下载完成".to_string());
+    }
+    let relative = PathBuf::from(&file.path);
+    if relative.components().any(|component| {
+        !matches!(
+            component,
+            std::path::Component::Normal(_) | std::path::Component::CurDir
+        )
+    }) {
+        return Err("Torrent 文件路径不安全".to_string());
+    }
+    let output_dir = resolve_stored_output_dir(&task.output_dir);
+    let root = if details.files.len() > 1
+        && let Some(name) = details.name.as_deref()
+    {
+        if name.is_empty()
+            || name == "."
+            || name == ".."
+            || name.contains('/')
+            || name.contains('\\')
+        {
+            return Err("Torrent 目录名称不安全".to_string());
+        }
+        output_dir.join(name)
+    } else {
+        output_dir.clone()
+    };
+    let path = root.join(relative);
+    let metadata = path
+        .metadata()
+        .map_err(|_| "文件尚未落盘或已被移走".to_string())?;
+    if !metadata.is_file() || metadata.len() != file.size {
+        return Err("本地文件大小与种子不一致".to_string());
+    }
+    let output_root = output_dir
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let canonical = path.canonicalize().map_err(|error| error.to_string())?;
+    // 作者: long
+    // 同时检查真实路径，避免种子中的相对路径或本地符号链接把打开操作导向保存目录之外。
+    if !canonical.starts_with(output_root) {
+        return Err("Torrent 文件不在下载保存目录内".to_string());
+    }
+    Ok(canonical)
 }
 
 #[tauri::command]
@@ -689,7 +768,8 @@ async fn fetch_latest_release(api_url: &str) -> Result<UpdateCheckReport, String
         .find(|asset| matches_platform_asset(&asset.name));
 
     Ok(UpdateCheckReport {
-        has_update: compare_versions(&latest_version, &current_version) == std::cmp::Ordering::Greater,
+        has_update: compare_versions(&latest_version, &current_version)
+            == std::cmp::Ordering::Greater,
         current_version,
         latest_version,
         release_url: release
@@ -799,11 +879,7 @@ fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
             .trim()
             .trim_start_matches(['v', 'V'])
             .split('.')
-            .map(|part| {
-                part.trim()
-                    .parse::<u64>()
-                    .unwrap_or(0)
-            })
+            .map(|part| part.trim().parse::<u64>().unwrap_or(0))
             .collect()
     }
     let left = parts(left);
@@ -844,9 +920,9 @@ fn matches_platform_asset(name: &str) -> bool {
 // 下载继续进行，用户从托盘回到界面——这是下载器常驻体验的核心。
 fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::{
+        Manager,
         menu::{Menu, MenuItem},
         tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-        Manager,
     };
 
     let show_item = MenuItem::with_id(app, "show", "显示 FluxDown", true, None::<&str>)?;
@@ -880,7 +956,8 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             } = event
             {
                 if let Some(window) = tray.app_handle().get_webview_window("main") {
-                    if window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false) {
+                    if window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false)
+                    {
                         let _ = window.hide();
                     } else {
                         let _ = window.unminimize();
@@ -913,13 +990,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 #[tauri::command]
 fn send_notification(app: tauri::AppHandle, title: String, body: String) -> Result<bool, String> {
     use tauri_plugin_notification::NotificationExt;
-    match app
-        .notification()
-        .builder()
-        .title(title)
-        .body(body)
-        .show()
-    {
+    match app.notification().builder().title(title).body(body).show() {
         Ok(_) => Ok(true),
         Err(_error) => {
             #[cfg(debug_assertions)]
@@ -950,7 +1021,9 @@ fn read_clipboard_text(app: tauri::AppHandle) -> Result<Option<String>, String> 
 #[tauri::command]
 fn write_clipboard_text(app: tauri::AppHandle, text: String) -> Result<(), String> {
     use tauri_plugin_clipboard_manager::ClipboardExt;
-    app.clipboard().write_text(text).map_err(|error| error.to_string())
+    app.clipboard()
+        .write_text(text)
+        .map_err(|error| error.to_string())
 }
 
 fn main() {
@@ -989,6 +1062,7 @@ fn main() {
             remove_download,
             task_output_path,
             open_task_output,
+            open_torrent_file,
             reveal_task_output,
             start_download,
             run_queue,
@@ -1116,11 +1190,11 @@ mod tests {
             return;
         };
         assert!(matches_platform_asset(expected));
-        assert!(!matches_platform_asset("FluxDown-1.0.12-android-release.apk"));
+        assert!(!matches_platform_asset(
+            "FluxDown-1.0.12-android-release.apk"
+        ));
         if cfg!(target_os = "windows") {
-            assert!(!matches_platform_asset(
-                "FluxDown-1.0.12-macos-aarch64.dmg"
-            ));
+            assert!(!matches_platform_asset("FluxDown-1.0.12-macos-aarch64.dmg"));
         }
     }
 
@@ -1610,6 +1684,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn torrent_file_open_requires_complete_selected_safe_output() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let output_dir = temp_dir.path().join("downloads");
+        let root = output_dir.join("demo");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.ts"), b"abc").unwrap();
+        std::fs::write(root.join("b.ts"), b"de").unwrap();
+        let source = temp_dir.path().join("demo.torrent");
+        std::fs::write(
+            &source,
+            b"d4:infod5:filesld6:lengthi3e4:pathl4:a.tseed6:lengthi2e4:pathl4:b.tseee4:name4:demoee",
+        )
+        .unwrap();
+        let mut details = torrent_details(source.to_str().unwrap(), None)
+            .await
+            .unwrap();
+        let mut task =
+            DownloadTask::from_request(DownloadRequest::new(source.to_string_lossy(), &output_dir));
+        task.state = DownloadState::Finished;
+        task.torrent_file_indices = vec![0];
+
+        assert_eq!(
+            torrent_file_output_path(&task, &details, 0).unwrap(),
+            root.join("a.ts").canonicalize().unwrap()
+        );
+        assert!(
+            torrent_file_output_path(&task, &details, 1)
+                .unwrap_err()
+                .contains("未被选中")
+        );
+        task.state = DownloadState::Running;
+        assert!(
+            torrent_file_output_path(&task, &details, 0)
+                .unwrap_err()
+                .contains("尚未下载完成")
+        );
+        details.files[0].progress_bytes = Some(3);
+        assert!(torrent_file_output_path(&task, &details, 0).is_ok());
+
+        std::fs::write(root.join("a.ts"), b"ab").unwrap();
+        assert!(
+            torrent_file_output_path(&task, &details, 0)
+                .unwrap_err()
+                .contains("大小")
+        );
+        details.files[0].path = "../outside.ts".to_string();
+        assert!(
+            torrent_file_output_path(&task, &details, 0)
+                .unwrap_err()
+                .contains("路径不安全")
+        );
+
+        #[cfg(unix)]
+        {
+            let outside = temp_dir.path().join("outside.ts");
+            std::fs::write(&outside, b"abc").unwrap();
+            std::os::unix::fs::symlink(outside, root.join("link.ts")).unwrap();
+            details.files[0].path = "link.ts".to_string();
+            assert!(
+                torrent_file_output_path(&task, &details, 0)
+                    .unwrap_err()
+                    .contains("保存目录内")
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn desktop_commands_download_hls_task_through_queue() {
         let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
         let temp_dir = tempfile::tempdir().unwrap();
@@ -1623,8 +1764,8 @@ mod tests {
             file_name: Some("desktop-hls.m3u8".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::M3u8);
@@ -1664,8 +1805,8 @@ mod tests {
             file_name: Some("desktop-hls-byte-range.m3u8".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::M3u8);
@@ -1708,8 +1849,8 @@ mod tests {
             file_name: Some("desktop-command.txt".to_string()),
             expected_sha256: Some(format!("sha256:{expected_sha256}")),
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.state, DownloadState::Queued);
@@ -1756,8 +1897,8 @@ mod tests {
             file_name: Some("desktop-command.txt".to_string()),
             expected_sha256: Some(wrong_sha256.to_string()),
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.expected_sha256.as_deref(), Some(wrong_sha256));
@@ -1789,8 +1930,8 @@ mod tests {
             file_name: Some("desktop-retry.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
 
@@ -1827,8 +1968,8 @@ mod tests {
             file_name: Some("desktop-command.txt".to_string()),
             expected_sha256: Some("not-a-sha256".to_string()),
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap_err();
 
@@ -1875,8 +2016,8 @@ mod tests {
             file_name: Some("desktop-ftp.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Ftp);
@@ -1913,8 +2054,8 @@ mod tests {
             file_name: Some("desktop-start.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
 
@@ -1966,8 +2107,8 @@ mod tests {
             file_name: Some("desktop-restart.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         TaskStore::new(default_store_path())
@@ -2005,8 +2146,8 @@ mod tests {
             file_name: Some("desktop-start-ftp.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Ftp);
@@ -2053,8 +2194,8 @@ mod tests {
             file_name: Some("desktop-start-hls.m3u8".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
 
@@ -2105,8 +2246,8 @@ mod tests {
             file_name: Some("desktop-start-webdav.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Webdav);
@@ -2154,8 +2295,8 @@ mod tests {
             file_name: Some("delete-running.bin".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         let task_id = task.id.clone();
@@ -2200,8 +2341,8 @@ mod tests {
             file_name: Some("pause-running.bin".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         let task_id = task.id.clone();
@@ -2274,8 +2415,8 @@ mod tests {
             file_name: Some("desktop-webdav.txt".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Webdav);
@@ -2321,8 +2462,8 @@ mod tests {
             file_name: Some(expected_name.clone()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Sftp);
@@ -2369,8 +2510,8 @@ mod tests {
             file_name: Some(expected_name.clone()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Ftps);
@@ -2417,8 +2558,8 @@ mod tests {
             file_name: Some(expected_name.clone()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Smb);
@@ -2465,8 +2606,8 @@ mod tests {
             file_name: Some("queued-sample.torrent".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Torrent);
@@ -2511,14 +2652,20 @@ mod tests {
             "scripts/verify-macos-desktop-p2p.sh",
         );
 
+        let preview = torrent_task_details(None, source.clone()).await.unwrap();
+        assert_eq!(preview["runtime"], false);
+        assert_eq!(preview["files"].as_array().unwrap().len(), 1);
+        assert_eq!(preview["name"].as_str(), Some(expected_name.as_str()));
+        assert!(list_downloads().await.unwrap().is_empty());
+
         let task = enqueue_download(AddPayload {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("magnet-download".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Magnet);
@@ -2583,8 +2730,8 @@ mod tests {
             file_name: Some("selected-bundle.torrent".to_string()),
             expected_sha256: None,
             torrent_file_indices: vec![0],
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Torrent);
@@ -2608,6 +2755,11 @@ mod tests {
         // 作者: long
         // 多文件种子选择只下载用户挑中的文件，任务卡片也必须展示最终真实文件名，而不是临时 .torrent 名。
         assert_eq!(sha256_file(&output_path), selected_sha256);
+        let details = torrent_details(&tasks[0].source, None).await.unwrap();
+        assert_eq!(
+            torrent_file_output_path(&tasks[0], &details, 0).unwrap(),
+            output_path.canonicalize().unwrap()
+        );
         let skipped_path = output_dir.join(root).join(skipped_name);
         assert!(
             !skipped_path.exists()
@@ -2647,14 +2799,25 @@ mod tests {
             "scripts/verify-macos-desktop-p2p.sh",
         );
 
+        // 作者: long
+        // 新建弹框先解析真实文件列表再提交选择；metadata 预览不能提前创建队列任务。
+        let preview = torrent_task_details(None, source.clone()).await.unwrap();
+        assert_eq!(preview["runtime"], false);
+        assert_eq!(preview["files"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            preview["files"][0]["path"].as_str(),
+            Some(selected_name.as_str())
+        );
+        assert!(list_downloads().await.unwrap().is_empty());
+
         let task = enqueue_download(AddPayload {
             source,
             output_dir: output_dir.to_string_lossy().into_owned(),
             file_name: Some("selected-magnet".to_string()),
             expected_sha256: None,
             torrent_file_indices: vec![0],
-        ..Default::default()
-}        )
+            ..Default::default()
+        })
         .await
         .unwrap();
         assert_eq!(task.protocol, Protocol::Magnet);
@@ -2678,6 +2841,11 @@ mod tests {
         // 作者: long
         // 多文件 Magnet 初始只有 metadata hash，选中文件下载完成后仍要用真实文件名和真实落盘路径驱动任务卡片、打开和分享。
         assert_eq!(sha256_file(&output_path), selected_sha256);
+        let details = torrent_details(&tasks[0].source, None).await.unwrap();
+        assert_eq!(
+            torrent_file_output_path(&tasks[0], &details, 0).unwrap(),
+            output_path.canonicalize().unwrap()
+        );
         let skipped_path = output_dir.join(root).join(skipped_name);
         assert!(
             !skipped_path.exists()

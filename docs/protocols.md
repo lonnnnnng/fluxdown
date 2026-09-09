@@ -21,7 +21,7 @@
 | `.torrent` | URL 或路径以 `.torrent` 结尾 | 内建 | 内建 | 桌面用 `librqbit`，移动端用 `libtorrent_flutter`。 |
 | Magnet | `magnet:?` | 内建 | 内建 | 依赖 torrent 后端。 |
 | ed2k | `ed2k://` | 移交 | 移交 | 桌面优先 aMule `ed2k` CLI，否则系统 handler；移动端移交兼容 App。 |
-| m3u8/HLS | URL 或路径以 `.m3u8` 结尾 | 内建 | 内建 | VOD、AES-128；移动端输出 `.mp4`，桌面默认尝试 FFmpeg 转 MP4，失败保留 TS。 |
+| m3u8/HLS | URL 或路径以 `.m3u8` 结尾 | 内建 | 内建 | VOD、AES-128；支持 master variant 选择和可选 TS 输出，默认按平台能力尝试转为 `.mp4`。 |
 | Unknown | 未匹配 | 不支持 | 不支持 | 不会执行下载。 |
 
 ## 桌面端细节
@@ -71,10 +71,10 @@
 - 使用 `librqbit`。
 - `.torrent` 可以是本地文件或 URL。
 - Magnet 通过 torrent session 添加。
-- 桌面 CLI、Tauri command 和新建弹框支持传入 torrent 文件编号，只下载选中的文件；编号留空时下载整个种子。桌面新建尚无 metadata 文件树勾选交互。
+- 桌面 CLI、Tauri command 和新建弹框支持传入 torrent 文件编号，只下载选中的文件；编号留空时下载整个种子。桌面新建弹框会在 metadata 到达后展示文件树并支持多选，至少选择一个文件后才会提交选择结果。
 - 任务完成后会用 metadata 中的真实文件名或目录名更新任务展示，单选多文件种子时也会递归定位真实落盘文件。
 - 桌面详情可显示文件清单、运行时逐文件已下载量/百分比、tracker、peer、会话速度和 ETA。静态 metadata 没有实时下载信息时显示未知，不按整体进度推算文件完成量。
-- 当前 CLI 没有对应的详情命令；桌面文件行尚无点击预览或逐文件实时速度。
+- 当前 CLI 没有对应的详情命令；桌面文件行支持已落盘文件打开，运行中逐文件速度由相邻 metadata 轮询样本计算，静态详情仍明确显示速度未知。
 
 ### ed2k
 
@@ -87,10 +87,10 @@
 
 - 使用 `m3u8-rs` 解析播放列表。
 - 支持 VOD media playlist。
-- 遇到 master playlist 时默认选择第一个 variant；core 和桌面 GUI 可指定 variant，CLI 尚未提供对应参数。
+- 遇到 master playlist 时默认选择第一个 variant；core、桌面 GUI 和 CLI 均可指定 zero-based variant 编号，移动端新建任务也可指定。
 - 支持 AES-128 CBC 分片解密。
 - 支持 BYTERANGE、并发分片下载和分片缓存恢复，最终按顺序合并。
-- 默认调用 FFmpeg 转封装为 `.mp4`；FFmpeg 不可用或转封装失败时保留 `.ts`。桌面 GUI 可选择直接保留 TS，CLI 暂无此选项。
+- 默认调用 FFmpeg 转封装为 `.mp4`；FFmpeg 不可用或转封装失败时保留 `.ts`。桌面 GUI、CLI 和移动端新建任务均可选择直接保留 TS。
 - 不支持 DRM、SAMPLE-AES 或直播滚动窗口；variant 选择不等于完整的多音轨/字幕轨选择。
 
 ## 移动端细节
@@ -140,10 +140,10 @@
 
 ### m3u8/HLS
 
-- 支持 VOD playlist、master playlist 首个 variant 和 AES-128 分片解密。
+- 支持 VOD playlist、master playlist variant 选择和 AES-128 分片解密。
 - Android/iOS 下载路径均支持 fMP4 初始化段（`EXT-X-MAP`）、BYTERANGE、并发分片和最终 `.mp4` 输出。
 - TS 分片先合并为临时文件，再尝试 Dart 内置转封装，失败时走原生平台通道兜底。iOS simulator 已有 TS/fMP4/BYTERANGE 历史 smoke，不能据此认定 iPhone 真机已验收。
-- 移动 UI 暂无桌面端的 variant 选择和保留 TS 选项。
+- 移动新建任务会在识别为 HLS 时显示 variant 编号和保留 TS 选项；选项随移动端任务 JSON 持久化，并由 Dart HLS 下载器执行。当前移动端产品调用 Rust FFI 仍只用于协议识别；FFI 的独立 `queue_add` 接口已支持保存这两个 HLS 字段，但尚未接管移动端下载执行。
 - 暂不承诺直播、DRM 或复杂码率选择。
 
 ## 支持状态命令

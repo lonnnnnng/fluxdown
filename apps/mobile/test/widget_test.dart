@@ -164,6 +164,20 @@ void main() {
     expect(restored.selectedTorrentTotalBytes, 1024);
   });
 
+  test('serializes HLS output preferences', () {
+    final task = DownloadTask.create(
+      source: 'https://example.com/master.m3u8',
+      outputFolder: '/tmp/downloads',
+      hlsVariantIndex: 2,
+      hlsKeepTransportStream: true,
+    );
+
+    final restored = DownloadTask.fromJson(task.toJson());
+
+    expect(restored.hlsVariantIndex, 2);
+    expect(restored.hlsKeepTransportStream, isTrue);
+  });
+
   test('parses single-file and multi-file torrent metadata', () {
     final single = parseTorrentMetadataBytes(
       utf8Bytes('d4:infod4:name10:sample.mp46:lengthi12345eee'),
@@ -1509,6 +1523,59 @@ variants/high.m3u8
         ...first,
         ...second,
       ]);
+    } finally {
+      await server.close(force: true);
+      await serverDone.cancel();
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test('downloads a selected HLS master variant and keeps TS output', () async {
+    final high = [21, 22, 23];
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_hls_variant_test_',
+    );
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final serverDone = server.listen((request) async {
+      switch (request.uri.path) {
+        case '/master.m3u8':
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..write('''
+#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=1280000
+low.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=2560000
+high.m3u8
+''');
+        case '/high.m3u8':
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..write('#EXTM3U\n#EXTINF:1,\nhigh.ts\n#EXT-X-ENDLIST\n');
+        case '/high.ts':
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..add(high);
+        default:
+          request.response.statusCode = HttpStatus.internalServerError;
+      }
+      await request.response.close();
+    });
+
+    try {
+      final task = DownloadTask.create(
+        source: 'http://${server.address.host}:${server.port}/master.m3u8',
+        outputFolder: tempDir.path,
+        hlsVariantIndex: 1,
+        hlsKeepTransportStream: true,
+      );
+      final finished = await MobileDownloadRunner().download(
+        task,
+        onProgress: (_) {},
+      );
+      expect(finished.state, DownloadState.finished);
+      expect(finished.fileName, 'master.ts');
+      expect(await File(p.join(tempDir.path, 'master.ts')).readAsBytes(), high);
     } finally {
       await server.close(force: true);
       await serverDone.cancel();

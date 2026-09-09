@@ -64,6 +64,8 @@ class DownloadController {
     List<TorrentFileEntry> torrentFiles = const [],
     List<int>? selectedTorrentFileIndexes,
     String? expectedSha256,
+    int? hlsVariantIndex,
+    bool hlsKeepTransportStream = false,
   }) async {
     final task = DownloadTask.create(
       source: source,
@@ -73,6 +75,8 @@ class DownloadController {
       torrentFiles: torrentFiles,
       selectedTorrentFileIndexes: selectedTorrentFileIndexes,
       expectedSha256: expectedSha256,
+      hlsVariantIndex: hlsVariantIndex,
+      hlsKeepTransportStream: hlsKeepTransportStream,
     );
     _tasks.insert(0, task);
     await _save();
@@ -242,8 +246,9 @@ class DownloadController {
         // torrent 任务是目录/多文件产物，哈希校验不适用，直接跳过。
         // 未配置 SHA-256 的任务必须走同步路径完成状态落库，不引入额外 await，
         // 否则会改变既有“完成即可见”的时序约定。
-        final needsSha256Verification = completed.state == DownloadState.finished
-            && normalizeSha256Text(completed.expectedSha256) != null;
+        final needsSha256Verification =
+            completed.state == DownloadState.finished &&
+            normalizeSha256Text(completed.expectedSha256) != null;
         if (needsSha256Verification) {
           final mismatch = await _verifyExpectedSha256(completed);
           if (mismatch != null) {
@@ -438,7 +443,9 @@ class DownloadController {
       }
       final out = Uint8List(digest.digestSize);
       digest.doFinal(out, 0);
-      final actual = out.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+      final actual = out
+          .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+          .join();
       if (actual != expected) {
         return 'SHA-256 校验失败：期望 $expected，实际 $actual';
       }

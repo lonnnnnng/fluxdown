@@ -178,6 +178,10 @@ pub struct DownloadOptions {
     pub speed_limit_bps: Option<u64>,
     #[serde(default)]
     pub restart_existing: bool,
+    #[serde(default)]
+    pub hls_variant_index: Option<usize>,
+    #[serde(default)]
+    pub hls_keep_transport_stream: bool,
 }
 
 impl Default for DownloadOptions {
@@ -186,6 +190,8 @@ impl Default for DownloadOptions {
             thread_count: 1,
             speed_limit_bps: None,
             restart_existing: false,
+            hls_variant_index: None,
+            hls_keep_transport_stream: false,
         }
     }
 }
@@ -196,11 +202,23 @@ impl DownloadOptions {
             thread_count: thread_count.clamp(1, 32),
             speed_limit_bps: speed_limit_bps.filter(|limit| *limit > 0),
             restart_existing: false,
+            hls_variant_index: None,
+            hls_keep_transport_stream: false,
         }
     }
 
     pub fn with_restart_existing(mut self, restart_existing: bool) -> Self {
         self.restart_existing = restart_existing;
+        self
+    }
+
+    pub fn with_hls_options(
+        mut self,
+        hls_variant_index: Option<usize>,
+        hls_keep_transport_stream: bool,
+    ) -> Self {
+        self.hls_variant_index = hls_variant_index;
+        self.hls_keep_transport_stream = hls_keep_transport_stream;
         self
     }
 }
@@ -301,7 +319,8 @@ impl DownloadEngine {
         options: DownloadOptions,
     ) -> Result<DownloadSummary, DownloadError> {
         let options = DownloadOptions::new(options.thread_count, options.speed_limit_bps)
-            .with_restart_existing(options.restart_existing);
+            .with_restart_existing(options.restart_existing)
+            .with_hls_options(options.hls_variant_index, options.hls_keep_transport_stream);
         let expected_sha256 = request
             .expected_sha256
             .as_deref()
@@ -940,7 +959,7 @@ impl DownloadEngine {
                 // 作者: long
                 // 支持按清晰度 variant 选择：未指定时保持旧行为取第一个，
                 // 指定下标越界时报错而不是悄悄回退，避免用户选错清晰度。
-                let variant = match request.hls_variant_index {
+                let variant = match request.hls_variant_index.or(options.hls_variant_index) {
                     Some(index) => master.variants.get(index).ok_or_else(|| {
                         DownloadError::HlsVariantOutOfRange {
                             index,
@@ -1091,25 +1110,27 @@ impl DownloadEngine {
         // 因此无论哪种产物路径都可以安全清理分片缓存。
         let _ = fs::remove_dir_all(&segment_cache_dir).await;
 
-        let (output_path, output_bytes) =
-            if request.hls_keep_transport_stream.unwrap_or(false) {
-                fs::rename(&temp_ts_path, &fallback_ts_path).await?;
-                (fallback_ts_path, bytes_written)
-            } else {
-                match remux_hls_transport_stream(&temp_ts_path, &output_path).await {
-                    Ok(bytes) => {
-                        let _ = fs::remove_file(&temp_ts_path).await;
-                        (output_path, bytes)
-                    }
-                    Err(_) => {
-                        if fallback_ts_path != temp_ts_path {
-                            let _ = fs::remove_file(&fallback_ts_path).await;
-                            fs::rename(&temp_ts_path, &fallback_ts_path).await?;
-                        }
-                        (fallback_ts_path, bytes_written)
-                    }
+        let (output_path, output_bytes) = if request
+            .hls_keep_transport_stream
+            .unwrap_or(options.hls_keep_transport_stream)
+        {
+            fs::rename(&temp_ts_path, &fallback_ts_path).await?;
+            (fallback_ts_path, bytes_written)
+        } else {
+            match remux_hls_transport_stream(&temp_ts_path, &output_path).await {
+                Ok(bytes) => {
+                    let _ = fs::remove_file(&temp_ts_path).await;
+                    (output_path, bytes)
                 }
-            };
+                Err(_) => {
+                    if fallback_ts_path != temp_ts_path {
+                        let _ = fs::remove_file(&fallback_ts_path).await;
+                        fs::rename(&temp_ts_path, &fallback_ts_path).await?;
+                    }
+                    (fallback_ts_path, bytes_written)
+                }
+            }
+        };
 
         Ok(DownloadSummary {
             protocol: Protocol::M3u8,
@@ -1608,7 +1629,7 @@ fn torrent_only_files(request: &DownloadRequest) -> Option<Vec<usize>> {
     (!request.torrent_file_indices.is_empty()).then(|| request.torrent_file_indices.clone())
 }
 
-fn torrent_session_options(speed_limit_bps: Option<u64>) -> SessionOptions {
+pub(crate) fn torrent_session_options(speed_limit_bps: Option<u64>) -> SessionOptions {
     SessionOptions {
         // 作者: long
         // BitTorrent 需要监听 peer 端口，tracker 才能把本机作为可连接下载端告诉做种方。
@@ -1892,18 +1913,21 @@ pub async fn read_torrent_bytes_from_url(source: &str) -> Result<Vec<u8>, Downlo
     if source.starts_with("http://") || source.starts_with("https://") {
         let response = reqwest::get(source)
             .await
-            .map_err(|error| DownloadError::TorrentSourceUnreadable(format!("下载种子失败: {error}")))?
+            .map_err(|error| {
+                DownloadError::TorrentSourceUnreadable(format!("下载种子失败: {error}"))
+            })?
             .error_for_status()
-            .map_err(|error| DownloadError::TorrentSourceUnreadable(format!("下载种子失败: {error}")))?;
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|error| DownloadError::TorrentSourceUnreadable(format!("读取种子内容失败: {error}")))?;
+            .map_err(|error| {
+                DownloadError::TorrentSourceUnreadable(format!("下载种子失败: {error}"))
+            })?;
+        let bytes = response.bytes().await.map_err(|error| {
+            DownloadError::TorrentSourceUnreadable(format!("读取种子内容失败: {error}"))
+        })?;
         Ok(bytes.to_vec())
     } else {
-        tokio::fs::read(source)
-            .await
-            .map_err(|error| DownloadError::TorrentSourceUnreadable(format!("读取种子文件失败: {error}")))
+        tokio::fs::read(source).await.map_err(|error| {
+            DownloadError::TorrentSourceUnreadable(format!("读取种子文件失败: {error}"))
+        })
     }
 }
 
@@ -1933,8 +1957,8 @@ pub async fn hls_variants(source: &str) -> Result<Vec<HlsVariantInfo>, DownloadE
         .error_for_status()?
         .text()
         .await?;
-    let playlist = m3u8_rs::parse_playlist_res(text.as_bytes())
-        .map_err(|_| DownloadError::InvalidM3u8)?;
+    let playlist =
+        m3u8_rs::parse_playlist_res(text.as_bytes()).map_err(|_| DownloadError::InvalidM3u8)?;
     let m3u8_rs::Playlist::MasterPlaylist(master) = playlist else {
         return Ok(Vec::new());
     };
@@ -2578,7 +2602,6 @@ mod tests {
         );
         assert!(matches!(error, DownloadError::FtpsDataTls { .. }));
     }
-
 
     #[test]
     fn torrent_output_details_use_single_file_name() {
@@ -3561,10 +3584,7 @@ fn main() {{
         let temp_dir = tempfile::tempdir().unwrap();
         let mut request = DownloadRequest::new(source, temp_dir.path());
         request.hls_variant_index = Some(1);
-        let summary = DownloadEngine::new()
-            .download(request)
-            .await
-            .unwrap();
+        let summary = DownloadEngine::new().download(request).await.unwrap();
 
         assert_eq!(summary.segments_written, Some(1));
         assert_eq!(

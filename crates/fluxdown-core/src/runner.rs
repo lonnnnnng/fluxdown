@@ -339,9 +339,11 @@ async fn run_one(
         }) as Arc<dyn Fn(DownloadProgress) + Send + Sync>
     };
 
+    let request = request_with_hls_overrides(task.request(), download_options);
+
     let mut summary = match engine
         .download_with_control_and_options(
-            task.request(),
+            request,
             Some(progress_callback),
             Some(cancel),
             download_options,
@@ -396,6 +398,22 @@ async fn run_one(
         Err(error) => return Err(error.into()),
     };
     Ok(TaskRunReport { task, summary })
+}
+
+fn request_with_hls_overrides(
+    mut request: crate::DownloadRequest,
+    options: DownloadOptions,
+) -> crate::DownloadRequest {
+    // 作者: long
+    // start/run 的命令行选项是本次运行的临时覆盖；任务已保存的 HLS 选项仍作为默认值，
+    // 这样既能复用队列配置，也允许脚本用 --hls-variant-index/--hls-keep-ts 临时选择输出。
+    if options.hls_variant_index.is_some() {
+        request.hls_variant_index = options.hls_variant_index;
+    }
+    if options.hls_keep_transport_stream {
+        request.hls_keep_transport_stream = Some(true);
+    }
+    request
 }
 
 async fn partial_file_size(task: &DownloadTask) -> Option<u64> {
@@ -484,6 +502,22 @@ mod tests {
 
         assert!(candidates.contains(&temp_dir.path().join("_legacy_name.zip")));
         assert!(!candidates.contains(&temp_dir.path().join("../legacy:name.zip")));
+    }
+
+    #[test]
+    fn runner_hls_options_override_saved_task_only_when_provided() {
+        let mut request = DownloadRequest::new("https://example.com/master.m3u8", "/tmp");
+        request.hls_variant_index = Some(0);
+        request.hls_keep_transport_stream = Some(false);
+
+        let options = DownloadOptions::default().with_hls_options(Some(2), true);
+        let overridden = request_with_hls_overrides(request.clone(), options);
+        assert_eq!(overridden.hls_variant_index, Some(2));
+        assert_eq!(overridden.hls_keep_transport_stream, Some(true));
+
+        let unchanged = request_with_hls_overrides(request, DownloadOptions::default());
+        assert_eq!(unchanged.hls_variant_index, Some(0));
+        assert_eq!(unchanged.hls_keep_transport_stream, Some(false));
     }
 
     #[tokio::test]
