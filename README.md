@@ -32,21 +32,25 @@ iOS FFI 链接、移动端 JSON 解码/内存释放、桌面 Torrent 分文件�
 
 ## 界面截图
 
+以下截图均来自 `v1.0.17`，展示 Windows、macOS 与 Android 三端的下载列表、新建任务和设置界面。
+
+### Windows 桌面端
+
+| 下载列表 | 新建任务 | 设置 |
+| --- | --- | --- |
+| <img src="img/v1.0.17/windows/download-list.png" alt="Windows 下载列表" width="320"> | <img src="img/v1.0.17/windows/new-task.png" alt="Windows 新建任务" width="320"> | <img src="img/v1.0.17/windows/settings.png" alt="Windows 设置" width="320"> |
+
 ### macOS 桌面端
 
-历史界面图，采集于 2026-08-04 至 08-06（`1.0.8`/`1.0.9` 阶段），不展示后续托盘、更新及 Torrent 详情增强。
+| 下载列表 | 新建任务 | 设置 |
+| --- | --- | --- |
+| <img src="img/v1.0.17/macos/download-list.png" alt="macOS 下载列表" width="320"> | <img src="img/v1.0.17/macos/new-task.png" alt="macOS 新建任务" width="320"> | <img src="img/v1.0.17/macos/settings.png" alt="macOS 设置" width="320"> |
+
+### Android 端
 
 | 下载列表 | 新建任务 | 设置 |
 | --- | --- | --- |
-| <img src="docs/artifacts/readme/macos/queue.png" alt="macOS 下载列表" width="320"> | <img src="docs/artifacts/readme/macos/new-task.png" alt="macOS 新建任务" width="320"> | <img src="docs/artifacts/readme/macos/settings.png" alt="macOS 设置" width="320"> |
-
-### Android 真机（Redmi Note 8 Pro）
-
-以下为 2026-08-20 的 `1.0.10+11` release APK 真机截图，不是当前源码的新一轮截图；尚未包含后来新增的 SHA-256 输入项。
-
-| 下载列表 | 新建任务 | 设置 |
-| --- | --- | --- |
-| <img src="docs/screenshots/android-redmi-gap-fixes.png" alt="Android 真机下载列表" width="220"> | <img src="docs/screenshots/android-new-task-gap-fixes.png" alt="Android 真机新建任务" width="220"> | <img src="docs/screenshots/android-settings-gap-fixes.png" alt="Android 真机设置" width="220"> |
+| <img src="img/v1.0.17/android/download-list.png" alt="Android 下载列表" width="220"> | <img src="img/v1.0.17/android/new-task.png" alt="Android 新建任务" width="220"> | <img src="img/v1.0.17/android/settings.png" alt="Android 设置" width="220"> |
 
 ## 验证边界
 
