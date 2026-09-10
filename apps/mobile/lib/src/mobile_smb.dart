@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dart_smb2/dart_smb2.dart';
 import 'package:path/path.dart' as p;
 
+import 'download_failure.dart';
 import 'download_task.dart';
 import 'transfer_metrics.dart';
 
@@ -172,10 +173,21 @@ Future<DownloadTask> downloadSmbTask(
         await onProgress(current);
       },
     );
+    final expectedBytes = current.totalBytes;
+    if (expectedBytes != null && downloaded != expectedBytes) {
+      // 作者: long
+      // SMB 流可能在连接断开时提前结束；远端总大小已知时必须核对，不能把半截文件显示为已完成。
+      throw IncompleteTransferException(
+        protocol: task.protocol,
+        expectedBytes: expectedBytes,
+        actualBytes: downloaded,
+      );
+    }
     return current.copyWith(
       state: DownloadState.finished,
       downloadedBytes: downloaded,
-      totalBytes: current.totalBytes ?? downloaded,
+      totalBytes: expectedBytes,
+      clearTotalBytes: expectedBytes == null,
       clearError: true,
     );
   } on Smb2Exception catch (error) {

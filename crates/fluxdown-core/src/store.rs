@@ -15,9 +15,9 @@ static TASK_STORE_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(
 pub enum TaskStoreError {
     #[error("task `{0}` was not found")]
     NotFound(String),
-    #[error(transparent)]
+    #[error("任务队列存储失败，请检查应用数据目录的剩余空间和写入权限：{0}")]
     Io(#[from] std::io::Error),
-    #[error(transparent)]
+    #[error("任务队列数据损坏，无法读取：{0}")]
     Json(#[from] serde_json::Error),
 }
 
@@ -141,18 +141,30 @@ impl TaskStore {
         &self,
         max_age: Duration,
     ) -> Result<Vec<DownloadTask>, TaskStoreError> {
+        self.recover_running(Some(max_age)).await
+    }
+
+    pub async fn recover_interrupted_running(&self) -> Result<Vec<DownloadTask>, TaskStoreError> {
+        self.recover_running(None).await
+    }
+
+    async fn recover_running(
+        &self,
+        minimum_age: Option<Duration>,
+    ) -> Result<Vec<DownloadTask>, TaskStoreError> {
         let _guard = TASK_STORE_WRITE_LOCK.lock().await;
         let _process_guard = self.lock_for_write().await?;
         let mut file = self.read_file().await?;
         let now = now_ms();
-        let max_age_ms = max_age.as_millis();
         let mut recovered = Vec::new();
 
         for task in &mut file.tasks {
             if task.state != DownloadState::Running {
                 continue;
             }
-            if now.saturating_sub(task.updated_at_ms) < max_age_ms {
+            if minimum_age.is_some_and(|minimum_age| {
+                now.saturating_sub(task.updated_at_ms) < minimum_age.as_millis()
+            }) {
                 continue;
             }
 
@@ -474,6 +486,30 @@ mod tests {
 
         assert_eq!(recovered.len(), 1);
         assert_eq!(persisted.state, DownloadState::Paused);
+        assert_eq!(persisted.current_speed_bytes_per_second, 0);
+        assert!(persisted.error.unwrap().contains("任务中断"));
+    }
+
+    #[tokio::test]
+    async fn recovers_recent_running_tasks_when_process_restart_is_known() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let task = store
+            .enqueue(DownloadRequest::new("https://example.com/file.bin", "/tmp"))
+            .await
+            .unwrap();
+        let mut running = task;
+        running.set_state(DownloadState::Running);
+        running.set_progress_with_speed(64, Some(128), 32);
+        store.update(running.clone()).await.unwrap();
+
+        let recovered = store.recover_interrupted_running().await.unwrap();
+        let persisted = store.get(&running.id).await.unwrap();
+
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(persisted.state, DownloadState::Paused);
+        assert_eq!(persisted.downloaded_bytes, 64);
+        assert_eq!(persisted.total_bytes, Some(128));
         assert_eq!(persisted.current_speed_bytes_per_second, 0);
         assert!(persisted.error.unwrap().contains("任务中断"));
     }

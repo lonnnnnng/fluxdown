@@ -1,5 +1,14 @@
 # 下载验证状态
 
+## 2026-09-10 P1-05 错误处理与异常恢复（代码与确定性回归）
+
+- 核心新增统一错误策略：认证失败、404、无效协议/播放列表、权限拒绝、磁盘空间不足、SHA-256 不匹配和无 Peer 不自动重试；连接拒绝、连接重置、超时、HTTP 408/429/5xx 等瞬态错误才消耗重试次数。HLS 分片重试同样遵守该策略，退避期间可被暂停取消。
+- 核心新增已知总大小的完整性护栏。HTTP、FTP/FTPS、SFTP、SMB、Torrent 收尾时若实际字节数小于远端声明值，会进入失败；移动端 HTTP/FTP/SFTP/SMB 使用同一规则，未知总大小继续显示未知，不会伪造完成进度。
+- 桌面启动时立即回收上次进程残留的 `running` 任务；移动 `DownloadController.load()` 也会将持久化 `running` 恢复为 `paused`，保留断点、速度归零并写入可继续提示。桌面仍保留 5 分钟 stale recovery 作为运行中跨进程保护。
+- 错误展示已统一为可操作中文提示并脱敏 URL 凭据；失败任务卡片直接展示原因，用户可从任务操作中重试。Torrent 无 Peer/长时间无进度提示检查 Tracker 和 Peer，不会显示为完成。
+- 已验证：`cargo test --locked -p fluxdown-core`（83 项通过）；`cargo test --locked -p fluxdown-cli`（单元 2 项、集成 36 项通过）；`cargo test --locked -p fluxdown-desktop`（35 项通过、7 项外部环境用例忽略）；`apps/mobile` 执行 `flutter analyze` 与 `flutter test`（56 项通过、4 项需 `FLUXDOWN_FFI_TEST_LIBRARY` 的 host 用例按环境跳过）。新增回归包含 HTTP 401 不重试、503 重试恢复、HLS 404 不重试、HTTP Range 截断重试与认证失败立即停止、FTP 截断失败、存储/权限/无 Peer 提示、桌面启动恢复、移动加载恢复，以及暂停后迟到进度/完成结果不覆盖暂停状态。
+- 未宣称已完成的边界：真实磁盘填满、运行中撤销系统目录权限、iOS/Android 后台进程被系统回收、外部 FTPS/SFTP/SMB/Torrent fixture 的设备级实测仍需对应实验室环境；本轮没有伪造这些数据。
+
 ## 2026-09-09 P1-04 设置与保存位置一致性（未发布）
 
 - 桌面新增 Tauri 原生目录选择：设置页“默认保存位置”和新建任务“保存路径”都支持系统目录对话框；取消选择不会覆盖当前路径。桌面入队失败会保留真实后端错误，不再伪装成浏览器预览任务。

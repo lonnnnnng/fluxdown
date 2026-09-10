@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:pointycastle/export.dart';
 
 import 'download_task.dart';
+import 'download_failure.dart';
 import 'hls_ts_remuxer.dart';
 import 'mobile_ed2k.dart';
 import 'mobile_ftp.dart';
@@ -225,11 +226,13 @@ class MobileDownloadRunner {
         await sink.close();
       }
 
+      _ensureTransferComplete(task.protocol, downloaded, totalBytes);
       _cancelled.remove(task.id);
       return current.copyWith(
         state: DownloadState.finished,
         downloadedBytes: downloaded,
-        totalBytes: totalBytes ?? downloaded,
+        totalBytes: totalBytes,
+        clearTotalBytes: totalBytes == null,
         clearError: true,
       );
     } finally {
@@ -381,22 +384,30 @@ class MobileDownloadRunner {
           }
 
           if (partBytesThisAttempt != expectedPartBytes) {
-            throw HttpException(
-              'Incomplete HTTP range $partBytesThisAttempt/$expectedPartBytes',
-              uri: sourceUri,
+            throw IncompleteTransferException(
+              protocol: task.protocol,
+              expectedBytes: expectedPartBytes,
+              actualBytes: partBytesThisAttempt,
             );
           }
 
           return;
         } on DownloadCancelled {
           rethrow;
-        } catch (_) {
-          if (attempt == maxPartAttempts - 1) {
+        } on Object catch (error) {
+          final retryable = describeDownloadFailure(
+            error,
+            source: task.source,
+            protocol: task.protocol,
+          ).retryable;
+          if (!retryable || attempt == maxPartAttempts - 1) {
             rangeFailed = true;
             rethrow;
           }
-          await Future<void>.delayed(
+          await _waitForRangeRetry(
+            task.id,
             Duration(milliseconds: 200 * (attempt + 1)),
+            isRangeFailed: () => rangeFailed,
           );
         }
       }
@@ -440,6 +451,25 @@ class MobileDownloadRunner {
         }
       }
       rethrow;
+    }
+  }
+
+  Future<void> _waitForRangeRetry(
+    String taskId,
+    Duration duration, {
+    required bool Function() isRangeFailed,
+  }) async {
+    final deadline = DateTime.now().add(duration);
+    while (DateTime.now().isBefore(deadline)) {
+      if (_cancelled.contains(taskId) || isRangeFailed()) {
+        throw const DownloadCancelled();
+      }
+      final remaining = deadline.difference(DateTime.now());
+      await Future<void>.delayed(
+        remaining > const Duration(milliseconds: 25)
+            ? const Duration(milliseconds: 25)
+            : remaining,
+      );
     }
   }
 
@@ -514,11 +544,13 @@ class MobileDownloadRunner {
         await sink.close();
       }
       await ftp.completeRetrieve();
+      _ensureTransferComplete(task.protocol, downloaded, totalBytes);
       _cancelled.remove(task.id);
       return current.copyWith(
         state: DownloadState.finished,
         downloadedBytes: downloaded,
-        totalBytes: totalBytes ?? downloaded,
+        totalBytes: totalBytes,
+        clearTotalBytes: totalBytes == null,
         clearError: true,
       );
     } finally {
@@ -795,11 +827,13 @@ class MobileDownloadRunner {
         await sink.close();
       }
 
+      _ensureTransferComplete(task.protocol, downloaded, totalBytes);
       _cancelled.remove(task.id);
       return current.copyWith(
         state: DownloadState.finished,
         downloadedBytes: downloaded,
-        totalBytes: totalBytes ?? downloaded,
+        totalBytes: totalBytes,
+        clearTotalBytes: totalBytes == null,
         clearError: true,
       );
     } finally {
@@ -1322,6 +1356,23 @@ class MobileDownloadRunner {
     }
     return _client;
   }
+}
+
+void _ensureTransferComplete(
+  String protocol,
+  int actualBytes,
+  int? expectedBytes,
+) {
+  if (expectedBytes == null || actualBytes == expectedBytes) {
+    return;
+  }
+  // 作者: long
+  // FTP/SFTP/HTTP 流正常结束不代表远端声明的内容已完整到达；完成前核对长度，避免截断文件被写成 finished 和 100%。
+  throw IncompleteTransferException(
+    protocol: protocol,
+    expectedBytes: expectedBytes,
+    actualBytes: actualBytes,
+  );
 }
 
 class HlsSegment {

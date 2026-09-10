@@ -4797,6 +4797,12 @@ String _taskOutputFileName(DownloadTask task) {
 }
 
 String _taskSubtitle(AppStrings strings, DownloadTask task) {
+  final error = task.error?.trim();
+  if (error != null && error.isNotEmpty) {
+    // 作者: long
+    // 失败原因直接放在任务卡片第二行，用户无需先打开属性页；提示已经在控制器层脱敏并给出下一步动作。
+    return error;
+  }
   if (task.hasTorrentFolder) {
     return '${protocolLabel(task.protocol)} · ${strings.torrentSelectedCount(task.selectedTorrentFiles.length)} / ${task.torrentFiles.length} · ${_compactTaskSource(task.source)}';
   }

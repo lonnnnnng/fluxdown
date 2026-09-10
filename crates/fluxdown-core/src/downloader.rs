@@ -12,7 +12,7 @@ use reqwest::StatusCode;
 use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, RANGE};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use smb2::{ClientConfig, SmbClient};
+use smb2::{ClientConfig, ErrorKind as SmbErrorKind, SmbClient};
 use ssh2::Session as SshSession;
 use std::collections::HashMap;
 use std::io::{Read, Seek};
@@ -77,6 +77,14 @@ pub enum DownloadError {
     Http(#[from] reqwest::Error),
     #[error("http range download failed: {0}")]
     HttpRange(String),
+    #[error(
+        "incomplete {protocol:?} transfer: expected {expected_bytes} bytes, got {actual_bytes}"
+    )]
+    IncompleteTransfer {
+        protocol: Protocol,
+        expected_bytes: u64,
+        actual_bytes: u64,
+    },
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error("invalid m3u8 playlist")]
@@ -133,6 +141,327 @@ pub enum DownloadError {
         actual: String,
         path: String,
     },
+}
+
+impl DownloadError {
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Self::Http(error) => http_error_is_retryable(error),
+            Self::Io(error) => io_error_is_retryable(error),
+            Self::IncompleteTransfer {
+                expected_bytes,
+                actual_bytes,
+                ..
+            } => actual_bytes < expected_bytes,
+            Self::Ftp(error) => ftp_error_is_retryable(error),
+            Self::Sftp(error) => protocol_error_is_retryable(error.message()),
+            Self::Smb(error) => {
+                error.is_retryable() || matches!(error.kind(), SmbErrorKind::SessionExpired)
+            }
+            Self::Torrent(error) => protocol_error_is_retryable(&error.to_string()),
+            Self::Paused
+            | Self::UnsupportedProtocol(_)
+            | Self::MissingBackend { .. }
+            | Self::ExternalBackendFailed { .. }
+            | Self::HandoffFailed { .. }
+            | Self::MissingFileName(_)
+            | Self::InvalidUrl(_)
+            | Self::HttpRange(_)
+            | Self::InvalidM3u8
+            | Self::UnsupportedHlsKeyMethod(_)
+            | Self::InvalidHlsKey(_)
+            | Self::InvalidHlsByteRange(_)
+            | Self::HlsDecrypt(_)
+            | Self::HlsRemux(_)
+            | Self::TorrentStalled { .. }
+            | Self::InvalidFtpUrl(_)
+            | Self::HlsVariantOutOfRange { .. }
+            | Self::TorrentSourceUnreadable(_)
+            | Self::InvalidSftpUrl(_)
+            | Self::InvalidSmbUrl(_)
+            | Self::FtpsDataTls { .. }
+            | Self::InvalidSha256 { .. }
+            | Self::Sha256UnsupportedOutput { .. }
+            | Self::Sha256Mismatch { .. } => false,
+        }
+    }
+
+    pub fn user_message(&self) -> String {
+        match self {
+            Self::Http(error) => http_error_user_message(error),
+            Self::Io(error) => io_error_user_message(error),
+            Self::IncompleteTransfer {
+                protocol,
+                expected_bytes,
+                actual_bytes,
+            } => format!(
+                "{} {}",
+                protocol.as_str().to_ascii_uppercase(),
+                if actual_bytes < expected_bytes {
+                    format!(
+                        "传输中断：已下载 {actual_bytes}/{expected_bytes} 字节，请检查网络后重试。"
+                    )
+                } else {
+                    format!(
+                        "本地文件大小异常：已有 {actual_bytes} 字节，远端为 {expected_bytes} 字节，请重新下载。"
+                    )
+                }
+            ),
+            Self::Ftp(error) => ftp_error_user_message(error),
+            Self::FtpsDataTls { .. } => {
+                "FTPS 数据连接失败：服务器要求复用 TLS 会话，当前内建引擎暂不兼容该服务端配置。"
+                    .to_string()
+            }
+            Self::Sftp(error) => protocol_error_user_message("SFTP", error.message()),
+            Self::Smb(error) => smb_error_user_message(error),
+            Self::TorrentStalled { .. } => {
+                "暂无可用 Peer 或 Tracker 未响应，请检查网络、Tracker 后稍后重试。".to_string()
+            }
+            Self::Torrent(error) => protocol_error_user_message("Torrent", &error.to_string()),
+            Self::UnsupportedProtocol(protocol) => format!(
+                "暂不支持 {} 协议，请检查链接或改用受支持的下载方式。",
+                protocol.as_str()
+            ),
+            Self::MissingBackend { command, .. } => {
+                format!("缺少外部下载组件 `{command}`，请安装后重试。")
+            }
+            Self::ExternalBackendFailed { .. } => {
+                "外部下载组件执行失败，请检查组件状态后重试。".to_string()
+            }
+            Self::HandoffFailed { .. } => {
+                "无法移交给系统或外部应用，请确认已安装可处理该链接的应用。".to_string()
+            }
+            Self::MissingFileName(_) => {
+                "无法从链接识别文件名，请在新建任务时手动填写文件名。".to_string()
+            }
+            Self::InvalidUrl(_)
+            | Self::InvalidFtpUrl(_)
+            | Self::InvalidSftpUrl(_)
+            | Self::InvalidSmbUrl(_) => {
+                "下载链接格式无效，请检查协议、主机和文件路径。".to_string()
+            }
+            Self::HttpRange(_) => {
+                "服务器的分段下载响应无效，请降低下载线程数或更换下载源。".to_string()
+            }
+            Self::InvalidM3u8 => "HLS 播放列表无效或没有可下载分片。".to_string(),
+            Self::UnsupportedHlsKeyMethod(_) => {
+                "HLS 使用了暂不支持的加密方式，无法下载该资源。".to_string()
+            }
+            Self::InvalidHlsKey(_) | Self::HlsDecrypt(_) => {
+                "HLS 密钥无效或分片解密失败，请检查资源是否已过期。".to_string()
+            }
+            Self::InvalidHlsByteRange(_) => {
+                "HLS 分片范围无效，请检查播放列表或更换下载源。".to_string()
+            }
+            Self::HlsRemux(_) => {
+                "HLS 转封装失败，请确认 FFmpeg 可用，或改为保留 TS 文件。".to_string()
+            }
+            Self::HlsVariantOutOfRange { available, .. } => {
+                format!("所选 HLS 清晰度已失效，当前可用清晰度共 {available} 个，请重新选择。")
+            }
+            Self::TorrentSourceUnreadable(_) => {
+                "Torrent 文件无法读取，请检查文件是否存在且有访问权限。".to_string()
+            }
+            Self::Paused => "下载已暂停，可在任务列表中继续。".to_string(),
+            Self::InvalidSha256 { .. } => {
+                "SHA-256 格式无效，请填写 64 位十六进制校验值。".to_string()
+            }
+            Self::Sha256UnsupportedOutput { .. } => {
+                "该任务输出为文件夹，暂不支持单文件 SHA-256 校验。".to_string()
+            }
+            Self::Sha256Mismatch {
+                expected,
+                actual,
+                path,
+            } => format!(
+                "SHA-256 mismatch（校验不一致）：期望 {expected}，实际 {actual}，文件 {path}。请删除损坏文件后重新下载。"
+            ),
+        }
+    }
+}
+
+fn http_error_is_retryable(error: &reqwest::Error) -> bool {
+    if let Some(status) = error.status() {
+        return status == StatusCode::REQUEST_TIMEOUT
+            || status == StatusCode::TOO_MANY_REQUESTS
+            || status.is_server_error();
+    }
+    error.is_connect()
+        || error.is_timeout()
+        || error.is_body()
+        || (error.is_request() && !error.is_builder())
+}
+
+fn http_error_user_message(error: &reqwest::Error) -> String {
+    match error.status() {
+        Some(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) => {
+            "认证失败，请检查下载链接中的账号、密码或访问权限。".to_string()
+        }
+        Some(StatusCode::NOT_FOUND | StatusCode::GONE) => {
+            "下载资源不存在或已失效，请检查链接后重试。".to_string()
+        }
+        Some(StatusCode::REQUEST_TIMEOUT) => "服务器响应超时，请检查网络后重试。".to_string(),
+        Some(StatusCode::TOO_MANY_REQUESTS) => "服务器请求过于频繁，请稍后重试。".to_string(),
+        Some(status) if status.is_server_error() => {
+            format!("服务器暂时不可用（HTTP {status}），请稍后重试。")
+        }
+        Some(status) => format!("下载请求失败（HTTP {status}），请检查链接和访问权限。"),
+        None if error.is_timeout() => "网络请求超时，请检查网络后重试。".to_string(),
+        None => "网络连接失败，请检查网络、代理或服务器地址后重试。".to_string(),
+    }
+}
+
+fn io_error_is_retryable(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::NotConnected
+            | std::io::ErrorKind::TimedOut
+            | std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::WouldBlock
+            | std::io::ErrorKind::NetworkUnreachable
+            | std::io::ErrorKind::HostUnreachable
+            | std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::UnexpectedEof
+    )
+}
+
+fn io_error_user_message(error: &std::io::Error) -> String {
+    match error.kind() {
+        std::io::ErrorKind::StorageFull => {
+            "磁盘空间不足，请释放空间或更换下载保存位置。".to_string()
+        }
+        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem => {
+            "当前下载保存位置不可写，请重新选择目录并授予访问权限。".to_string()
+        }
+        std::io::ErrorKind::NotADirectory
+        | std::io::ErrorKind::IsADirectory
+        | std::io::ErrorKind::AlreadyExists => {
+            "下载保存位置无效，请重新选择一个可写目录。".to_string()
+        }
+        kind if io_error_is_retryable(error) => {
+            format!("网络传输中断（{kind:?}），请检查网络后重试。")
+        }
+        _ => "文件读写失败，请检查下载保存位置和存储设备后重试。".to_string(),
+    }
+}
+
+fn ftp_error_is_retryable(error: &suppaftp::FtpError) -> bool {
+    match error {
+        suppaftp::FtpError::ConnectionError(error) => io_error_is_retryable(error),
+        suppaftp::FtpError::UnexpectedResponse(response) => {
+            matches!(
+                response.status.code(),
+                421 | 425 | 426 | 434 | 450 | 451 | 452
+            )
+        }
+        _ => false,
+    }
+}
+
+fn ftp_error_user_message(error: &suppaftp::FtpError) -> String {
+    match error {
+        suppaftp::FtpError::UnexpectedResponse(response)
+            if matches!(response.status.code(), 430 | 530 | 532) =>
+        {
+            "FTP 认证失败，请检查账号、密码和目录权限。".to_string()
+        }
+        suppaftp::FtpError::UnexpectedResponse(response)
+            if matches!(response.status.code(), 550) =>
+        {
+            "FTP 文件不存在或没有访问权限，请检查远程路径。".to_string()
+        }
+        suppaftp::FtpError::SecureError(_) => {
+            "FTPS 证书或 TLS 握手失败，请检查服务端证书和连接模式。".to_string()
+        }
+        _ if ftp_error_is_retryable(error) => {
+            "FTP 连接中断或服务器暂时不可用，请检查网络后重试。".to_string()
+        }
+        _ => "FTP 下载失败，请检查服务器地址、远程路径和连接模式。".to_string(),
+    }
+}
+
+fn protocol_error_is_retryable(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    contains_any(
+        &message,
+        &[
+            "timeout",
+            "timed out",
+            "connection reset",
+            "connection refused",
+            "connection closed",
+            "disconnected",
+            "socket",
+            "network unreachable",
+            "host unreachable",
+            "temporarily unavailable",
+        ],
+    )
+}
+
+fn protocol_error_user_message(protocol: &str, message: &str) -> String {
+    let normalized = message.to_ascii_lowercase();
+    if contains_any(
+        &normalized,
+        &[
+            "authentication",
+            "permission denied",
+            "access denied",
+            "password",
+        ],
+    ) {
+        return format!("{protocol} 认证失败，请检查账号、密码和访问权限。");
+    }
+    if contains_any(&normalized, &["not found", "no such file"]) {
+        return format!("{protocol} 文件不存在，请检查远程路径。");
+    }
+    if contains_any(&normalized, &["peer", "tracker", "no download progress"]) {
+        return "暂无可用 Peer 或 Tracker 未响应，请检查网络、Tracker 后稍后重试。".to_string();
+    }
+    if protocol_error_is_retryable(message) {
+        return format!("{protocol} 连接中断或服务器暂时不可用，请检查网络后重试。");
+    }
+    format!("{protocol} 下载失败，请检查链接、服务端配置和访问权限。")
+}
+
+fn smb_error_user_message(error: &smb2::Error) -> String {
+    match error.kind() {
+        SmbErrorKind::AuthRequired | SmbErrorKind::SigningRequired => {
+            "SMB 认证失败，请检查账号、密码、域和签名设置。".to_string()
+        }
+        SmbErrorKind::AccessDenied => "SMB 文件没有访问权限，请检查共享目录权限。".to_string(),
+        SmbErrorKind::NotFound => "SMB 文件或共享目录不存在，请检查路径。".to_string(),
+        SmbErrorKind::DiskFull => "SMB 服务端磁盘空间不足，无法继续下载。".to_string(),
+        SmbErrorKind::ConnectionLost | SmbErrorKind::TimedOut | SmbErrorKind::SessionExpired => {
+            "SMB 连接中断或会话已过期，请检查网络后重试。".to_string()
+        }
+        _ => "SMB 下载失败，请检查共享地址、路径和服务端配置。".to_string(),
+    }
+}
+
+fn contains_any(message: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| message.contains(needle))
+}
+
+fn ensure_transfer_complete(
+    protocol: Protocol,
+    actual_bytes: u64,
+    expected_bytes: Option<u64>,
+) -> Result<(), DownloadError> {
+    let Some(expected_bytes) = expected_bytes else {
+        return Ok(());
+    };
+    if actual_bytes == expected_bytes {
+        return Ok(());
+    }
+    Err(DownloadError::IncompleteTransfer {
+        protocol,
+        expected_bytes,
+        actual_bytes,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -452,6 +781,7 @@ impl DownloadEngine {
         }
 
         file.flush().await?;
+        ensure_transfer_complete(protocol, bytes_written, total_bytes)?;
 
         Ok(DownloadSummary {
             protocol,
@@ -745,6 +1075,7 @@ impl DownloadEngine {
             .await
             .map_err(|error| map_ftp_data_error(protocol, error))?;
         let _ = ftp.quit().await;
+        ensure_transfer_complete(protocol, bytes_written, total_bytes)?;
 
         Ok(DownloadSummary {
             protocol,
@@ -774,7 +1105,7 @@ impl DownloadEngine {
             torrent_session_options(options.speed_limit_bps),
         )
         .await?;
-        let handle = session
+        let add_response = match session
             .add_torrent(
                 add_torrent,
                 Some(AddTorrentOptions {
@@ -784,9 +1115,22 @@ impl DownloadEngine {
                     ..Default::default()
                 }),
             )
-            .await?
-            .into_handle()
-            .ok_or_else(|| anyhow::anyhow!("torrent was added in list-only mode"))?;
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                // 作者: long
+                // Session 创建后即可能启动 DHT、Tracker 等后台任务；种子解析或加入失败也必须显式停止，不能只依赖 Arc 析构时机。
+                session.stop().await;
+                return Err(DownloadError::Torrent(error));
+            }
+        };
+        let Some(handle) = add_response.into_handle() else {
+            session.stop().await;
+            return Err(DownloadError::Torrent(anyhow::anyhow!(
+                "torrent was added in list-only mode"
+            )));
+        };
 
         let initial_stats = handle.stats();
         emit_progress(
@@ -816,6 +1160,7 @@ impl DownloadEngine {
                         runtime_task_id.as_deref().expect("runtime task id"),
                     );
                 }
+                wait_task.abort();
                 let _ = session.pause(&handle).await;
                 session.stop().await;
                 return Err(DownloadError::Paused);
@@ -823,8 +1168,29 @@ impl DownloadEngine {
 
             tokio::select! {
                 result = &mut wait_task => {
-                    result.map_err(|error| anyhow::anyhow!("torrent task failed: {error}"))??;
-                    break;
+                    match result {
+                        Ok(Ok(())) => break,
+                        Ok(Err(error)) => {
+                            if runtime_registered {
+                                crate::torrent_details::unregister_runtime_handle(
+                                    runtime_task_id.as_deref().expect("runtime task id"),
+                                );
+                            }
+                            session.stop().await;
+                            return Err(DownloadError::Torrent(error));
+                        }
+                        Err(error) => {
+                            if runtime_registered {
+                                crate::torrent_details::unregister_runtime_handle(
+                                    runtime_task_id.as_deref().expect("runtime task id"),
+                                );
+                            }
+                            session.stop().await;
+                            return Err(DownloadError::Torrent(anyhow::anyhow!(
+                                "torrent task failed: {error}"
+                            )));
+                        }
+                    }
                 }
                 _ = interval.tick() => {
                     let stats = handle.stats();
@@ -841,6 +1207,7 @@ impl DownloadEngine {
                                 runtime_task_id.as_deref().expect("runtime task id"),
                             );
                         }
+                        wait_task.abort();
                         session.stop().await;
                         return Err(DownloadError::TorrentStalled {
                             downloaded_bytes: stats.progress_bytes,
@@ -887,8 +1254,13 @@ impl DownloadEngine {
                 runtime_task_id.as_deref().expect("runtime task id"),
             );
         }
-        let (output_path, display_name) = details_result?;
         session.stop().await;
+        ensure_transfer_complete(
+            protocol,
+            final_stats.progress_bytes,
+            Some(final_stats.total_bytes),
+        )?;
+        let (output_path, display_name) = details_result?;
 
         Ok(DownloadSummary {
             protocol,
@@ -1166,11 +1538,18 @@ impl DownloadEngine {
                 Ok(bytes) => return Ok(bytes),
                 Err(DownloadError::Paused) => return Err(DownloadError::Paused),
                 Err(error) => {
+                    if !error.is_retryable() {
+                        return Err(error);
+                    }
                     last_error = Some(error);
                     if attempt + 1 < attempts {
                         // 作者: long
-                        // HLS 分片常见于大量短连接，局域网或本机服务偶发 reset 时短重试能保住整条下载。
-                        tokio::time::sleep(Duration::from_millis(150 * (attempt as u64 + 1))).await;
+                        // HLS 分片只重试连接中断、超时和服务端临时错误；认证失败、404、范围错误继续请求只会浪费重试次数。
+                        sleep_with_cancel(
+                            Duration::from_millis(150 * (attempt as u64 + 1)),
+                            cancel.as_ref(),
+                        )
+                        .await?;
                     }
                 }
             }
@@ -1278,6 +1657,7 @@ impl DownloadEngine {
         limiter: DownloadSpeedLimiter,
         cancel: Option<CancelToken>,
     ) -> Result<Vec<u8>, DownloadError> {
+        let expected_bytes = response.content_length();
         let mut stream = response.bytes_stream();
         let mut bytes = Vec::new();
         while let Some(chunk) = stream.next().await {
@@ -1290,6 +1670,7 @@ impl DownloadEngine {
                 .await?;
             bytes.extend_from_slice(&chunk);
         }
+        ensure_transfer_complete(Protocol::M3u8, bytes.len() as u64, expected_bytes)?;
         Ok(bytes)
     }
 
@@ -1431,6 +1812,7 @@ impl DownloadEngine {
         }
 
         file.flush().await?;
+        ensure_transfer_complete(Protocol::Smb, bytes_written, total_bytes)?;
 
         Ok(DownloadSummary {
             protocol: Protocol::Smb,
@@ -1664,6 +2046,23 @@ fn emit_progress(
 
 fn is_cancelled(cancel: &Option<CancelToken>) -> bool {
     cancel.as_ref().is_some_and(CancelToken::is_cancelled)
+}
+
+async fn sleep_with_cancel(
+    duration: Duration,
+    cancel: Option<&CancelToken>,
+) -> Result<(), DownloadError> {
+    let deadline = Instant::now() + duration;
+    loop {
+        if cancel.is_some_and(CancelToken::is_cancelled) {
+            return Err(DownloadError::Paused);
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(());
+        }
+        tokio::time::sleep(remaining.min(Duration::from_millis(25))).await;
+    }
 }
 
 async fn existing_file_size(path: &Path) -> Result<u64, std::io::Error> {
@@ -2230,6 +2629,7 @@ fn download_sftp_blocking(
     }
 
     std::io::Write::flush(&mut local)?;
+    ensure_transfer_complete(Protocol::Sftp, bytes_written, total_bytes)?;
     Ok(DownloadSummary {
         protocol: Protocol::Sftp,
         backend: Backend::BuiltIn,
@@ -2601,6 +3001,78 @@ mod tests {
             suppaftp::FtpError::SecureError("bad record".into()),
         );
         assert!(matches!(error, DownloadError::FtpsDataTls { .. }));
+    }
+
+    #[test]
+    fn download_errors_expose_actionable_retry_policy() {
+        let storage_full = DownloadError::Io(std::io::Error::from(std::io::ErrorKind::StorageFull));
+        assert!(!storage_full.is_retryable());
+        assert!(storage_full.user_message().contains("磁盘空间不足"));
+
+        let permission_denied =
+            DownloadError::Io(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+        assert!(!permission_denied.is_retryable());
+        assert!(permission_denied.user_message().contains("不可写"));
+
+        let incomplete = DownloadError::IncompleteTransfer {
+            protocol: Protocol::Ftp,
+            expected_bytes: 10,
+            actual_bytes: 4,
+        };
+        assert!(incomplete.is_retryable());
+        assert!(incomplete.user_message().contains("4/10"));
+
+        let oversized = DownloadError::IncompleteTransfer {
+            protocol: Protocol::Sftp,
+            expected_bytes: 4,
+            actual_bytes: 10,
+        };
+        assert!(!oversized.is_retryable());
+        assert!(oversized.user_message().contains("本地文件大小异常"));
+
+        let ftp_auth = DownloadError::Ftp(suppaftp::FtpError::UnexpectedResponse(
+            suppaftp::types::Response::new(
+                suppaftp::Status::NotLoggedIn,
+                b"530 Login incorrect".to_vec(),
+            ),
+        ));
+        assert!(!ftp_auth.is_retryable());
+        assert!(ftp_auth.user_message().contains("FTP 认证失败"));
+
+        let ftps_tls = DownloadError::FtpsDataTls {
+            source: suppaftp::FtpError::SecureError("handshake failed".into()),
+        };
+        assert!(!ftps_tls.is_retryable());
+        assert!(ftps_tls.user_message().contains("暂不兼容"));
+
+        let sftp_auth = DownloadError::Sftp(ssh2::Error::new(
+            ssh2::ErrorCode::Session(-18),
+            "authentication failed",
+        ));
+        assert!(!sftp_auth.is_retryable());
+        assert!(sftp_auth.user_message().contains("SFTP 认证失败"));
+
+        let smb_timeout = DownloadError::Smb(smb2::Error::Timeout);
+        assert!(smb_timeout.is_retryable());
+        assert!(smb_timeout.user_message().contains("SMB 连接中断"));
+
+        let smb_auth = DownloadError::Smb(smb2::Error::Auth {
+            message: "bad credentials".to_string(),
+        });
+        assert!(!smb_auth.is_retryable());
+        assert!(smb_auth.user_message().contains("SMB 认证失败"));
+
+        let hls_invalid = DownloadError::InvalidM3u8;
+        assert!(!hls_invalid.is_retryable());
+        assert!(hls_invalid.user_message().contains("HLS 播放列表无效"));
+
+        let no_peer = DownloadError::TorrentStalled {
+            downloaded_bytes: 0,
+            total_bytes: 10,
+            elapsed_secs: 45,
+        };
+        assert!(!no_peer.is_retryable());
+        assert!(no_peer.user_message().contains("Peer"));
     }
 
     #[test]
@@ -3456,6 +3928,64 @@ fn main() {{
             fs::read(temp_dir.path().join("playlist.ts")).await.unwrap(),
             b"first segmentsecond segment"
         );
+        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn does_not_retry_hls_segment_not_found() {
+        let segment_requests = Arc::new(AtomicUsize::new(0));
+        let server_segment_requests = Arc::clone(&segment_requests);
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/playlist.m3u8", server.local_addr().unwrap());
+        let server_task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = server.accept().await else {
+                    return;
+                };
+                let mut buffer = [0; 1024];
+                let Ok(read) = stream.read(&mut buffer).await else {
+                    continue;
+                };
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let (status, content_type, body): (&str, &str, &[u8]) = match path {
+                    "/playlist.m3u8" => (
+                        "200 OK",
+                        "application/vnd.apple.mpegurl",
+                        b"#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1,\nmissing.ts\n#EXT-X-ENDLIST\n",
+                    ),
+                    "/missing.ts" => {
+                        server_segment_requests.fetch_add(1, AtomicOrdering::SeqCst);
+                        ("404 Not Found", "text/plain", b"not found")
+                    }
+                    _ => ("404 Not Found", "text/plain", b"not found"),
+                };
+                let header = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(header.as_bytes()).await;
+                let _ = stream.write_all(body).await;
+                let _ = stream.shutdown().await;
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let error = DownloadEngine::new()
+            .download_with_options(
+                DownloadRequest::new(source, temp_dir.path()),
+                DownloadOptions::new(1, None),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, DownloadError::Http(_)));
+        assert!(!error.is_retryable());
+        assert_eq!(segment_requests.load(AtomicOrdering::SeqCst), 1);
         server_task.abort();
     }
 

@@ -186,7 +186,8 @@ async fn run_cli() -> Result<()> {
                     download_options(threads, speed_limit_mbps, hls_variant_index, hls_keep_ts)
                         .with_restart_existing(restart),
                 )
-                .await?;
+                .await
+                .map_err(|error| anyhow::anyhow!(error.user_message()))?;
             println!("{}", serde_json::to_string_pretty(&summary)?);
         }
         Command::Add {

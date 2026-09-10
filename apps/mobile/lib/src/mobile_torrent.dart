@@ -43,10 +43,17 @@ typedef TorrentMetadataSelector =
     );
 
 class MobileTorrentRunner {
-  MobileTorrentRunner({http.Client? client})
-    : _client = client ?? http.Client();
+  MobileTorrentRunner({
+    http.Client? client,
+    Duration stallTimeout = const Duration(seconds: 45),
+    Duration peerHintDelay = const Duration(seconds: 10),
+  }) : _client = client ?? http.Client(),
+       _stallTimeout = stallTimeout,
+       _peerHintDelay = peerHintDelay;
 
   final http.Client _client;
+  final Duration _stallTimeout;
+  final Duration _peerHintDelay;
 
   Future<DownloadTask> download(
     DownloadTask task, {
@@ -88,6 +95,8 @@ class MobileTorrentRunner {
     final completion = Completer<DownloadTask>();
     var metadataHandled = false;
     Future<void>? metadataHandling;
+    var lastProgressBytes = 0;
+    var lastProgressAt = DateTime.now();
 
     Future<void> applyMetadataBody(TorrentInfo info) async {
       final files = engine.getFiles(torrentId);
@@ -155,6 +164,7 @@ class MobileTorrentRunner {
       );
       await onProgress(current);
       metadataHandled = true;
+      lastProgressAt = DateTime.now();
       if (pausedForSelection && !completion.isCompleted) {
         engine.resumeTorrent(torrentId);
       }
@@ -216,6 +226,12 @@ class MobileTorrentRunner {
       final reportedDone = total == null
           ? info.totalDone
           : math.min(info.totalDone, total);
+      if (reportedDone > lastProgressBytes) {
+        lastProgressBytes = reportedDone;
+        lastProgressAt = DateTime.now();
+      }
+      final stalledFor = DateTime.now().difference(lastProgressAt);
+      final waitingForPeer = info.numPeers == 0 && stalledFor >= _peerHintDelay;
       final sampledSpeed = speedSampler.sample(reportedDone);
       current = current.copyWith(
         downloadedBytes: reportedDone,
@@ -224,6 +240,10 @@ class MobileTorrentRunner {
         currentSpeedBytesPerSecond: info.downloadRate > 0
             ? info.downloadRate
             : sampledSpeed,
+        error: waitingForPeer
+            ? '暂无可用 Peer，正在等待 Tracker 或其他节点。'
+            : null,
+        clearError: !waitingForPeer,
       );
       await onProgress(current);
 
@@ -232,12 +252,24 @@ class MobileTorrentRunner {
           total == null &&
           (info.isFinished || info.state.isDone) &&
           reportedDone > 0;
+      if (!doneByBytes && !doneWithoutKnownTotal && stalledFor >= _stallTimeout) {
+        // 作者: long
+        // 无 Peer 或长时间零进度不能永久占用“下载中”和并发槽位；结束为可解释失败，用户可检查 Tracker 后手动重试。
+        completion.completeError(
+          StateError(
+            'Torrent made no download progress for ${stalledFor.inSeconds}s; '
+            'peers=${info.numPeers}; check tracker and peers.',
+          ),
+        );
+        return;
+      }
       if (doneByBytes || doneWithoutKnownTotal) {
         completion.complete(
           current.copyWith(
             state: DownloadState.finished,
             downloadedBytes: reportedDone,
-            totalBytes: total ?? reportedDone,
+            totalBytes: total,
+            clearTotalBytes: total == null,
             clearError: true,
           ),
         );

@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:pointycastle/digests/sha256.dart';
 
 import 'download_task.dart';
+import 'download_failure.dart';
 import 'mobile_downloader.dart';
 import 'mobile_torrent.dart';
 import 'protocol.dart';
@@ -52,7 +53,28 @@ class DownloadController {
     _tasks
       ..clear()
       ..addAll(await _store.load());
+    final interruptedAt = DateTime.now().toUtc();
+    var recoveredInterruptedTask = false;
+    for (var index = 0; index < _tasks.length; index += 1) {
+      final task = _tasks[index];
+      if (task.state != DownloadState.running) {
+        continue;
+      }
+      // 作者: long
+      // Controller 刚创建时没有存活的下载 Future，持久化 running 只能来自上次被系统终止的进程；立即恢复为暂停，保留断点并释放队列并发槽位。
+      _tasks[index] = task.copyWith(
+        state: DownloadState.paused,
+        pausedAt: interruptedAt,
+        clearFinishedAt: true,
+        currentSpeedBytesPerSecond: 0,
+        error: '任务因应用退出中断，已暂停，可继续下载。',
+      );
+      recoveredInterruptedTask = true;
+    }
     _tasks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    if (recoveredInterruptedTask) {
+      await _save();
+    }
     _emit();
   }
 
@@ -101,6 +123,7 @@ class DownloadController {
         state: DownloadState.paused,
         pausedAt: now,
         currentSpeedBytesPerSecond: 0,
+        clearError: true,
       ),
     );
     await _save();
@@ -228,11 +251,22 @@ class DownloadController {
           threadCount: effectiveThreadCount,
           onTorrentMetadata: onTorrentMetadata,
           onProgress: (progress) async {
-            _replace(progress.id, (_) => progress);
+            _replace(progress.id, (current) {
+              // 作者: long
+              // 暂停已先写入队列，旧下载 Future 可能仍送达最后一次进度；保留用户的暂停状态，避免它被迟到回调改回 downloading。
+              return current.state == DownloadState.paused ? current : progress;
+            });
             await _save();
             _emit();
           },
         );
+        final latestAfterDownload = _maybeTaskById(id);
+        if (latestAfterDownload == null ||
+            latestAfterDownload.state == DownloadState.paused) {
+          // 作者: long
+          // 某些协议在取消信号与最终落盘同时发生时仍可能返回完成；用户已经选择暂停时不允许旧 Future 覆盖该状态。
+          return;
+        }
         var completed = finished.copyWith(
           finishedAt: finished.state == DownloadState.finished
               ? DateTime.now().toUtc()
@@ -274,6 +308,7 @@ class DownloadController {
             state: DownloadState.paused,
             pausedAt: DateTime.now().toUtc(),
             currentSpeedBytesPerSecond: 0,
+            clearError: true,
           ),
         );
         await _save();
@@ -284,12 +319,20 @@ class DownloadController {
         if (latest == null) {
           return;
         }
-        if (attempt + 1 < totalAttempts) {
+        if (latest.state == DownloadState.paused) {
+          return;
+        }
+        final failure = describeDownloadFailure(
+          error,
+          source: latest.source,
+          protocol: latest.protocol,
+        );
+        if (failure.retryable && attempt + 1 < totalAttempts) {
           _replace(
             id,
             (_) => latest.copyWith(
               state: DownloadState.running,
-              error: error.toString(),
+              error: '${failure.message} 正在自动重试。',
               clearPausedAt: true,
               clearFinishedAt: true,
               currentSpeedBytesPerSecond: 0,
@@ -303,12 +346,13 @@ class DownloadController {
           id,
           (_) => latest.copyWith(
             state: DownloadState.failed,
-            error: error.toString(),
+            error: failure.message,
             finishedAt: DateTime.now().toUtc(),
             clearPausedAt: true,
             currentSpeedBytesPerSecond: 0,
           ),
         );
+        break;
       }
     }
 

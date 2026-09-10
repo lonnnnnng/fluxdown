@@ -230,10 +230,13 @@ sequenceDiagram
 ## 错误处理
 
 - Rust core 使用 `thiserror` 定义结构化错误。
-- CLI 将成功结果序列化为 JSON；错误由 `anyhow` 向上返回。
-- 队列运行器把下载错误写入任务 `error` 字段并标记 `failed`。
-- 移动端捕获异常并写入任务 `error` 字段。
+- `DownloadError::is_retryable()` 区分网络瞬态错误与认证、路径、权限、磁盘、协议和校验错误；队列运行器只对前者消耗自动重试次数。
+- `DownloadError::user_message()` 和移动端 `describeDownloadFailure()` 将 401/403、断网、磁盘满、目录不可写、无 Peer、HLS/TLS 等错误转换为可操作提示，原始错误只用于诊断且展示前脱敏。
+- CLI 将成功结果序列化为 JSON；直连下载失败时输出可操作错误，队列任务将同样的提示写入 `error` 字段并标记 `failed`。
+- 移动端捕获异常后先分类再写入任务 `error` 字段；失败卡片直接展示提示，属性页可继续查看脱敏详情。
 - 暂停被视为受控状态，不写入错误。
+- 已知远端总大小的 HTTP/FTP/FTPS/SFTP/SMB/Torrent 传输在收尾前核对实际字节数，截断流进入 `failed` 而不是 `finished`；未知总大小保持未知，不用已收字节伪造 100%。
+- 桌面进程启动和移动队列加载会把上次进程留下的 `running` 任务恢复为 `paused`，保留已下载进度并提示“任务中断，已暂停，可继续下载”。
 
 ## 设计取舍
 

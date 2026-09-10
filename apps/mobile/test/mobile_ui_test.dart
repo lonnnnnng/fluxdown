@@ -153,6 +153,41 @@ void main() {
     expect(find.text(AppStrings.zh.copyDownloadLink), findsOneWidget);
   });
 
+  testWidgets('failed task card displays actionable error directly', (
+    tester,
+  ) async {
+    final task = DownloadTask.create(
+      source: 'https://example.com/private.bin',
+      outputFolder: '/downloads',
+    ).copyWith(
+      state: DownloadState.failed,
+      error: '认证失败，请检查账号、密码和访问权限。',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DownloadTaskCard(
+            strings: AppStrings.zh,
+            task: task,
+            onToggle: () {},
+            onStart: () {},
+            onPause: () {},
+            onRemove: () {},
+            onCopySource: () {},
+            onShowProperties: () {},
+            onOpenDetails: () {},
+            onOpenFile: () {},
+            onShareFile: () {},
+            onRedownload: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('认证失败，请检查账号、密码和访问权限。'), findsOneWidget);
+  });
+
   test(
     'speed limiter cancellation exits a long delay in a short slice',
     () async {

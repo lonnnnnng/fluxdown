@@ -24,6 +24,11 @@ pub struct TaskRunReport {
     pub summary: Option<crate::DownloadSummary>,
 }
 
+struct RunAttemptReport {
+    report: TaskRunReport,
+    retryable: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueRunReport {
     pub total_queued: usize,
@@ -212,7 +217,7 @@ async fn run_one_with_retry(
         task.reset_for_restart();
     }
     for attempt in 0..max_attempts {
-        let report = run_one(
+        let attempt_report = run_one(
             store.clone(),
             engine.clone(),
             task,
@@ -220,8 +225,12 @@ async fn run_one_with_retry(
             download_options,
         )
         .await?;
+        let report = attempt_report.report;
 
-        if report.task.state != DownloadState::Failed || attempt + 1 >= max_attempts {
+        if report.task.state != DownloadState::Failed
+            || !attempt_report.retryable
+            || attempt + 1 >= max_attempts
+        {
             return Ok(report);
         }
 
@@ -238,7 +247,7 @@ async fn run_one(
     mut task: DownloadTask,
     write_lock: Arc<Mutex<()>>,
     download_options: DownloadOptions,
-) -> Result<TaskRunReport, QueueRunnerError> {
+) -> Result<RunAttemptReport, QueueRunnerError> {
     task.set_state(DownloadState::Running);
     {
         let _guard = write_lock.lock().await;
@@ -341,6 +350,7 @@ async fn run_one(
 
     let request = request_with_hls_overrides(task.request(), download_options);
 
+    let mut retryable = false;
     let mut summary = match engine
         .download_with_control_and_options(
             request,
@@ -373,7 +383,10 @@ async fn run_one(
             None
         }
         Err(error) => {
-            task.fail(error.to_string());
+            // 作者: long
+            // 自动重试必须依据原始错误类型决定；先记录分类结果，再把安全且可操作的提示写入任务，避免认证/权限/磁盘错误反复执行。
+            retryable = error.is_retryable();
+            task.fail(error.user_message());
             None
         }
     };
@@ -397,7 +410,10 @@ async fn run_one(
         }
         Err(error) => return Err(error.into()),
     };
-    Ok(TaskRunReport { task, summary })
+    Ok(RunAttemptReport {
+        report: TaskRunReport { task, summary },
+        retryable,
+    })
 }
 
 fn request_with_hls_overrides(
@@ -675,6 +691,115 @@ mod tests {
         assert_eq!(report.failed, 1);
         assert_eq!(store.list().await.unwrap()[0].state, DownloadState::Failed);
         let _ = tokio::fs::remove_file(path).await;
+    }
+
+    #[tokio::test]
+    async fn does_not_retry_http_authentication_failure() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let server_requests = Arc::clone(&requests);
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                server_requests.fetch_add(1, Ordering::SeqCst);
+                let mut buffer = [0; 1024];
+                let _ = stream.read(&mut buffer).await;
+                let response =
+                    b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                let _ = stream.write_all(response).await;
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let task = store
+            .enqueue(DownloadRequest::new(
+                format!("http://{address}/private.bin"),
+                temp_dir.path().join("downloads"),
+            ))
+            .await
+            .unwrap();
+
+        let report = QueueRunner::new(store)
+            .run_task_with_options(
+                &task.id,
+                QueueRunnerOptions {
+                    retry_attempts: 3,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        assert_eq!(report.task.state, DownloadState::Failed);
+        assert!(
+            report
+                .task
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("认证失败"))
+        );
+        assert!(report.summary.is_none());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn retries_temporary_http_server_failure() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let server_requests = Arc::clone(&requests);
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let request_index = server_requests.fetch_add(1, Ordering::SeqCst);
+                let mut buffer = [0; 1024];
+                let _ = stream.read(&mut buffer).await;
+                if request_index == 0 {
+                    let response = b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                    stream.write_all(response).await.unwrap();
+                } else {
+                    let payload = b"recovered after retry";
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        payload.len()
+                    );
+                    stream.write_all(response.as_bytes()).await.unwrap();
+                    stream.write_all(payload).await.unwrap();
+                }
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let output_dir = temp_dir.path().join("downloads");
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let mut request = DownloadRequest::new(format!("http://{address}/retry.bin"), &output_dir);
+        request.file_name = Some("retry.bin".to_string());
+        let task = store.enqueue(request).await.unwrap();
+
+        let report = QueueRunner::new(store)
+            .run_task_with_options(
+                &task.id,
+                QueueRunnerOptions {
+                    retry_attempts: 1,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+        assert_eq!(report.task.state, DownloadState::Finished);
+        assert!(report.task.error.is_none());
+        assert_eq!(
+            tokio::fs::read(output_dir.join("retry.bin")).await.unwrap(),
+            b"recovered after retry"
+        );
+        server.await.unwrap();
     }
 
     #[tokio::test]

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fluxdown_mobile/src/download_controller.dart';
+import 'package:fluxdown_mobile/src/download_failure.dart';
 import 'package:fluxdown_mobile/src/download_task.dart';
 import 'package:fluxdown_mobile/src/mobile_downloader.dart';
 import 'package:fluxdown_mobile/src/mobile_ftp.dart';
@@ -249,6 +250,126 @@ void main() {
     expect(restored.elapsed, firstElapsed);
   });
 
+  test(
+    'mobile controller restores interrupted running tasks as paused',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'fluxdown_mobile_interrupted_task_test_',
+      );
+      final store = TaskStore(baseDirectory: tempDir);
+      final running =
+          DownloadTask.create(
+            source: 'https://example.com/interrupted.bin',
+            outputFolder: tempDir.path,
+          ).copyWith(
+            state: DownloadState.running,
+            downloadedBytes: 64,
+            totalBytes: 128,
+            currentSpeedBytesPerSecond: 32,
+            startedAt: DateTime.now().toUtc().subtract(
+              const Duration(seconds: 5),
+            ),
+          );
+      await store.save([running]);
+
+      try {
+        final controller = DownloadController(store: store);
+        await controller.load();
+
+        final recovered = controller.tasks.single;
+        expect(recovered.state, DownloadState.paused);
+        expect(recovered.canRun, isTrue);
+        expect(recovered.downloadedBytes, 64);
+        expect(recovered.totalBytes, 128);
+        expect(recovered.currentSpeedBytesPerSecond, 0);
+        expect(recovered.error, contains('应用退出中断'));
+        expect((await store.load()).single.state, DownloadState.paused);
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
+
+  test('classifies protocol and storage failures into actionable messages', () {
+    final auth = describeDownloadFailure(
+      const HttpException('HTTP 403'),
+      source: 'https://user:secret@example.com/private.bin',
+      protocol: 'https',
+    );
+    expect(auth.retryable, isFalse);
+    expect(auth.message, contains('认证失败'));
+    expect(auth.message, isNot(contains('secret')));
+
+    final ftpAuth = describeDownloadFailure(
+      const FtpException('Expected 230 but got 530: Login incorrect'),
+      source: 'ftps://user:secret@example.com/file.bin',
+      protocol: 'ftps',
+    );
+    expect(ftpAuth.retryable, isFalse);
+    expect(ftpAuth.message, contains('FTPS 认证失败'));
+
+    final sftpNetwork = describeDownloadFailure(
+      const SocketException('Connection reset by peer'),
+      source: 'sftp://user:secret@example.com/file.bin',
+      protocol: 'sftp',
+    );
+    expect(sftpNetwork.retryable, isTrue);
+    expect(sftpNetwork.message, contains('网络连接失败'));
+
+    final smbPermission = describeDownloadFailure(
+      const FileSystemException(
+        'write failed',
+        '/downloads/file.bin',
+        OSError('Permission denied', 13),
+      ),
+      source: 'smb://user:secret@nas/share/file.bin',
+      protocol: 'smb',
+    );
+    expect(smbPermission.retryable, isFalse);
+    expect(smbPermission.message, contains('不可写'));
+
+    final diskFull = describeDownloadFailure(
+      const FileSystemException(
+        'write failed',
+        '/downloads/file.bin',
+        OSError('No space left on device', 28),
+      ),
+      source: 'https://example.com/file.bin',
+      protocol: 'https',
+    );
+    expect(diskFull.retryable, isFalse);
+    expect(diskFull.message, contains('磁盘空间不足'));
+
+    final noPeer = describeDownloadFailure(
+      StateError('torrent made no download progress; tracker has no peers'),
+      source: 'magnet:?xt=urn:btih:abc',
+      protocol: 'magnet',
+    );
+    expect(noPeer.retryable, isFalse);
+    expect(noPeer.message, contains('Peer'));
+
+    final hlsInvalid = describeDownloadFailure(
+      const FormatException('Invalid HLS BYTERANGE'),
+      source: 'https://example.com/index.m3u8',
+      protocol: 'm3u8',
+    );
+    expect(hlsInvalid.retryable, isFalse);
+    expect(hlsInvalid.message, contains('链接或协议参数无效'));
+  });
+
+  test('redacts credentials from fallback download error details', () {
+    final failure = describeDownloadFailure(
+      StateError(
+        'request failed for https://user:secret@example.com/private.bin',
+      ),
+      source: 'https://user:secret@example.com/private.bin',
+      protocol: 'https',
+    );
+
+    expect(failure.message, contains('https://***@example.com/private.bin'));
+    expect(failure.message, isNot(contains('user:secret')));
+  });
+
   test('migrates removed protocol names to unknown', () {
     final json =
         DownloadTask.create(
@@ -408,6 +529,35 @@ void main() {
       expect(runner.attempts, 2);
       expect(controller.tasks.single.state, DownloadState.finished);
       expect(controller.tasks.single.error, isNull);
+    } finally {
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test('mobile controller does not retry authentication failures', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_auth_failure_test_',
+    );
+    final runner = _ThrowingMobileDownloadRunner(
+      const HttpException('HTTP 401'),
+    );
+    final controller = DownloadController(
+      store: TaskStore(baseDirectory: tempDir),
+      runner: runner,
+    );
+
+    try {
+      final task = await controller.add(
+        source: 'https://user:secret@example.com/private.bin',
+        outputFolder: tempDir.path,
+      );
+
+      await controller.start(task.id, maxRetries: 3);
+
+      expect(runner.attempts, 1);
+      expect(controller.tasks.single.state, DownloadState.failed);
+      expect(controller.tasks.single.error, contains('认证失败'));
+      expect(controller.tasks.single.error, isNot(contains('secret')));
     } finally {
       await tempDir.delete(recursive: true);
     }
@@ -631,6 +781,40 @@ void main() {
       await tempDir.delete(recursive: true);
     }
   });
+
+  test(
+    'mobile controller keeps pause when a late download result arrives',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'fluxdown_mobile_late_result_after_pause_test_',
+      );
+      final runner = _LateResultAfterPauseMobileDownloadRunner();
+      final controller = DownloadController(
+        store: TaskStore(baseDirectory: tempDir),
+        runner: runner,
+      );
+
+      try {
+        final task = await controller.add(
+          source: 'https://example.com/late-result.bin',
+          outputFolder: tempDir.path,
+        );
+
+        final run = controller.start(task.id);
+        await runner.started.future;
+        await controller.pause(task.id);
+        await run;
+
+        final paused = controller.tasks.single;
+        expect(paused.state, DownloadState.paused);
+        expect(paused.downloadedBytes, 4);
+        expect(paused.currentSpeedBytesPerSecond, 0);
+        expect(paused.error, isNull);
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
 
   test(
     'mobile controller resumes after pause even before cancel settles',
@@ -978,6 +1162,53 @@ void main() {
         await File(p.join(tempDir.path, 'threaded-retry.bin')).readAsBytes(),
         payload,
       );
+    } finally {
+      await server.close(force: true);
+      await serverDone.cancel();
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test('does not retry HTTP Range authentication failures', () async {
+    final payload = List<int>.filled(4096, 1);
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_threaded_http_auth_test_',
+    );
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    var rangeRequestCount = 0;
+    final serverDone = server.listen((request) async {
+      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      if (request.method == 'HEAD') {
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentLength = payload.length;
+      } else {
+        rangeRequestCount += 1;
+        request.response.statusCode = HttpStatus.unauthorized;
+      }
+      await request.response.close();
+    });
+
+    try {
+      final source = 'http://${server.address.host}:${server.port}/private.bin';
+      final task = DownloadTask.create(
+        source: source,
+        outputFolder: tempDir.path,
+        fileName: 'private.bin',
+      );
+
+      await expectLater(
+        MobileDownloadRunner().downloadHttp(
+          task,
+          threadCount: 2,
+          onProgress: (_) {},
+        ),
+        throwsA(isA<HttpException>()),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(rangeRequestCount, greaterThan(0));
+      expect(rangeRequestCount, lessThanOrEqualTo(2));
     } finally {
       await server.close(force: true);
       await serverDone.cancel();
@@ -1727,6 +1958,35 @@ seg-2.ts
       await tempDir.delete(recursive: true);
     }
   });
+
+  test('does not mark a truncated FTP transfer as finished', () async {
+    final payload = utf8Bytes('ftp-payload-data');
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_ftp_truncated_test_',
+    );
+    final ftpServer = await _TestFtpServer.start(payload, truncateTo: 4);
+
+    try {
+      final task = DownloadTask.create(
+        source:
+            'ftp://user:pass@${ftpServer.host}:${ftpServer.port}/pub/file.bin',
+        outputFolder: tempDir.path,
+      );
+
+      await expectLater(
+        MobileDownloadRunner().download(task, onProgress: (_) {}),
+        throwsA(
+          isA<IncompleteTransferException>()
+              .having((error) => error.expectedBytes, 'expectedBytes', 16)
+              .having((error) => error.actualBytes, 'actualBytes', 4),
+        ),
+      );
+      expect(await File(p.join(tempDir.path, 'file.bin')).length(), 4);
+    } finally {
+      await ftpServer.close();
+      await tempDir.delete(recursive: true);
+    }
+  });
 }
 
 class _FakeMobileDownloadRunner extends MobileDownloadRunner {
@@ -1797,6 +2057,25 @@ class _FlakyMobileDownloadRunner extends MobileDownloadRunner {
   }
 }
 
+class _ThrowingMobileDownloadRunner extends MobileDownloadRunner {
+  _ThrowingMobileDownloadRunner(this.error);
+
+  final Object error;
+  var attempts = 0;
+
+  @override
+  Future<DownloadTask> download(
+    DownloadTask task, {
+    int speedLimitKbps = 0,
+    int threadCount = 8,
+    TorrentMetadataSelector? onTorrentMetadata,
+    required FutureOr<void> Function(DownloadTask task) onProgress,
+  }) async {
+    attempts += 1;
+    throw error;
+  }
+}
+
 class _CancellableMobileDownloadRunner extends MobileDownloadRunner {
   final started = Completer<void>();
   final cancelled = Completer<void>();
@@ -1829,6 +2108,44 @@ class _CancellableMobileDownloadRunner extends MobileDownloadRunner {
     );
     await cancelled.future;
     throw const DownloadCancelled();
+  }
+}
+
+class _LateResultAfterPauseMobileDownloadRunner extends MobileDownloadRunner {
+  final started = Completer<void>();
+  final _cancelled = Completer<void>();
+
+  @override
+  void cancel(String taskId) {
+    if (!_cancelled.isCompleted) {
+      _cancelled.complete();
+    }
+  }
+
+  @override
+  Future<DownloadTask> download(
+    DownloadTask task, {
+    int speedLimitKbps = 0,
+    int threadCount = 8,
+    TorrentMetadataSelector? onTorrentMetadata,
+    required FutureOr<void> Function(DownloadTask task) onProgress,
+  }) async {
+    final firstProgress = task.copyWith(
+      state: DownloadState.running,
+      downloadedBytes: 4,
+      totalBytes: 8,
+      clearError: true,
+    );
+    await onProgress(firstProgress);
+    started.complete();
+    await _cancelled.future;
+
+    final lateProgress = firstProgress.copyWith(
+      downloadedBytes: 8,
+      totalBytes: 8,
+    );
+    await onProgress(lateProgress);
+    return lateProgress.copyWith(state: DownloadState.finished);
   }
 }
 
@@ -1959,18 +2276,22 @@ Uint8List _sequenceIv(int sequence) {
 }
 
 class _TestFtpServer {
-  _TestFtpServer._(this._server, this.payload);
+  _TestFtpServer._(this._server, this.payload, this.truncateTo);
 
   final ServerSocket _server;
   final List<int> payload;
+  final int? truncateTo;
   final restOffsets = <int>[];
 
   String get host => _server.address.host;
   int get port => _server.port;
 
-  static Future<_TestFtpServer> start(List<int> payload) async {
+  static Future<_TestFtpServer> start(
+    List<int> payload, {
+    int? truncateTo,
+  }) async {
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final ftp = _TestFtpServer._(server, payload);
+    final ftp = _TestFtpServer._(server, payload, truncateTo);
     server.listen(ftp._handleControlClient);
     return ftp;
   }
@@ -2018,7 +2339,10 @@ class _TestFtpServer {
       } else if (command.startsWith('RETR ')) {
         final data = await passiveServer!.first;
         control.write('150 Opening data connection\r\n');
-        data.add(payload.sublist(restOffset));
+        final remaining = payload.sublist(restOffset);
+        data.add(
+          truncateTo == null ? remaining : remaining.take(truncateTo!).toList(),
+        );
         await data.flush();
         await data.close();
         await passiveServer!.close();

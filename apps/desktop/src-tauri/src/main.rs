@@ -120,6 +120,14 @@ async fn list_downloads() -> Result<Vec<DownloadTask>, String> {
         .map_err(|error| error.to_string())
 }
 
+async fn recover_desktop_interrupted_tasks(
+    store: &TaskStore,
+) -> Result<Vec<DownloadTask>, fluxdown_core::TaskStoreError> {
+    // 作者: long
+    // 桌面端由单实例插件保证同一时刻只有一个进程写队列；新进程启动时仍标记 running 的任务必然来自上次异常退出，应立即暂停而不是继续显示假速度五分钟。
+    store.recover_interrupted_running().await
+}
+
 #[tauri::command]
 async fn pause_download(id: String) -> Result<DownloadTask, String> {
     let store = TaskStore::new(default_store_path());
@@ -1048,6 +1056,10 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
+            tauri::async_runtime::block_on(async {
+                let store = TaskStore::new(default_store_path());
+                recover_desktop_interrupted_tasks(&store).await
+            })?;
             #[cfg(target_os = "windows")]
             setup_e2e_webview(_app)?;
             setup_tray(_app)?;
@@ -1178,6 +1190,32 @@ mod tests {
         assert_eq!(compare_versions("2.0", "1.99.99"), Ordering::Greater);
         // 预发布段无法按数字解析，按 0 处理，因此排在对应正式版之前。
         assert_eq!(compare_versions("1.0.11-beta", "1.0.11"), Ordering::Less);
+    }
+
+    #[tokio::test]
+    async fn desktop_startup_recovers_recent_running_task_immediately() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let task = store
+            .enqueue(DownloadRequest::new(
+                "https://example.com/interrupted.bin",
+                temp_dir.path().join("downloads"),
+            ))
+            .await
+            .unwrap();
+        let mut running = task;
+        running.set_state(DownloadState::Running);
+        running.set_progress_with_speed(256, Some(1024), 128);
+        store.update(running.clone()).await.unwrap();
+
+        let recovered = recover_desktop_interrupted_tasks(&store).await.unwrap();
+        let persisted = store.get(&running.id).await.unwrap();
+
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(persisted.state, DownloadState::Paused);
+        assert_eq!(persisted.downloaded_bytes, 256);
+        assert_eq!(persisted.current_speed_bytes_per_second, 0);
+        assert!(persisted.error.unwrap().contains("任务中断"));
     }
 
     #[test]
