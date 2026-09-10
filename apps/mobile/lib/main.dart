@@ -14,6 +14,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/download_controller.dart';
+import 'src/download_defaults.dart';
 import 'src/download_task.dart';
 import 'src/mobile_torrent.dart';
 import 'src/protocol_e2e_runner.dart';
@@ -76,12 +77,6 @@ const _queueConcurrencyPreferenceKey = 'fluxdown.queueConcurrency';
 const _downloadThreadCountPreferenceKey = 'fluxdown.downloadThreadCount';
 const _retryAttemptsPreferenceKey = 'fluxdown.retryAttempts';
 const _speedLimitKbpsPreferenceKey = 'fluxdown.speedLimitKbps';
-const _defaultQueueConcurrency = 1;
-const _maxQueueConcurrency = 30;
-const _defaultDownloadThreadCount = 8;
-const _maxDownloadThreadCount = 32;
-const _defaultRetryAttempts = 1;
-const _maxRetryAttempts = 10;
 const _storageChannel = MethodChannel('dev.fluxdown.mobile/storage');
 
 enum AppLanguage { zh, en }
@@ -259,12 +254,13 @@ class AppStrings {
   String get retryAttemptsSetting =>
       language == AppLanguage.zh ? '自动重试数' : 'Automatic retries';
   String get retryAttemptsHint => language == AppLanguage.zh
-      ? '失败重试 0-10，默认 1，0 不重试'
-      : '0-10 retries, default 1; 0 disables';
+      ? '失败重试 0-10，默认 3，0 不重试'
+      : '0-10 retries, default 3; 0 disables';
   String get speedLimitSetting =>
       language == AppLanguage.zh ? '最大下载网速' : 'Max download speed';
-  String get speedLimitHint =>
-      language == AppLanguage.zh ? 'MiB/s，留空不限速' : 'MiB/s, blank means unlimited';
+  String get speedLimitHint => language == AppLanguage.zh
+      ? 'MiB/s，留空不限速'
+      : 'MiB/s, blank means unlimited';
   String get hlsVariantSetting =>
       language == AppLanguage.zh ? 'HLS 清晰度编号' : 'HLS variant index';
   String get hlsVariantHint => language == AppLanguage.zh
@@ -460,12 +456,13 @@ IconData _protocolIcon(String protocol) {
 }
 
 int clampQueueConcurrency(int value) =>
-    value.clamp(1, _maxQueueConcurrency).toInt();
+    value.clamp(minQueueConcurrency, maxQueueConcurrency).toInt();
 
 int clampDownloadThreadCount(int value) =>
-    value.clamp(1, _maxDownloadThreadCount).toInt();
+    value.clamp(minDownloadThreadCount, maxDownloadThreadCount).toInt();
 
-int clampRetryAttempts(int value) => value.clamp(0, _maxRetryAttempts).toInt();
+int clampRetryAttempts(int value) =>
+    value.clamp(minRetryAttempts, maxRetryAttempts).toInt();
 
 int? parseBoundedInteger(String value, {required int min, required int max}) {
   final parsed = int.tryParse(value.trim());
@@ -668,9 +665,9 @@ class _DownloadHomeState extends State<DownloadHome> {
   final outputController = TextEditingController();
   late final DownloadController controller;
   var loading = true;
-  var queueConcurrency = _defaultQueueConcurrency;
-  var downloadThreadCount = _defaultDownloadThreadCount;
-  var retryAttempts = _defaultRetryAttempts;
+  var queueConcurrency = defaultQueueConcurrency;
+  var downloadThreadCount = defaultDownloadThreadCount;
+  var retryAttempts = defaultRetryAttempts;
   var speedLimitKbps = 0;
   StorageStats? settingsStorageStats;
   var settingsStorageLoading = false;
@@ -711,13 +708,13 @@ class _DownloadHomeState extends State<DownloadHome> {
     if (!mounted) return;
     setState(() {
       queueConcurrency = savedConcurrency == null
-          ? _defaultQueueConcurrency
+          ? defaultQueueConcurrency
           : clampQueueConcurrency(savedConcurrency);
       downloadThreadCount = savedThreadCount == null
-          ? _defaultDownloadThreadCount
+          ? defaultDownloadThreadCount
           : clampDownloadThreadCount(savedThreadCount);
       retryAttempts = savedRetryAttempts == null
-          ? _defaultRetryAttempts
+          ? defaultRetryAttempts
           : clampRetryAttempts(savedRetryAttempts);
       speedLimitKbps = savedSpeedLimit == null
           ? 0
@@ -2697,13 +2694,13 @@ class SettingsView extends StatelessWidget {
               title: strings.concurrencySetting,
               subtitle: strings.concurrencySettingHint,
               valueText: '$queueConcurrency',
-              hintText: '$_defaultQueueConcurrency',
+              hintText: '$defaultQueueConcurrency',
               suffixText: language == AppLanguage.zh ? '个' : '',
               onSubmitted: (value) {
                 final parsed = parseBoundedInteger(
                   value,
                   min: 1,
-                  max: _maxQueueConcurrency,
+                  max: maxQueueConcurrency,
                 );
                 if (parsed != null) onConcurrencyChanged(parsed);
               },
@@ -2713,13 +2710,13 @@ class SettingsView extends StatelessWidget {
               title: strings.downloadThreadsSetting,
               subtitle: strings.downloadThreadsHint,
               valueText: '$downloadThreadCount',
-              hintText: '$_defaultDownloadThreadCount',
+              hintText: '$defaultDownloadThreadCount',
               suffixText: language == AppLanguage.zh ? '线程' : '',
               onSubmitted: (value) {
                 final parsed = parseBoundedInteger(
                   value,
                   min: 1,
-                  max: _maxDownloadThreadCount,
+                  max: maxDownloadThreadCount,
                 );
                 if (parsed != null) onDownloadThreadCountChanged(parsed);
               },
@@ -2729,13 +2726,13 @@ class SettingsView extends StatelessWidget {
               title: strings.retryAttemptsSetting,
               subtitle: strings.retryAttemptsHint,
               valueText: '$retryAttempts',
-              hintText: '$_defaultRetryAttempts',
+              hintText: '$defaultRetryAttempts',
               suffixText: language == AppLanguage.zh ? '次' : '',
               onSubmitted: (value) {
                 final parsed = parseBoundedInteger(
                   value,
                   min: 0,
-                  max: _maxRetryAttempts,
+                  max: maxRetryAttempts,
                 );
                 if (parsed != null) onRetryAttemptsChanged(parsed);
               },

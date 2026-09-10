@@ -1,6 +1,7 @@
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use fluxdown_core::{
+    DEFAULT_DOWNLOAD_THREAD_COUNT, DEFAULT_QUEUE_CONCURRENCY, DEFAULT_RETRY_ATTEMPTS,
     DownloadEngine, DownloadOptions, DownloadRequest, DownloadState, QueueRunner,
     QueueRunnerOptions, TaskStore, default_store_path, detect_protocol, doctor_report,
     redact_url_credentials_in_text, runtime_support_status, validate_sha256_text,
@@ -10,9 +11,6 @@ use std::time::Duration;
 
 const MIN_CONCURRENCY: usize = 1;
 const MAX_CONCURRENCY: usize = 30;
-const DEFAULT_CONCURRENCY: usize = 1;
-const DEFAULT_THREAD_COUNT: usize = 8;
-const DEFAULT_RETRY_ATTEMPTS: usize = 1;
 const MAX_RETRY_ATTEMPTS: usize = 10;
 const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
@@ -42,7 +40,7 @@ enum Command {
         output: PathBuf,
         #[arg(short = 'n', long)]
         name: Option<String>,
-        #[arg(long, default_value_t = DEFAULT_THREAD_COUNT)]
+        #[arg(long, default_value_t = DEFAULT_DOWNLOAD_THREAD_COUNT)]
         threads: usize,
         #[arg(
             long = "speed-limit-mbps",
@@ -88,7 +86,7 @@ enum Command {
         retry_attempts: usize,
         #[arg(long)]
         restart: bool,
-        #[arg(long, default_value_t = DEFAULT_THREAD_COUNT)]
+        #[arg(long, default_value_t = DEFAULT_DOWNLOAD_THREAD_COUNT)]
         threads: usize,
         #[arg(
             long = "speed-limit-mbps",
@@ -104,13 +102,13 @@ enum Command {
         hls_keep_ts: bool,
     },
     Run {
-        #[arg(short, long, default_value_t = DEFAULT_CONCURRENCY)]
+        #[arg(short, long, default_value_t = DEFAULT_QUEUE_CONCURRENCY)]
         concurrency: usize,
         #[arg(long, default_value_t = DEFAULT_RETRY_ATTEMPTS)]
         retry_attempts: usize,
         #[arg(long)]
         restart: bool,
-        #[arg(long, default_value_t = DEFAULT_THREAD_COUNT)]
+        #[arg(long, default_value_t = DEFAULT_DOWNLOAD_THREAD_COUNT)]
         threads: usize,
         #[arg(
             long = "speed-limit-mbps",
@@ -409,9 +407,9 @@ mod tests {
     fn cli_queue_limits_match_product_settings() {
         let options = runner_options(99, 99, Some(-1.0), false, None, false);
 
-        assert_eq!(DEFAULT_CONCURRENCY, 1);
-        assert_eq!(DEFAULT_THREAD_COUNT, 8);
-        assert_eq!(DEFAULT_RETRY_ATTEMPTS, 1);
+        assert_eq!(DEFAULT_QUEUE_CONCURRENCY, 5);
+        assert_eq!(DEFAULT_DOWNLOAD_THREAD_COUNT, 16);
+        assert_eq!(DEFAULT_RETRY_ATTEMPTS, 3);
         assert_eq!(clamp_concurrency(0), 1);
         assert_eq!(clamp_concurrency(31), 30);
         assert_eq!(options.retry_attempts, 10);
@@ -420,10 +418,10 @@ mod tests {
     }
 
     #[test]
-    fn cli_default_download_options_use_eight_threads() {
-        let options = download_options(DEFAULT_THREAD_COUNT, None, None, false);
+    fn cli_default_download_options_use_sixteen_threads() {
+        let options = download_options(DEFAULT_DOWNLOAD_THREAD_COUNT, None, None, false);
 
-        assert_eq!(options.thread_count, 8);
+        assert_eq!(options.thread_count, 16);
         assert_eq!(options.speed_limit_bps, None);
     }
 }

@@ -6,9 +6,10 @@
 )]
 
 use fluxdown_core::{
-    DoctorReport, DownloadOptions, DownloadRequest, DownloadState, DownloadTask, Protocol,
-    QueueRunReport, QueueRunner, QueueRunnerOptions, RuntimeSupportStatus, TaskRunReport,
-    TaskStore, TorrentDetails, default_store_path, detect_protocol, doctor_report, hls_variants,
+    DEFAULT_DOWNLOAD_THREAD_COUNT, DEFAULT_QUEUE_CONCURRENCY, DEFAULT_RETRY_ATTEMPTS, DoctorReport,
+    DownloadOptions, DownloadRequest, DownloadState, DownloadTask, Protocol, QueueRunReport,
+    QueueRunner, QueueRunnerOptions, RuntimeSupportStatus, TaskRunReport, TaskStore,
+    TorrentDetails, default_store_path, detect_protocol, doctor_report, hls_variants,
     runtime_support_status, sanitize_download_file_name, torrent_details, validate_sha256_text,
 };
 use serde::Deserialize;
@@ -29,8 +30,6 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MIN_CONCURRENCY: usize = 1;
 const MAX_CONCURRENCY: usize = 30;
-const DEFAULT_THREAD_COUNT: usize = 8;
-const DEFAULT_RETRY_ATTEMPTS: usize = 1;
 
 #[derive(Debug, Default, Deserialize)]
 struct AddPayload {
@@ -375,7 +374,9 @@ fn runner_options(
         download: DownloadOptions::new(
             // 作者: long
             // 桌面未显式覆盖线程数时沿用设置页默认值，避免 GUI 与 Tauri 运行器出现不同的并行度。
-            thread_count.unwrap_or(DEFAULT_THREAD_COUNT).clamp(1, 32),
+            thread_count
+                .unwrap_or(DEFAULT_DOWNLOAD_THREAD_COUNT)
+                .clamp(1, 32),
             speed_limit_mbps_to_bps(speed_limit_mbps),
         ),
         restart_existing: restart_existing.unwrap_or(false),
@@ -413,7 +414,7 @@ async fn defer_direct_start_when_capacity_full(
         return Ok(None);
     }
 
-    let concurrency = clamp_concurrency(concurrency.unwrap_or(1));
+    let concurrency = clamp_concurrency(concurrency.unwrap_or(DEFAULT_QUEUE_CONCURRENCY));
     let running = store
         .list()
         .await?
@@ -2959,8 +2960,9 @@ mod tests {
         assert!(!unlimited.restart_existing);
 
         let defaults = runner_options(None, None, None, None);
-        assert_eq!(defaults.retry_attempts, 1);
-        assert_eq!(defaults.download.thread_count, DEFAULT_THREAD_COUNT);
+        assert_eq!(DEFAULT_QUEUE_CONCURRENCY, 5);
+        assert_eq!(defaults.retry_attempts, 3);
+        assert_eq!(defaults.download.thread_count, 16);
         assert_eq!(defaults.download.speed_limit_bps, None);
         assert!(!defaults.restart_existing);
     }

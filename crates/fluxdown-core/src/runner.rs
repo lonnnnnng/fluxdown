@@ -1,6 +1,7 @@
 use crate::{
-    CancelToken, DownloadEngine, DownloadError, DownloadOptions, DownloadProgress, DownloadState,
-    DownloadTask, Protocol, TaskStore, TaskStoreError, sanitize_download_file_name,
+    CancelToken, DEFAULT_RETRY_ATTEMPTS, DownloadEngine, DownloadError, DownloadOptions,
+    DownloadProgress, DownloadState, DownloadTask, Protocol, TaskStore, TaskStoreError,
+    sanitize_download_file_name,
 };
 use futures_util::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -63,11 +64,21 @@ impl QueueRunReport {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct QueueRunnerOptions {
     pub retry_attempts: usize,
     pub download: DownloadOptions,
     pub restart_existing: bool,
+}
+
+impl Default for QueueRunnerOptions {
+    fn default() -> Self {
+        Self {
+            retry_attempts: DEFAULT_RETRY_ATTEMPTS,
+            download: DownloadOptions::default(),
+            restart_existing: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -660,7 +671,16 @@ mod tests {
             store.enqueue(request).await.unwrap();
         }
 
-        let report = QueueRunner::new(store.clone()).run_queued(2).await.unwrap();
+        let report = QueueRunner::new(store.clone())
+            .run_queued_with_options(
+                2,
+                QueueRunnerOptions {
+                    download: DownloadOptions::new(1, None),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
         let tasks = store.list().await.unwrap();
 
         assert_eq!(report.total_queued, 3);
@@ -728,6 +748,7 @@ mod tests {
                 &task.id,
                 QueueRunnerOptions {
                     retry_attempts: 3,
+                    download: DownloadOptions::new(1, None),
                     ..Default::default()
                 },
             )
@@ -839,7 +860,18 @@ mod tests {
 
         let runner = QueueRunner::new(store.clone());
         let task_id = task.id.clone();
-        let run = tokio::spawn(async move { runner.run_task(&task_id).await.unwrap() });
+        let run = tokio::spawn(async move {
+            runner
+                .run_task_with_options(
+                    &task_id,
+                    QueueRunnerOptions {
+                        download: DownloadOptions::new(1, None),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap()
+        });
 
         wait_for_progress(&store, &task.id).await;
         assert!(
@@ -906,6 +938,7 @@ mod tests {
                 &task.id,
                 QueueRunnerOptions {
                     restart_existing: true,
+                    download: DownloadOptions::new(1, None),
                     ..Default::default()
                 },
             )

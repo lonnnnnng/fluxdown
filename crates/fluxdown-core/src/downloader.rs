@@ -1,6 +1,6 @@
 use crate::{
-    Backend, DownloadRequest, Protocol, backend_availability, sanitize_download_file_name,
-    suggested_download_file_name, validate_sha256_text,
+    Backend, DEFAULT_DOWNLOAD_THREAD_COUNT, DownloadRequest, Protocol, backend_availability,
+    sanitize_download_file_name, suggested_download_file_name, validate_sha256_text,
 };
 use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
 use futures_util::{StreamExt, stream};
@@ -516,7 +516,7 @@ pub struct DownloadOptions {
 impl Default for DownloadOptions {
     fn default() -> Self {
         Self {
-            thread_count: 1,
+            thread_count: DEFAULT_DOWNLOAD_THREAD_COUNT,
             speed_limit_bps: None,
             restart_existing: false,
             hls_variant_index: None,

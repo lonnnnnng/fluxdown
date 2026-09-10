@@ -8,8 +8,9 @@ import 'package:http/io_client.dart';
 import 'package:path/path.dart' as p;
 import 'package:pointycastle/export.dart';
 
-import 'download_task.dart';
+import 'download_defaults.dart';
 import 'download_failure.dart';
+import 'download_task.dart';
 import 'hls_ts_remuxer.dart';
 import 'mobile_ed2k.dart';
 import 'mobile_ftp.dart';
@@ -45,7 +46,7 @@ class MobileDownloadRunner {
   Future<DownloadTask> download(
     DownloadTask task, {
     int speedLimitKbps = 0,
-    int threadCount = 8,
+    int threadCount = defaultDownloadThreadCount,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) {
@@ -110,7 +111,7 @@ class MobileDownloadRunner {
   Future<DownloadTask> downloadHttp(
     DownloadTask task, {
     int speedLimitKbps = 0,
-    int threadCount = 8,
+    int threadCount = defaultDownloadThreadCount,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
     _cancelled.remove(task.id);
@@ -561,7 +562,7 @@ class MobileDownloadRunner {
   Future<DownloadTask> downloadM3u8(
     DownloadTask task, {
     int speedLimitKbps = 0,
-    int threadCount = 8,
+    int threadCount = defaultDownloadThreadCount,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
     _cancelled.remove(task.id);

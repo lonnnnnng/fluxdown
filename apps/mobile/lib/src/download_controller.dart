@@ -5,8 +5,9 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 import 'package:pointycastle/digests/sha256.dart';
 
-import 'download_task.dart';
+import 'download_defaults.dart';
 import 'download_failure.dart';
+import 'download_task.dart';
 import 'mobile_downloader.dart';
 import 'mobile_torrent.dart';
 import 'protocol.dart';
@@ -152,9 +153,9 @@ class DownloadController {
 
   Future<void> start(
     String id, {
-    int maxRetries = 0,
+    int maxRetries = defaultRetryAttempts,
     int speedLimitKbps = 0,
-    int threadCount = 8,
+    int threadCount = defaultDownloadThreadCount,
     TorrentMetadataSelector? onTorrentMetadata,
   }) async {
     if (_activeTaskIds.contains(id)) {
@@ -361,10 +362,10 @@ class DownloadController {
   }
 
   Future<MobileQueueRunReport> runQueued({
-    int concurrency = 1,
-    int maxRetries = 0,
+    int concurrency = defaultQueueConcurrency,
+    int maxRetries = defaultRetryAttempts,
     int speedLimitKbps = 0,
-    int threadCount = 8,
+    int threadCount = defaultDownloadThreadCount,
     TorrentMetadataSelector? onTorrentMetadata,
   }) {
     final request = _QueueRunRequest(

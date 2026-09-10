@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fluxdown_mobile/src/download_controller.dart';
+import 'package:fluxdown_mobile/src/download_defaults.dart';
 import 'package:fluxdown_mobile/src/download_failure.dart';
 import 'package:fluxdown_mobile/src/download_task.dart';
 import 'package:fluxdown_mobile/src/mobile_downloader.dart';
@@ -1999,7 +2000,7 @@ class _FakeMobileDownloadRunner extends MobileDownloadRunner {
   Future<DownloadTask> download(
     DownloadTask task, {
     int speedLimitKbps = 0,
-    int threadCount = 8,
+    int threadCount = defaultDownloadThreadCount,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
@@ -2036,7 +2037,7 @@ class _FlakyMobileDownloadRunner extends MobileDownloadRunner {
   Future<DownloadTask> download(
     DownloadTask task, {
     int speedLimitKbps = 0,
-    int threadCount = 8,
+    int threadCount = defaultDownloadThreadCount,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
@@ -2067,7 +2068,7 @@ class _ThrowingMobileDownloadRunner extends MobileDownloadRunner {
   Future<DownloadTask> download(
     DownloadTask task, {
     int speedLimitKbps = 0,
-    int threadCount = 8,
+    int threadCount = defaultDownloadThreadCount,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
@@ -2091,7 +2092,7 @@ class _CancellableMobileDownloadRunner extends MobileDownloadRunner {
   Future<DownloadTask> download(
     DownloadTask task, {
     int speedLimitKbps = 0,
-    int threadCount = 8,
+    int threadCount = defaultDownloadThreadCount,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
@@ -2126,7 +2127,7 @@ class _LateResultAfterPauseMobileDownloadRunner extends MobileDownloadRunner {
   Future<DownloadTask> download(
     DownloadTask task, {
     int speedLimitKbps = 0,
-    int threadCount = 8,
+    int threadCount = defaultDownloadThreadCount,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
@@ -2167,7 +2168,7 @@ class _ResumeAfterPauseMobileDownloadRunner extends MobileDownloadRunner {
   Future<DownloadTask> download(
     DownloadTask task, {
     int speedLimitKbps = 0,
-    int threadCount = 8,
+    int threadCount = defaultDownloadThreadCount,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
@@ -2218,7 +2219,7 @@ class _PauseThenFinishMobileDownloadRunner extends MobileDownloadRunner {
   Future<DownloadTask> download(
     DownloadTask task, {
     int speedLimitKbps = 0,
-    int threadCount = 8,
+    int threadCount = defaultDownloadThreadCount,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {

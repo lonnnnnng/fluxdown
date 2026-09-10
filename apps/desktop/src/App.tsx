@@ -270,9 +270,9 @@ function saveIgnoredUpdateVersion(version: string) {
 const settingsKey = "fluxdown.desktop.settings.v2";
 const defaultSettings: Settings = {
   outputDir: "",
-  concurrency: 1,
-  threadCount: 8,
-  retryAttempts: 1,
+  concurrency: 5,
+  threadCount: 16,
+  retryAttempts: 3,
   speedLimitMbps: 0,
   autoStart: true,
   refreshIntervalMs: 600,
@@ -412,7 +412,7 @@ function loadSettings(): Settings {
         typeof saved.outputDir === "string" && saved.outputDir.trim()
           ? saved.outputDir
           : defaultSettings.outputDir,
-      concurrency: clampNumber(saved.concurrency, 1, 30, 1),
+      concurrency: clampNumber(saved.concurrency, 1, 30, defaultSettings.concurrency),
       threadCount: clampNumber(saved.threadCount, 1, 32, defaultSettings.threadCount),
       retryAttempts: clampNumber(saved.retryAttempts, 0, 10, defaultSettings.retryAttempts),
       // 作者: long
@@ -3136,7 +3136,12 @@ function SettingsPage({
                   onChange={(event) =>
                     updateSetting(
                       {
-                        concurrency: clampNumber(event.target.value, 1, 30, 1),
+                        concurrency: clampNumber(
+                          event.target.value,
+                          1,
+                          30,
+                          defaultSettings.concurrency,
+                        ),
                       },
                       "同时运行任务数",
                     )
@@ -3158,7 +3163,12 @@ function SettingsPage({
                   onChange={(event) =>
                     updateSetting(
                       {
-                        threadCount: clampNumber(event.target.value, 1, 32, 8),
+                        threadCount: clampNumber(
+                          event.target.value,
+                          1,
+                          32,
+                          defaultSettings.threadCount,
+                        ),
                       },
                       "单任务线程数",
                     )
@@ -3180,7 +3190,12 @@ function SettingsPage({
                   onChange={(event) =>
                     updateSetting(
                       {
-                        retryAttempts: clampNumber(event.target.value, 0, 10, 1),
+                        retryAttempts: clampNumber(
+                          event.target.value,
+                          0,
+                          10,
+                          defaultSettings.retryAttempts,
+                        ),
                       },
                       "自动重试数",
                     )

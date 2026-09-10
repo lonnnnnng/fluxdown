@@ -1770,7 +1770,7 @@ fn queue_commands_redact_magnet_tracker_credentials_from_json_output() {
 }
 
 #[test]
-fn queue_run_defaults_to_single_concurrent_task() {
+fn queue_run_defaults_to_five_concurrent_tasks() {
     let payload = vec![b's'; 128 * 1024];
     let active = Arc::new(AtomicUsize::new(0));
     let max_active = Arc::new(AtomicUsize::new(0));
@@ -1779,7 +1779,7 @@ fn queue_run_defaults_to_single_concurrent_task() {
     let server_active = Arc::clone(&active);
     let server_max_active = Arc::clone(&max_active);
     let server = thread::spawn(move || {
-        for _ in 0..2 {
+        for _ in 0..5 {
             let (mut stream, _) = listener.accept().unwrap();
             let active = Arc::clone(&server_active);
             let max_active = Arc::clone(&server_max_active);
@@ -1811,7 +1811,7 @@ fn queue_run_defaults_to_single_concurrent_task() {
     let temp_dir = tempfile::tempdir().unwrap();
     let store_path = temp_dir.path().join("queue.json");
     let downloads_dir = temp_dir.path().join("downloads");
-    for index in 0..2 {
+    for index in 0..5 {
         let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
             .args([
                 "--store",
@@ -1850,10 +1850,10 @@ fn queue_run_defaults_to_single_concurrent_task() {
         String::from_utf8_lossy(&run_output.stderr)
     );
     let report: Value = serde_json::from_slice(&run_output.stdout).unwrap();
-    assert_eq!(report["total_queued"], 2);
-    assert_eq!(report["started"], 2);
-    assert_eq!(report["finished"], 2);
-    assert_eq!(max_active.load(Ordering::SeqCst), 1);
+    assert_eq!(report["total_queued"], 5);
+    assert_eq!(report["started"], 5);
+    assert_eq!(report["finished"], 5);
+    assert_eq!(max_active.load(Ordering::SeqCst), 5);
 }
 
 #[test]
@@ -2217,19 +2217,19 @@ fn queue_run_retries_failed_http_task() {
 }
 
 #[test]
-fn queue_run_retries_once_by_default() {
+fn queue_run_retries_three_times_by_default() {
     let payload = b"fluxdown-cli-default-retry";
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let attempts = Arc::new(AtomicUsize::new(0));
     let server_attempts = Arc::clone(&attempts);
     let server = thread::spawn(move || {
-        for _ in 0..2 {
+        for _ in 0..4 {
             let (mut stream, _) = listener.accept().unwrap();
             let attempt = server_attempts.fetch_add(1, Ordering::SeqCst) + 1;
             let mut buffer = [0; 1024];
             let _ = stream.read(&mut buffer).unwrap();
-            if attempt == 1 {
+            if attempt <= 3 {
                 let response = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                 stream.write_all(response.as_bytes()).unwrap();
             } else {
@@ -2284,7 +2284,7 @@ fn queue_run_retries_once_by_default() {
         "stderr: {}",
         String::from_utf8_lossy(&run_output.stderr)
     );
-    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(attempts.load(Ordering::SeqCst), 4);
     assert_eq!(
         std::fs::read(downloads_dir.join("default-retry.bin")).unwrap(),
         payload
