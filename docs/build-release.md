@@ -100,7 +100,7 @@ macOS DMG：
 npm run desktop:dmg
 ```
 
-`desktop:dmg` 使用 `scripts/create-macos-dmg.mjs`，避免依赖 Finder AppleScript，适合 CI/headless 环境。
+`desktop:dmg` 使用 `scripts/create-macos-dmg.mjs`，生成包含 `FluxDown.app` 和 `/Applications` 入口的标准拖拽安装镜像；用户将应用拖入“应用程序”目录后即可从系统应用图标启动，不必重复打开 DMG。脚本避免依赖 Finder AppleScript，适合 CI/headless 环境。
 
 Docker 辅助构建：
 

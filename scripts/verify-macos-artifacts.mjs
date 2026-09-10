@@ -1,5 +1,15 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from 'node:fs'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
@@ -103,6 +113,8 @@ function verifyDmg() {
     detachMountedDmg()
     const result = runResult('hdiutil', ['verify', dmgPath])
     if (result.status === 0) {
+      detachMountedDmg()
+      verifyDmgInstallerLayout()
       console.log('ok dmg   checksum valid')
       return
     }
@@ -112,6 +124,38 @@ function verifyDmg() {
   }
 
   fail(`hdiutil verify ${dmgPath} failed after 3 attempts\n${lastError}`)
+}
+
+function verifyDmgInstallerLayout() {
+  const mountPath = mkdtempSync(join(tmpdir(), 'fluxdown-dmg-mount-'))
+  try {
+    run('hdiutil', [
+      'attach',
+      '-nobrowse',
+      '-readonly',
+      '-mountpoint',
+      mountPath,
+      dmgPath,
+    ])
+    const bundledApp = join(mountPath, 'FluxDown.app')
+    const applicationsLink = join(mountPath, 'Applications')
+    assert(
+      existsSync(bundledApp) && statSync(bundledApp).isDirectory(),
+      'DMG must contain FluxDown.app at its root',
+    )
+    assert(
+      lstatSync(applicationsLink).isSymbolicLink(),
+      'DMG must contain an Applications symlink for drag-and-drop installation',
+    )
+    assert(
+      realpathSync(applicationsLink) === '/Applications',
+      'DMG Applications entry must target /Applications',
+    )
+    console.log('ok dmg   installer layout (FluxDown.app + Applications)')
+  } finally {
+    runResult('hdiutil', ['detach', mountPath])
+    rmSync(mountPath, { recursive: true, force: true })
+  }
 }
 
 function plistValue(key) {

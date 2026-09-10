@@ -1,5 +1,11 @@
 # 下载验证状态
 
+## 2026-09-10 macOS DMG 安装镜像修复（工作树，未发布）
+
+- 修复 `scripts/create-macos-dmg.mjs`：DMG 不再直接以 `.app` 作为镜像根目录，而是生成包含 `FluxDown.app` 和 `Applications -> /Applications` 入口的标准拖拽安装镜像。用户安装一次后可从系统应用图标启动，不需要每次重新打开 DMG。
+- 本地验证：生成 `target/release/bundle/dmg/FluxDown_1.0.17_aarch64.dmg`，使用 `hdiutil attach -readonly` 挂载，确认根目录应用和 Applications 入口均存在，随后正常卸载。
+- `node scripts/verify-macos-artifacts.mjs` 通过：CLI 版本/doctor、`.app` 元数据、ad-hoc 签名、DMG installer layout 和 checksum 均通过。本修复尚未推送或发布，当前公开 Release 资产不变。
+
 ## 2026-09-10 P1-05 错误处理与异常恢复（代码与确定性回归）
 
 - 核心新增统一错误策略：认证失败、404、无效协议/播放列表、权限拒绝、磁盘空间不足、SHA-256 不匹配和无 Peer 不自动重试；连接拒绝、连接重置、超时、HTTP 408/429/5xx 等瞬态错误才消耗重试次数。HLS 分片重试同样遵守该策略，退避期间可被暂停取消。

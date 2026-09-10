@@ -83,7 +83,7 @@ npm ci
 npm run desktop:build
 ```
 
-On macOS, the app bundle is generated at `target/release/bundle/macos/FluxDown.app`. Run `npm run desktop:dev` for native development, or `npm run desktop:web` for a frontend-only preview.
+On macOS, the app bundle is generated at `target/release/bundle/macos/FluxDown.app`; run `npm run desktop:dmg` to create a standard drag-to-install image. Open the DMG, drag `FluxDown.app` to `Applications`, and then launch `/Applications/FluxDown.app` from the system instead of opening the DMG each time. Run `npm run desktop:dev` for native development, or `npm run desktop:web` for a frontend-only preview.
 
 ### Android
 

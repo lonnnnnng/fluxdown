@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
-import { mkdir, rm, stat } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, rm, stat, symlink } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { spawn } from 'node:child_process'
+import { tmpdir } from 'node:os'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 const version = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version
@@ -34,21 +35,35 @@ await ensureAppBundle()
 await signAppBundle()
 await mkdir(dirname(dmgPath), { recursive: true })
 await rm(dmgPath, { force: true })
-await run('hdiutil', [
-  'create',
-  '-volname',
-  'FluxDown',
-  '-srcfolder',
-  appPath,
-  '-ov',
-  '-format',
-  'UDZO',
+const stagingPath = await mkdtemp(join(tmpdir(), 'fluxdown-dmg-'))
+try {
   // 作者: long
-  // 只提高现有 zlib 容器压缩等级，不改变镜像格式和系统兼容性。
-  '-imagekey',
-  'zlib-level=9',
-  dmgPath,
-])
+  // DMG 的根目录必须同时包含应用本体和 /Applications 入口；直接把 .app 作为 srcfolder
+  // 只会生成“打开即运行”的镜像，用户每次都要重新点击 DMG，无法完成常规安装。
+  await cp(appPath, join(stagingPath, 'FluxDown.app'), {
+    recursive: true,
+    dereference: false,
+  })
+  await symlink('/Applications', join(stagingPath, 'Applications'), 'dir')
+  await run('hdiutil', [
+    'create',
+    '-volname',
+    'FluxDown',
+    '-srcfolder',
+    stagingPath,
+    '-ov',
+    '-format',
+    'UDZO',
+    // 作者: long
+    // 只提高现有 zlib 容器压缩等级，不改变镜像格式和系统兼容性。
+    '-imagekey',
+    'zlib-level=9',
+    dmgPath,
+  ])
+  console.log(`Created macOS installer DMG: ${dmgPath}`)
+} finally {
+  await rm(stagingPath, { recursive: true, force: true })
+}
 
 async function signAppBundle() {
   // 作者: long

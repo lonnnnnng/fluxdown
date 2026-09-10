@@ -83,7 +83,7 @@ npm ci
 npm run desktop:build
 ```
 
-macOS 构建产物位于 `target/release/bundle/macos/FluxDown.app`。原生开发调试运行 `npm run desktop:dev`；仅预览前端运行 `npm run desktop:web`。
+macOS 构建产物位于 `target/release/bundle/macos/FluxDown.app`；运行 `npm run desktop:dmg` 可生成标准拖拽安装镜像。打开 DMG 后将 `FluxDown.app` 拖到“应用程序”目录，安装后直接点击 `/Applications/FluxDown.app` 启动。原生开发调试运行 `npm run desktop:dev`；仅预览前端运行 `npm run desktop:web`。
 
 ### Android
 
