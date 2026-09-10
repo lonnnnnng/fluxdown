@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.17](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.17). Features below describe the current source; historical verification is labeled separately.
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.18](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.18). Features below describe the current source; historical verification is labeled separately.
 
 ## Current Status
 
@@ -22,6 +22,10 @@ FluxDown is a multi-protocol downloader for desktop and mobile. The current vers
 - Mobile protocol detection tries Rust through FFI, with a Dart fallback when unavailable. Its queue and actual downloads still use Dart/native mobile adapters; migration to the Rust download engine is not complete.
 - Normal commits and tag pushes do not trigger GitHub Actions. CI is run manually only for explicit packaging or release work.
 
+### 1.0.18 Update (2026-09-10)
+
+Improved Torrent/Magnet multi-file selection, folder details, per-file progress, and opening completed files. Mobile now exposes HLS variant and TS-output options. Download failures distinguish retryable and non-recoverable cases, interrupted tasks recover to a resumable paused state, and output-location behavior is consistent across surfaces. Defaults are now 5 concurrent tasks, 16 download threads, and 3 retries. The macOS DMG is a standard drag-to-Applications installer, and public uploads are reduced to 10 files with SHA-256 values in the release notes. See the [release notes](docs/releases/1.0.18.md) (Chinese).
+
 ### 1.0.17 Update (2026-09-08)
 
 Fixed the Windows desktop binary being linked as a Console subsystem application. Launching the app no longer opens an accompanying command window, and closing an unrelated console no longer terminates the app. Optional backend probes no longer flash console windows on Windows. Release validation now checks the PE subsystem of the actual desktop and CLI binaries. See the [release notes](docs/releases/1.0.17.md) and [verification record](docs/download-verification.md) (Chinese).
@@ -32,21 +36,25 @@ Fixed iOS FFI linkage, mobile JSON decoding/memory ownership, desktop Torrent pe
 
 ## Screenshots
 
+The following `v1.0.17` captures show the queue, new-task dialog, and settings on Windows, macOS, and Android.
+
+### Windows Desktop
+
+| Queue | New Task | Settings |
+| --- | --- | --- |
+| <img src="img/v1.0.17/windows/download-list.png" alt="Windows queue" width="320"> | <img src="img/v1.0.17/windows/new-task.png" alt="Windows new task" width="320"> | <img src="img/v1.0.17/windows/settings.png" alt="Windows settings" width="320"> |
+
 ### macOS Desktop
 
-Historical captures from 2026-08-04 through 08-06 (`1.0.8`/`1.0.9` development). They do not show later tray, update, or Torrent details enhancements.
+| Queue | New Task | Settings |
+| --- | --- | --- |
+| <img src="img/v1.0.17/macos/download-list.png" alt="macOS queue" width="320"> | <img src="img/v1.0.17/macos/new-task.png" alt="macOS new task" width="320"> | <img src="img/v1.0.17/macos/settings.png" alt="macOS settings" width="320"> |
+
+### Android
 
 | Queue | New Task | Settings |
 | --- | --- | --- |
-| <img src="docs/artifacts/readme/macos/queue.png" alt="macOS queue" width="320"> | <img src="docs/artifacts/readme/macos/new-task.png" alt="macOS new task" width="320"> | <img src="docs/artifacts/readme/macos/settings.png" alt="macOS settings" width="320"> |
-
-### Android Real Device (Redmi Note 8 Pro)
-
-Captured on 2026-08-20 using the `1.0.10+11` release APK, not the current source. These images predate the SHA-256 input.
-
-| Queue | New Task | Settings |
-| --- | --- | --- |
-| <img src="docs/screenshots/android-redmi-gap-fixes.png" alt="Android real-device queue" width="220"> | <img src="docs/screenshots/android-new-task-gap-fixes.png" alt="Android real-device new task" width="220"> | <img src="docs/screenshots/android-settings-gap-fixes.png" alt="Android real-device settings" width="220"> |
+| <img src="img/v1.0.17/android/download-list.png" alt="Android queue" width="220"> | <img src="img/v1.0.17/android/new-task.png" alt="Android new task" width="220"> | <img src="img/v1.0.17/android/settings.png" alt="Android settings" width="220"> |
 
 ## Verification Boundary
 
@@ -110,20 +118,20 @@ Runner automatically builds and statically links Rust FFI, targeting iOS 15.0 or
 
 ## Release Assets
 
-Starting with `v1.0.16`, a standard release contains 11 uploaded files, plus GitHub's two automatic source archives, for 13 entries:
+Releases `v1.0.16` and `v1.0.17` contain 11 uploaded files. Starting with `v1.0.18`, a standard release contains 10 uploaded files, plus GitHub's two automatic source archives, for 12 entries:
 
 | Purpose | Downloads |
 | --- | --- |
 | Mobile installation | Android release APK |
 | Desktop installation | Windows x64 Setup EXE, macOS ARM64 DMG, Linux x64 DEB/RPM |
 | Command line | Windows x64 CLI ZIP; macOS ARM64 / Linux x64 CLI TAR.GZ |
-| Verification and notices | Release manifest (sizes/SHA-256), LICENSE, third-party license notices |
+| License notices | LICENSE, third-party license notices |
 
-Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.17.md) for signing and verification limits.
+Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.18.md) for signing and verification limits. The manifest remains an internal CI check, while file sizes and SHA-256 values are written directly into the release notes.
 
 Extract the CLI archive and run `fluxdown` / `fluxdown.exe`; Unix executable permissions are retained. Android still includes arm64-v8a, armeabi-v7a, and x86_64. Release uses R8; Dart symbols and R8 mapping are retained separately in Actions Artifacts.
 
-Release page: [FluxDown 1.0.17](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.17).
+Release page: [FluxDown 1.0.18](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.18).
 
 ## Documentation
 

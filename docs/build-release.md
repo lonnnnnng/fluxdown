@@ -9,7 +9,7 @@
 - Rust workspace `Cargo.toml`
 - Flutter `apps/mobile/pubspec.yaml`
 
-当前版本号为 `1.0.17`，修复 Windows 桌面控制台窗口并加入真实 EXE 的 PE 子系统门禁，见 [发行说明](releases/1.0.17.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
+当前版本号为 `1.0.18`，完善 Torrent/HLS 跨端体验、异常恢复、默认下载参数和 macOS 安装镜像，并精简公开附件，见 [发行说明](releases/1.0.18.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
 
 ## 本地依赖
 
@@ -297,19 +297,19 @@ npm run verify:ios:physical-integration
 
 ## 公开发行策略
 
-从 `1.0.16` 开始，GitHub Release 固定公开 11 个上传文件；另有 GitHub 自动生成的 ZIP/TAR.GZ 源码包，页面共 13 项。
+`1.0.16` 与 `1.0.17` 实际发布了 11 个上传文件。从 `1.0.18` 起固定公开 10 个上传文件；另有 GitHub 自动生成的 ZIP/TAR.GZ 源码包，页面共 12 项。
 
 | 分类 | 公开文件 | 数量 |
 | --- | --- | --- |
 | 用户安装 | Android release APK、Windows x64 Setup、macOS ARM64 DMG、Linux x64 DEB/RPM | 5 |
 | 命令行 | Windows x64 CLI ZIP、macOS ARM64 / Linux x64 CLI TAR.GZ | 3 |
-| 核验与许可 | release manifest、LICENSE、第三方许可证说明 | 3 |
+| 许可说明 | LICENSE、第三方许可证说明 | 2 |
 
 Debug APK、AAB、iOS simulator/unsigned app、可选签名 IPA/framework、Windows MSI、裸桌面程序和 macOS App 构建目录继续由各 CI job 构建、检查、上传为 Actions Artifacts，不自动进入公开下载区。CI Artifacts 受仓库保留期限制，不是永久的用户发行渠道。旧 Release 的资产不批量删除。
 
 桌面在线更新当前依赖 Windows `-setup.exe`、macOS `.dmg` 和 Linux `.deb` 的命名，调整公开资产时必须同时检查 `matches_platform_asset` 的匹配规则。
 
-`scripts/prepare-github-release-assets.mjs` 只提取公开文件，要求输出目录为空，拒绝缺失或多个候选文件；发行正文读取 `docs/releases/<version>.md`，避免重复使用旧版本说明。`scripts/verify-github-release-assets.mjs` 校验精确的 11 项白名单和 manifest 中 10 项的大小/SHA-256（manifest 不包含自身哈希）。
+`scripts/prepare-github-release-assets.mjs` 只提取公开文件，要求输出目录为空，拒绝缺失或多个候选文件；发行正文读取 `docs/releases/<version>.md`，避免重复使用旧版本说明。`scripts/verify-github-release-assets.mjs` 校验精确的 10 项白名单和内部 manifest 中全部 10 项的大小/SHA-256。内部 manifest 位于公开 assets 目录的上一级，只参与流水线校验；相同的大小与 SHA-256 会写入 Release Notes，manifest 本身不再上传。
 
 ```sh
 npm run verify:ci-config
@@ -331,7 +331,7 @@ npm run verify:github-release -- <new-empty-assets-directory>
 
 ## 内部完整归档
 
-以下原有入口用于本地完整测试/归档，仍要求多端内部产物，不等于公开 Release 的 11 项白名单，也不会上传文件：
+以下原有入口用于本地完整测试/归档，仍要求多端内部产物，不等于公开 Release 的 10 项白名单，也不会上传文件：
 
 ```sh
 npm run release:stage
@@ -396,7 +396,7 @@ Release manifest 记录平台、产物类型、大小和 SHA-256。目录型产�
 4. 提交代码并推送到 `main`。这一步只同步代码，不触发 GitHub Actions 打包流水线。
 5. 创建并推送与新版本一致的 `v<version>` 标签；先确认标签不存在，不重写已发布标签。
 6. 在 GitHub Actions 页面手动运行 `Build` workflow，选择刚推送的 `v*` 标签 ref，并设置 `run_mode=release`。
-7. 从 Release 下载回验全部 11 个公开文件的大小/SHA-256、版本/包名，检查页面含源码包共 13 项；不要把只检查 CI 工作目录写成远端资产验证通过。
+7. 从 Release 下载回验全部 10 个公开文件的大小/SHA-256、版本/包名，检查页面含源码包共 12 项；不要把只检查 CI 工作目录写成远端资产验证通过。
 
 ## 常见问题
 

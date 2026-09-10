@@ -19,6 +19,7 @@
 - [macOS 原生桌面端 12 协议验证报告](macos-desktop-protocol-e2e-report-20260805.md)：macOS 原生 Tauri 前台窗口下 11 类真实下载和 ed2k 系统移交证据。
 - [跨平台协议测试资源清单](protocol-test-resources.md)：保留公网小资源、动态实验室地址、复跑方式和跨端复用边界。
 - [构建与发布](build-release.md)：本地构建命令、CI 作业、发布产物、签名配置和版本发布流程。
+- [1.0.18 发行说明](releases/1.0.18.md)：Torrent/HLS 跨端体验、异常恢复、默认参数、macOS 安装镜像与发行资产精简。
 - [1.0.17 发行说明](releases/1.0.17.md)：Windows 桌面控制台修复、PE 子系统发布门禁及验证边界。
 - [1.0.16 发行说明](releases/1.0.16.md)：精简公开资产策略、FFI/桌面修复及签名边界。
 - [包体优化记录](release-size-optimization.md)：R8、Rust/Flutter 裁剪、CLI 压缩包、实际大小对比和验证边界。
@@ -35,14 +36,13 @@ FluxDown 是一个跨平台下载器工作区：
 - 共享核心：Rust core crate 提供协议检测、任务模型、任务存储、队列运行器和桌面下载执行能力。
 - 移动 FFI：协议识别优先复用 Rust；Flutter 下载队列仍由 Dart/移动原生适配器执行，不是完整的跨端统一引擎。
 
-当前版本号为 `1.0.17`，修复 Windows 桌面程序随控制台启动及关闭控制台后退出的问题，并加入实际 EXE 的 PE 子系统发布门禁。`1.0.16` 已将公开 Assets 从 21 项精简为 13 项（11 个上传文件与 2 个自动源码包），该策略继续沿用。内部调试、商店和 iOS 验证产物仍保留在 Actions Artifacts。发布流水线只允许手动选择 `run_mode=package` 或 `run_mode=release`，普通代码推送和 `v*` 标签推送都不会自动执行。各次构建与运行证据见 [下载验证状态](download-verification.md)。
+当前版本号为 `1.0.18`，完善 Torrent/HLS 跨端体验、异常恢复、保存位置与默认下载参数，并修复 macOS DMG 安装操作。公开 Assets 精简为 12 项（10 个上传文件与 2 个自动源码包），内部 manifest 继续做上传前校验，大小和 SHA-256 改写入 Release Notes。内部调试、商店和 iOS 验证产物仍保留在 Actions Artifacts。发布流水线只允许手动选择 `run_mode=package` 或 `run_mode=release`，普通代码推送和 `v*` 标签推送都不会自动执行。各次构建与运行证据见 [下载验证状态](download-verification.md)。
 
 ## 当前版本重点
 
 - GitHub 默认 README 已切换为中文，英文入口保留为 `README.en.md`。
 - 桌面端已重构为紧凑的传输控制台：下载列表和设置保持两页结构，统一使用状态侧栏、指标栏、任务表格和 Lucide 图标；任务行支持点击开始/暂停，右键、长按和三点菜单打开操作面板。
-- README 中 macOS 截图来自 2026-08-04 至 08-06 的真实 Tauri 窗口（逻辑 `1280×820`，Retina PNG `2560×1640`）；蓝白主题与常规字重仍保留，但旧图不包含后续新增的托盘、更新和 Torrent 详情。
-- Android README 使用 `docs/screenshots/android-*-gap-fixes.png` 中的三张 2026-08-20 Redmi Note 8 Pro 真机 `1.0.10+11` 截图，覆盖任务页、新建弹框和设置；没有重新采集当前源码截图，也不以旧图证明后来新增的 SHA-256 或 FFI 功能已在真机验证。
+- README 已引用 `img/v1.0.17/` 下 Windows、macOS、Android 三端的下载列表、新建任务和设置截图；截图用于展示界面，不替代真实协议下载验收。
 - Android 队列页显示任务状态、开始/结束时间、总耗时、已下载/总大小、实时速度和平均速度。
 - 新建任务支持下载链接输入、自动识别、自动命名、另存文件名和保存位置选择；移动端扫码与剪切板入口已接回弹框标题栏。
 - 桌面/CLI 与移动端均有可选 SHA-256 文件校验；桌面还提供 ETA、每任务限速、HLS 清晰度选择、分片缓存恢复和 TS 直出，后者不能视为已在移动 UI 同步。

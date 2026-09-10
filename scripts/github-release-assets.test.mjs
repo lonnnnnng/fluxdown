@@ -52,16 +52,22 @@ function fixture(t, inputs = [...required, ...internal]) {
   }
 }
 
-test('publishes exactly 11 files and leaves development artifacts out', (t) => {
+test('publishes exactly 10 files and leaves development artifacts out', (t) => {
   const data = fixture(t)
   const result = data.prepare()
   assert.equal(result.status, 0, result.stderr)
-  assert.equal(readdirSync(data.assets).length, 11)
+  assert.equal(readdirSync(data.assets).length, 10)
   assert.deepEqual(verifyPublicReleaseAssets(data.assets, version), publicReleaseAssetNames(version))
   assert.equal(publicReleaseAssetNames(version).filter((name) => name.endsWith('.apk')).length, 1)
   assert.equal(publicReleaseAssetNames(version).filter((name) => /debug|ios-|\.aab$|\.msi$|\.app\.tar\.gz$|fluxdown-desktop-/.test(name)).length, 0)
   const notes = readFileSync(resolve(data.assets, '../RELEASE_NOTES.md'), 'utf8')
-  assert.match(notes, /Assets 共 13 项/)
+  assert.match(notes, /Assets 共 12 项/)
+  assert.match(notes, /SHA-256/)
+  assert.equal(readdirSync(data.assets).some((name) => name.endsWith('release-manifest.json')), false)
+  const manifest = JSON.parse(readFileSync(resolve(data.assets, '../release-manifest.json'), 'utf8'))
+  for (const asset of manifest.assets) {
+    assert.match(notes, new RegExp(asset.sha256))
+  }
   assert.match(notes, new RegExp(`releases/download/v${version}/FluxDown-${version}-windows-x86_64-setup.exe`))
 })
 
@@ -130,7 +136,7 @@ test('rejects changed file content after preparing the manifest', (t) => {
 test('rejects duplicate entries in the manifest', (t) => {
   const data = fixture(t)
   assert.equal(data.prepare().status, 0)
-  const path = resolve(data.assets, `FluxDown-${version}-release-manifest.json`)
+  const path = resolve(data.assets, '../release-manifest.json')
   const manifest = JSON.parse(readFileSync(path, 'utf8'))
   manifest.assets.push(manifest.assets[0])
   writeFileSync(path, JSON.stringify(manifest))

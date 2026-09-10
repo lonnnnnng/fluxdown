@@ -17,7 +17,6 @@ export function publicReleaseAssetNames(version) {
     `fluxdown-${version}-linux-amd64.tar.gz`,
     `FluxDown-${version}-LICENSE.txt`,
     `FluxDown-${version}-THIRD-PARTY-LICENSES.md`,
-    `FluxDown-${version}-release-manifest.json`,
   ].sort()
 }
 
@@ -32,14 +31,15 @@ export function verifyPublicReleaseAssets(directory, version) {
     if (!stat.isFile() || stat.size === 0) throw new Error(`资产不是非空普通文件: ${name}`)
   }
 
-  const manifestName = `FluxDown-${version}-release-manifest.json`
-  const manifest = JSON.parse(readFileSync(resolve(directory, manifestName), 'utf8'))
+  // 作者: long
+  // manifest 留在公开 assets 的同级目录供 CI 使用，不上传到 Release；用户校验值由 Release Notes 展示。
+  const manifest = JSON.parse(readFileSync(resolve(directory, '../release-manifest.json'), 'utf8'))
   if (manifest.product !== 'FluxDown' || manifest.version !== version || !Array.isArray(manifest.assets)) {
     throw new Error('发布清单的产品、版本或 assets 格式不正确')
   }
-  assertSameNames(manifest.assets.map((asset) => asset.name).sort(), expected.filter((name) => name !== manifestName), 'manifest')
+  assertSameNames(manifest.assets.map((asset) => asset.name).sort(), expected, 'manifest')
   // 作者: long
-  // manifest 无法包含自身哈希，其余文件必须逐一核对大小与 SHA-256，避免缺包、错包和上传前内容变化。
+  // 内部 manifest 中的公开文件必须逐一核对大小与 SHA-256，避免缺包、错包和上传前内容变化。
   for (const asset of manifest.assets) {
     const bytes = readFileSync(resolve(directory, asset.name))
     const sha256 = createHash('sha256').update(bytes).digest('hex')

@@ -43,6 +43,7 @@
 | 依赖 | 用途 | 许可证 |
 | --- | --- | --- |
 | `@tauri-apps/api` | 前端调用 Tauri command | Apache-2.0 OR MIT |
+| `@tauri-apps/plugin-dialog` | 桌面端原生文件夹选择 | MIT OR Apache-2.0 |
 | `react` / `react-dom` | 桌面 GUI 视图层 | MIT |
 | `lucide-react` | 桌面 GUI 操作与状态图标 | ISC |
 | `vite` | 前端构建 | MIT |

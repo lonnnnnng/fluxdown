@@ -34,7 +34,7 @@ copyRequiredFile('fluxdown-android-release-apk', (name) => name === 'app-release
 // Debug APK、AAB、iOS 验证包、MSI、裸桌面程序与 macOS app 压缩包继续保留为 Actions Artifacts，不公开到 Release。
 copyAsset(resolve(root, 'LICENSE'), `FluxDown-${version}-LICENSE.txt`)
 copyAsset(resolve(root, 'docs/third-party-licenses.md'), `FluxDown-${version}-THIRD-PARTY-LICENSES.md`)
-writeManifest()
+writeInternalManifest()
 verifyPublicReleaseAssets(assetsDir, version)
 writeReleaseNotes()
 console.log(`prepared ${preparedAssets.length} public release assets in ${relative(root, assetsDir)}`)
@@ -99,17 +99,21 @@ function recordAsset(name) {
   preparedAssets.push({ name, bytes, sha256: createHash('sha256').update(readFileSync(destination)).digest('hex') })
 }
 
-function writeManifest() {
-  const name = `FluxDown-${version}-release-manifest.json`
+function writeInternalManifest() {
   const manifest = { product: 'FluxDown', version, generatedAt: new Date().toISOString(), assets: [...preparedAssets].sort((a, b) => a.name.localeCompare(b.name)) }
   const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)
-  writeFileSync(resolve(assetsDir, name), bytes)
-  preparedAssets.push({ name, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
+  // 作者: long
+  // 清单只服务于上传前完整性校验，放在 assets 外即可避免成为用户下载项；公开校验值写入 Release Notes。
+  writeFileSync(resolve(dirname(assetsDir), 'release-manifest.json'), bytes)
 }
 
 function writeReleaseNotes() {
   const changelog = readFileSync(resolve(root, `docs/releases/${version}.md`), 'utf8').trim()
   const download = (name) => `https://github.com/lonnnnnng/fluxdown/releases/download/v${version}/${name}`
+  const checksumRows = [...preparedAssets]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((asset) => `| \`${asset.name}\` | ${asset.bytes} | \`${asset.sha256}\` |`)
+    .join('\n')
   const notes = `# FluxDown ${version}
 
 ${changelog}
@@ -131,11 +135,17 @@ CLI 解压后运行其中的 fluxdown/fluxdown.exe；压缩包包含许可证，
 
 ## 资产说明
 
-本次公开 11 个文件，加上 GitHub 自动提供的 2 个源码压缩包，Assets 共 13 项。文件大小与 SHA-256 见 [release manifest](${download(`FluxDown-${version}-release-manifest.json`)})。
+本次公开 10 个文件，加上 GitHub 自动提供的 2 个源码压缩包，Assets 共 12 项。内部 manifest 仅用于流水线上传前校验，不作为公开下载项。
 
 Debug APK、AAB、iOS simulator/unsigned app、MSI、裸桌面程序和 macOS app 构建目录仅保留在对应 Actions Artifacts，不再混入用户下载区。iOS 目前没有面向普通用户的可安装发行包。
 
 [项目许可证](${download(`FluxDown-${version}-LICENSE.txt`)}) · [第三方许可证](${download(`FluxDown-${version}-THIRD-PARTY-LICENSES.md`)})
+
+## 文件校验
+
+| 文件 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+${checksumRows}
 `
   writeFileSync(resolve(dirname(assetsDir), 'RELEASE_NOTES.md'), notes)
 }

@@ -779,6 +779,20 @@ function taskEtaLabel(task: DownloadTask) {
   return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
 }
 
+function createBrowserPreviewTask(
+  task: Omit<DownloadTask, "id" | "created_at_ms" | "updated_at_ms">,
+): DownloadTask {
+  // 作者: long
+  // 浏览器预览没有后端生成任务标识和时间戳，只在用户提交事件中补齐，不能在组件渲染阶段产生不稳定值。
+  const now = Date.now();
+  return {
+    ...task,
+    id: `preview-${now}`,
+    created_at_ms: now,
+    updated_at_ms: now,
+  };
+}
+
 function Icon({ name }: { name: IconName }) {
   const Component = iconComponents[name];
   return <Component aria-hidden="true" className={`uiIcon icon-${name}`} />;
@@ -1396,8 +1410,7 @@ function App() {
       // 作者: long
       // 只有浏览器预览没有 Tauri 后端时才创建内存任务；桌面入队失败必须保留真实错误，避免把权限问题伪装成成功。
       const protocol = fallbackDetect(normalizedSource);
-      task = {
-        id: `preview-${Date.now()}`,
+      task = createBrowserPreviewTask({
         source: normalizedSource,
         protocol,
         support: fallbackSupport(normalizedSource),
@@ -1411,9 +1424,7 @@ function App() {
         hls_keep_transport_stream: hlsKeepTs,
         total_bytes: null,
         downloaded_bytes: 0,
-        created_at_ms: Date.now(),
-        updated_at_ms: Date.now(),
-      } satisfies DownloadTask;
+      });
     }
 
     setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
@@ -2845,14 +2856,7 @@ function SettingsPage({
   settings: Settings;
 }) {
   const [section, setSection] = useState<SettingsSection>("general");
-  const [speedLimitText, setSpeedLimitText] = useState(() =>
-    settings.speedLimitMbps > 0 ? String(settings.speedLimitMbps) : "",
-  );
-  useEffect(() => {
-    // 作者: long
-    // 设置可能由本地存储重载或其他设置入口更新，限速输入必须同步真实值，避免显示旧配置。
-    setSpeedLimitText(settings.speedLimitMbps > 0 ? String(settings.speedLimitMbps) : "");
-  }, [settings.speedLimitMbps]);
+  const speedLimitInputRef = useRef<HTMLInputElement>(null);
   const [notice, setNotice] = useState("设置变更会自动保存到本机");
   const backends =
     doctorReport?.backends ?? [
@@ -2890,14 +2894,14 @@ function SettingsPage({
   }
 
   function commitSpeedLimit() {
-    const parsed = parseDecimalSetting(speedLimitText, 0, 10000);
+    const input = speedLimitInputRef.current;
+    if (!input) return;
+    const parsed = parseDecimalSetting(input.value, 0, 10000);
     if (parsed === null) {
-      setSpeedLimitText(
-        settings.speedLimitMbps > 0 ? String(settings.speedLimitMbps) : "",
-      );
+      input.value = settings.speedLimitMbps > 0 ? String(settings.speedLimitMbps) : "";
       return;
     }
-    setSpeedLimitText(parsed > 0 ? String(parsed) : "");
+    input.value = parsed > 0 ? String(parsed) : "";
     updateSetting({ speedLimitMbps: parsed }, "最大下载网速");
   }
 
@@ -3212,15 +3216,20 @@ function SettingsPage({
                 <input
                   data-setting-input="speedLimitMbps"
                   data-testid="setting-speed-limit"
+                  defaultValue={
+                    settings.speedLimitMbps > 0 ? String(settings.speedLimitMbps) : ""
+                  }
                   inputMode="decimal"
+                  // 作者: long
+                  // 只重建限速输入即可同步外部配置，保留设置页当前分类和其他交互状态。
+                  key={settings.speedLimitMbps}
                   onBlur={commitSpeedLimit}
-                  onChange={(event) => setSpeedLimitText(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") commitSpeedLimit();
                   }}
                   placeholder="不限速"
+                  ref={speedLimitInputRef}
                   type="text"
-                  value={speedLimitText}
                 />
               </SettingRow>
             </section>
