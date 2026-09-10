@@ -24,6 +24,7 @@
 | `smb2` | SMB2/3 下载 | MIT |
 | `tauri` / `tauri-build` | 桌面 GUI 宿主和构建 | Apache-2.0 OR MIT |
 | `tauri-plugin-clipboard-manager` | 桌面剪贴板读写 | Apache-2.0 OR MIT |
+| `tauri-plugin-dialog` | 桌面原生目录选择 | Apache-2.0 OR MIT |
 | `tauri-plugin-notification` | 桌面下载完成通知 | Apache-2.0 OR MIT |
 | `tauri-plugin-single-instance` | 桌面单实例与重复启动唤醒 | Apache-2.0 OR MIT |
 | `tauri-plugin-window-state` | 桌面窗口位置和尺寸持久化 | Apache-2.0 OR MIT |

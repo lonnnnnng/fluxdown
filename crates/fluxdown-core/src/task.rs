@@ -15,7 +15,7 @@ pub struct DownloadRequest {
     pub expected_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub torrent_file_indices: Vec<usize>,
-    /// 每任务限速（Mbps）；None 表示跟随队列/全局策略。
+    /// 每任务限速（MiB/s）；字段名保留 mbps 以兼容既有队列，None 表示跟随队列/全局策略。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed_limit_mbps: Option<f64>,
     /// HLS master playlist 的清晰度 variant 下标；None 表示取第一个 variant。

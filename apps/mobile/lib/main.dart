@@ -264,7 +264,7 @@ class AppStrings {
   String get speedLimitSetting =>
       language == AppLanguage.zh ? '最大下载网速' : 'Max download speed';
   String get speedLimitHint =>
-      language == AppLanguage.zh ? 'MB/s，留空不限速' : 'MB/s, blank means unlimited';
+      language == AppLanguage.zh ? 'MiB/s，留空不限速' : 'MiB/s, blank means unlimited';
   String get hlsVariantSetting =>
       language == AppLanguage.zh ? 'HLS 清晰度编号' : 'HLS variant index';
   String get hlsVariantHint => language == AppLanguage.zh
@@ -293,7 +293,7 @@ class AppStrings {
     final value = mbps == mbps.roundToDouble()
         ? mbps.toStringAsFixed(0)
         : mbps.toStringAsFixed(1);
-    return '$value MB/s';
+    return '$value MiB/s';
   }
 
   String get autoStartAddedTasks =>
@@ -2746,7 +2746,7 @@ class SettingsView extends StatelessWidget {
               subtitle: strings.speedLimitHint,
               valueText: speedLimitInputValue(speedLimitKbps),
               hintText: language == AppLanguage.zh ? '不限速' : 'Unlimited',
-              suffixText: 'MB/s',
+              suffixText: 'MiB/s',
               allowDecimal: true,
               allowEmpty: true,
               onSubmitted: (value) {

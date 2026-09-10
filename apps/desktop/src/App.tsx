@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open as openNativeDialog } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -414,7 +415,14 @@ function loadSettings(): Settings {
       concurrency: clampNumber(saved.concurrency, 1, 30, 1),
       threadCount: clampNumber(saved.threadCount, 1, 32, defaultSettings.threadCount),
       retryAttempts: clampNumber(saved.retryAttempts, 0, 10, defaultSettings.retryAttempts),
-      speedLimitMbps: clampNumber(saved.speedLimitMbps, 0, 10000, defaultSettings.speedLimitMbps),
+      // 作者: long
+      // 限速允许小数，读取旧配置时不能复用整数设置的四舍五入，否则 1.5 MiB/s 会被恢复成 2 MiB/s。
+      speedLimitMbps: clampDecimal(
+        saved.speedLimitMbps,
+        0,
+        10000,
+        defaultSettings.speedLimitMbps,
+      ),
       autoStart:
         typeof saved.autoStart === "boolean"
           ? saved.autoStart
@@ -464,9 +472,31 @@ function clampNumber(
   max: number,
   fallback: number,
 ) {
-  const parsed = Number(value);
+  const parsed = typeof value === "string" && value.trim() === "" ? NaN : Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+function clampDecimal(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+) {
+  const parsed =
+    typeof value === "string" && value.trim() === ""
+      ? NaN
+      : Number(typeof value === "string" ? value.trim().replace(/,/g, ".") : value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function parseDecimalSetting(value: string, min: number, max: number) {
+  const normalized = value.trim().replace(/,/g, ".");
+  if (!normalized) return 0;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.min(max, Math.max(min, parsed));
 }
 
 function compareVersions(left: string, right: string): number {
@@ -1279,6 +1309,34 @@ function App() {
     setSettings((current) => ({ ...current, ...patch }));
   }
 
+  async function pickDirectory(initialPath: string) {
+    try {
+      const selected = await openNativeDialog({
+        directory: true,
+        multiple: false,
+        title: "选择下载保存位置",
+        defaultPath: initialPath.trim() || undefined,
+      });
+      return typeof selected === "string" ? selected : null;
+    } catch (error) {
+      setMessage(safeErrorText(error));
+      return null;
+    }
+  }
+
+  async function pickSettingsOutputDir() {
+    const selected = await pickDirectory(settings.outputDir);
+    if (!selected) return;
+    updateSettings({ outputDir: selected });
+    setOutputDir(selected);
+    setMessage("默认保存位置已更新");
+  }
+
+  async function pickNewTaskOutputDir() {
+    const selected = await pickDirectory(outputDir || settings.outputDir);
+    if (selected) setOutputDir(selected);
+  }
+
   async function createTask() {
     const normalizedSource = source.trim();
     if (!normalizedSource) {
@@ -1316,20 +1374,29 @@ function App() {
       hlsVariantIndex.trim() && Number.isFinite(parsedVariantIndex)
         ? parsedVariantIndex
         : null;
-    const task = await invoke<DownloadTask>("enqueue_download", {
-      payload: {
-        source: normalizedSource,
-        output_dir: normalizedOutput,
-        file_name: fileName.trim() || null,
-        expected_sha256: normalizedSha256,
-        torrent_file_indices: selectedTorrentFiles,
-        speed_limit_mbps: speedLimitMbps,
-        hls_variant_index: variantIndex,
-        hls_keep_transport_stream: hlsKeepTs || null,
-      },
-    }).catch(() => {
+    let task: DownloadTask;
+    try {
+      task = await invoke<DownloadTask>("enqueue_download", {
+        payload: {
+          source: normalizedSource,
+          output_dir: normalizedOutput,
+          file_name: fileName.trim() || null,
+          expected_sha256: normalizedSha256,
+          torrent_file_indices: selectedTorrentFiles,
+          speed_limit_mbps: speedLimitMbps,
+          hls_variant_index: variantIndex,
+          hls_keep_transport_stream: hlsKeepTs || null,
+        },
+      });
+    } catch (error) {
+      if (!isMissingTauriBackendError(error)) {
+        setMessage(safeErrorText(error));
+        return;
+      }
+      // 作者: long
+      // 只有浏览器预览没有 Tauri 后端时才创建内存任务；桌面入队失败必须保留真实错误，避免把权限问题伪装成成功。
       const protocol = fallbackDetect(normalizedSource);
-      return {
+      task = {
         id: `preview-${Date.now()}`,
         source: normalizedSource,
         protocol,
@@ -1347,7 +1414,7 @@ function App() {
         created_at_ms: Date.now(),
         updated_at_ms: Date.now(),
       } satisfies DownloadTask;
-    });
+    }
 
     setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
     setNewDialogOpen(false);
@@ -1773,13 +1840,14 @@ function App() {
           </section>
         </main>
       ) : (
-        <SettingsPage
-          doctorReport={doctorReport}
-          onBack={() => setPage("queue")}
-          onChange={updateSettings}
-          onRefreshDoctor={refreshDoctorReport}
-          settings={settings}
-        />
+          <SettingsPage
+            doctorReport={doctorReport}
+            onBack={() => setPage("queue")}
+            onChange={updateSettings}
+            onPickOutputDir={pickSettingsOutputDir}
+            onRefreshDoctor={refreshDoctorReport}
+            settings={settings}
+          />
       )}
 
       {newDialogOpen ? (
@@ -1806,6 +1874,7 @@ function App() {
           onHlsKeepTsChange={setHlsKeepTs}
           onHlsVariantIndexChange={setHlsVariantIndex}
           onOutputDirChange={setOutputDir}
+          onPickOutputDir={pickNewTaskOutputDir}
           onPaste={pasteFromClipboard}
           onSourceChange={updateNewTaskSource}
           onTaskSpeedLimitChange={setTaskSpeedLimit}
@@ -2437,6 +2506,7 @@ function NewTaskDialog({
   onHlsKeepTsChange,
   onHlsVariantIndexChange,
   onOutputDirChange,
+  onPickOutputDir,
   onPaste,
   onSourceChange,
   onTaskSpeedLimitChange,
@@ -2464,6 +2534,7 @@ function NewTaskDialog({
   onHlsKeepTsChange: (value: boolean) => void;
   onHlsVariantIndexChange: (value: string) => void;
   onOutputDirChange: (value: string) => void;
+  onPickOutputDir: () => void;
   onPaste: () => void;
   onSourceChange: (value: string) => void;
   onTaskSpeedLimitChange: (value: string) => void;
@@ -2521,11 +2592,22 @@ function NewTaskDialog({
         </label>
         <label className="fieldBlock">
           <span>保存路径</span>
-          <input
-            data-testid="new-task-output-dir"
-            onChange={(event) => onOutputDirChange(event.target.value)}
-            value={outputDir}
-          />
+          <div className="pathInputGroup">
+            <input
+              data-testid="new-task-output-dir"
+              onChange={(event) => onOutputDirChange(event.target.value)}
+              value={outputDir}
+            />
+            <button
+              aria-label="选择保存目录"
+              data-testid="new-task-pick-output-dir"
+              onClick={onPickOutputDir}
+              title="选择保存目录"
+              type="button"
+            >
+              <Icon name="folder" />
+            </button>
+          </div>
         </label>
         <label className="fieldBlock">
           <span>SHA-256 校验</span>
@@ -2611,7 +2693,7 @@ function NewTaskDialog({
           </label>
         ) : null}
         <label className="fieldBlock">
-          <span>任务限速（Mbps，留空跟随全局设置）</span>
+          <span>任务限速（MiB/s，留空跟随全局设置）</span>
           <input
             data-testid="new-task-speed-limit"
             inputMode="decimal"
@@ -2751,16 +2833,26 @@ function SettingsPage({
   doctorReport,
   onBack,
   onChange,
+  onPickOutputDir,
   onRefreshDoctor,
   settings,
 }: {
   doctorReport: DoctorReport | null;
   onBack: () => void;
   onChange: (patch: Partial<Settings>) => void;
+  onPickOutputDir: () => void;
   onRefreshDoctor: () => Promise<boolean>;
   settings: Settings;
 }) {
   const [section, setSection] = useState<SettingsSection>("general");
+  const [speedLimitText, setSpeedLimitText] = useState(() =>
+    settings.speedLimitMbps > 0 ? String(settings.speedLimitMbps) : "",
+  );
+  useEffect(() => {
+    // 作者: long
+    // 设置可能由本地存储重载或其他设置入口更新，限速输入必须同步真实值，避免显示旧配置。
+    setSpeedLimitText(settings.speedLimitMbps > 0 ? String(settings.speedLimitMbps) : "");
+  }, [settings.speedLimitMbps]);
   const [notice, setNotice] = useState("设置变更会自动保存到本机");
   const backends =
     doctorReport?.backends ?? [
@@ -2795,6 +2887,18 @@ function SettingsPage({
   function saveCurrentSettings() {
     saveSettings(settings);
     setNotice("设置已保存到本机");
+  }
+
+  function commitSpeedLimit() {
+    const parsed = parseDecimalSetting(speedLimitText, 0, 10000);
+    if (parsed === null) {
+      setSpeedLimitText(
+        settings.speedLimitMbps > 0 ? String(settings.speedLimitMbps) : "",
+      );
+      return;
+    }
+    setSpeedLimitText(parsed > 0 ? String(parsed) : "");
+    updateSetting({ speedLimitMbps: parsed }, "最大下载网速");
   }
 
   async function runDoctorCheck() {
@@ -2902,14 +3006,25 @@ function SettingsPage({
                 title="默认保存位置"
                 subtitle="新建任务会优先写入此目录，也会用于打开目录动作。"
               >
-                <input
-                  data-setting-input="outputDir"
-                  data-testid="setting-output-dir"
-                  onChange={(event) =>
-                    updateSetting({ outputDir: event.target.value }, "默认保存位置")
-                  }
-                  value={settings.outputDir}
-                />
+                <div className="pathInputGroup settingsPathInput">
+                  <input
+                    data-setting-input="outputDir"
+                    data-testid="setting-output-dir"
+                    onChange={(event) =>
+                      updateSetting({ outputDir: event.target.value }, "默认保存位置")
+                    }
+                    value={settings.outputDir}
+                  />
+                  <button
+                    aria-label="选择默认保存目录"
+                    data-testid="setting-pick-output-dir"
+                    onClick={onPickOutputDir}
+                    title="选择默认保存目录"
+                    type="button"
+                  >
+                    <Icon name="folder" />
+                  </button>
+                </div>
               </SettingRow>
               <SettingRow
                 dataSetting="autoStart"
@@ -3077,28 +3192,20 @@ function SettingsPage({
               <SettingRow
                 dataSetting="speedLimitMbps"
                 title="最大下载网速"
-                subtitle="单位 MB/s，0 表示不限速。"
+                subtitle="单位 MiB/s，留空表示不限速；作用于未单独限速的任务。"
               >
                 <input
                   data-setting-input="speedLimitMbps"
                   data-testid="setting-speed-limit"
-                  max={10000}
-                  min={0}
-                  onChange={(event) =>
-                    updateSetting(
-                      {
-                        speedLimitMbps: clampNumber(event.target.value, 0, 10000, 0),
-                      },
-                      "最大下载网速",
-                    )
-                  }
+                  inputMode="decimal"
+                  onBlur={commitSpeedLimit}
+                  onChange={(event) => setSpeedLimitText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") commitSpeedLimit();
+                  }}
                   placeholder="不限速"
-                  type="number"
-                  value={
-                    settings.speedLimitMbps && settings.speedLimitMbps > 0
-                      ? settings.speedLimitMbps
-                      : ""
-                  }
+                  type="text"
+                  value={speedLimitText}
                 />
               </SettingRow>
             </section>

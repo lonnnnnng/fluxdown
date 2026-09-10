@@ -817,6 +817,8 @@ fn download_command_fetches_http_file() {
             "payload.bin",
             "--sha256",
             expected_sha256,
+            "--threads",
+            "1",
         ])
         .output()
         .unwrap();
@@ -872,6 +874,8 @@ fn download_command_fails_when_sha256_mismatches() {
             "payload.bin",
             "--sha256",
             wrong_sha256,
+            "--threads",
+            "1",
         ])
         .output()
         .unwrap();
@@ -940,6 +944,8 @@ fn download_command_sanitizes_requested_output_name() {
             output_dir.to_str().unwrap(),
             "--name",
             "../outside:name?.bin",
+            "--threads",
+            "1",
         ])
         .output()
         .unwrap();
@@ -987,6 +993,8 @@ fn download_command_uses_host_name_for_root_url_when_name_is_omitted() {
             &format!("http://{address}/"),
             "--output",
             output_dir.to_str().unwrap(),
+            "--threads",
+            "1",
         ])
         .output()
         .unwrap();
@@ -1150,6 +1158,8 @@ fn queue_commands_add_and_run_hls_task() {
             "run",
             "--concurrency",
             "1",
+            "--threads",
+            "1",
         ])
         .output()
         .unwrap();
@@ -1278,6 +1288,8 @@ fn download_command_restart_replaces_existing_http_file() {
             "--name",
             "payload.bin",
             "--restart",
+            "--threads",
+            "1",
         ])
         .output()
         .unwrap();
@@ -1441,6 +1453,8 @@ fn queue_commands_add_list_and_run_http_task() {
             store_path.to_str().unwrap(),
             "run",
             "--concurrency",
+            "1",
+            "--threads",
             "1",
         ])
         .output()
@@ -1629,6 +1643,8 @@ fn queue_run_marks_task_failed_when_sha256_mismatches() {
             "1",
             "--retry-attempts",
             "0",
+            "--threads",
+            "1",
         ])
         .output()
         .unwrap();
@@ -1817,7 +1833,13 @@ fn queue_run_defaults_to_single_concurrent_task() {
     }
 
     let run_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
-        .args(["--store", store_path.to_str().unwrap(), "run"])
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "run",
+            "--threads",
+            "1",
+        ])
         .output()
         .unwrap();
 
@@ -1889,6 +1911,8 @@ fn queue_run_can_remove_running_task_from_separate_cli_process() {
             store_path.to_str().unwrap(),
             "run",
             "--concurrency",
+            "1",
+            "--threads",
             "1",
             "--speed-limit-mbps",
             "0.05",
@@ -2014,6 +2038,8 @@ fn queue_run_can_pause_and_resume_running_task_from_separate_cli_process() {
             "run",
             "--concurrency",
             "1",
+            "--threads",
+            "1",
             "--speed-limit-mbps",
             "0.05",
         ])
@@ -2080,6 +2106,8 @@ fn queue_run_can_pause_and_resume_running_task_from_separate_cli_process() {
             store_path.to_str().unwrap(),
             "run",
             "--concurrency",
+            "1",
+            "--threads",
             "1",
         ])
         .output()
@@ -2165,6 +2193,8 @@ fn queue_run_retries_failed_http_task() {
             "1",
             "--retry-attempts",
             "1",
+            "--threads",
+            "1",
         ])
         .output()
         .unwrap();
@@ -2238,7 +2268,13 @@ fn queue_run_retries_once_by_default() {
     );
 
     let run_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
-        .args(["--store", store_path.to_str().unwrap(), "run"])
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "run",
+            "--threads",
+            "1",
+        ])
         .output()
         .unwrap();
 
@@ -2313,6 +2349,8 @@ fn queue_start_restart_replaces_existing_http_output() {
             "start",
             &task_id,
             "--restart",
+            "--threads",
+            "1",
         ])
         .output()
         .unwrap();
@@ -2356,6 +2394,8 @@ fn download_command_fetches_webdav_file_through_http_transport() {
             &format!("webdav://{address}/remote.php/dav/files/payload.bin"),
             "--output",
             temp_dir.path().to_str().unwrap(),
+            "--threads",
+            "1",
         ])
         .output()
         .unwrap();
@@ -2414,6 +2454,8 @@ fn queue_commands_add_and_run_webdav_task() {
             store_path.to_str().unwrap(),
             "run",
             "--concurrency",
+            "1",
+            "--threads",
             "1",
         ])
         .output()

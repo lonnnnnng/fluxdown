@@ -1090,6 +1090,51 @@ textarea:focus-visible,
   box-shadow: 0 0 0 3px rgba(11, 127, 189, 0.1);
 }
 
+.pathInputGroup {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  width: 100%;
+}
+
+.pathInputGroup input {
+  min-width: 0;
+  flex: 1;
+  border-radius: 6px 0 0 6px;
+}
+
+.pathInputGroup button {
+  width: 36px;
+  flex: 0 0 36px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  background: #f5fafc;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.pathInputGroup button:hover {
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.pathInputGroup button:focus-visible {
+  outline: 2px solid #79badc;
+  outline-offset: 1px;
+}
+
+.pathInputGroup .uiIcon {
+  width: 15px;
+  height: 15px;
+}
+
+.settingsPathInput {
+  max-width: 320px;
+}
+
 .settingValue {
   min-height: 32px;
   display: inline-flex;

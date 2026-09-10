@@ -18,7 +18,7 @@ FFI 的字段投影不等于跨端队列已经统一，当前没有自动导入/
 | `file_name` | string \| null | 另存文件名（规范化为单文件名） |
 | `expected_sha256` | string \| null | 64 位小写十六进制；下载完成后按此校验产物 |
 | `torrent_file_indices` | number[] | 多文件种子的选择下标（排序去重）；空数组=全部 |
-| `speed_limit_mbps` | number \| null | 每任务限速；缺省/null=跟随全局；有限正数才生效。历史字段名含 `mbps`，当前实际按值 × 1024² 字节/秒执行，不是兆比特/秒 |
+| `speed_limit_mbps` | number \| null | 每任务限速，单位为 MiB/s；缺省/null=跟随全局；有限正数才生效。字段名中的 `mbps` 是历史兼容命名，当前按值 × 1024² 字节/秒执行，不是兆比特/秒 |
 | `hls_variant_index` | number \| null | HLS master 的清晰度下标；null=第一个 variant |
 | `hls_keep_transport_stream` | bool | true=保留 TS 原始流，跳过转封装 |
 | `total_bytes` | number \| null | 已知总字节数 |
@@ -47,7 +47,7 @@ Rust 请求包含 `source`、`output_dir`、可选 `file_name`、`expected_sha25
 | `fileName` | 否 | 未指定时按链接推断文件名 |
 | `expectedSha256` | 否 | 校验格式后保存期望 hash |
 | `torrentFileIndices` | 否 | 无符号文件编号列表，核心排序去重；空列表代表全部 |
-| `speedLimitMbps` | 否 | 对应 `speed_limit_mbps`，同样按字节速率换算 |
+| `speedLimitMbps` | 否 | 对应 `speed_limit_mbps`，输入单位为 MiB/s；同样按值 × 1024² 换算为字节/秒 |
 | `hlsVariantIndex` | 否 | HLS master playlist 的 zero-based variant 编号；缺省使用第一个 |
 | `hlsKeepTransportStream` | 否 | 为 true 时保留 HLS TS 原始流，不尝试转封装为 MP4 |
 

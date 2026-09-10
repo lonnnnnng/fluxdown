@@ -29,6 +29,7 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MIN_CONCURRENCY: usize = 1;
 const MAX_CONCURRENCY: usize = 30;
+const DEFAULT_THREAD_COUNT: usize = 8;
 const DEFAULT_RETRY_ATTEMPTS: usize = 1;
 
 #[derive(Debug, Default, Deserialize)]
@@ -364,7 +365,9 @@ fn runner_options(
     QueueRunnerOptions {
         retry_attempts: retry_attempts.unwrap_or(DEFAULT_RETRY_ATTEMPTS).min(10),
         download: DownloadOptions::new(
-            thread_count.unwrap_or(1).clamp(1, 32),
+            // 作者: long
+            // 桌面未显式覆盖线程数时沿用设置页默认值，避免 GUI 与 Tauri 运行器出现不同的并行度。
+            thread_count.unwrap_or(DEFAULT_THREAD_COUNT).clamp(1, 32),
             speed_limit_mbps_to_bps(speed_limit_mbps),
         ),
         restart_existing: restart_existing.unwrap_or(false),
@@ -1043,6 +1046,7 @@ fn main() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
             #[cfg(target_os = "windows")]
             setup_e2e_webview(_app)?;
@@ -2918,7 +2922,7 @@ mod tests {
 
         let defaults = runner_options(None, None, None, None);
         assert_eq!(defaults.retry_attempts, 1);
-        assert_eq!(defaults.download.thread_count, 1);
+        assert_eq!(defaults.download.thread_count, DEFAULT_THREAD_COUNT);
         assert_eq!(defaults.download.speed_limit_bps, None);
         assert!(!defaults.restart_existing);
     }

@@ -11,6 +11,7 @@ use std::time::Duration;
 const MIN_CONCURRENCY: usize = 1;
 const MAX_CONCURRENCY: usize = 30;
 const DEFAULT_CONCURRENCY: usize = 1;
+const DEFAULT_THREAD_COUNT: usize = 8;
 const DEFAULT_RETRY_ATTEMPTS: usize = 1;
 const MAX_RETRY_ATTEMPTS: usize = 10;
 const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -41,9 +42,12 @@ enum Command {
         output: PathBuf,
         #[arg(short = 'n', long)]
         name: Option<String>,
-        #[arg(long, default_value_t = 1)]
+        #[arg(long, default_value_t = DEFAULT_THREAD_COUNT)]
         threads: usize,
-        #[arg(long = "speed-limit-mbps")]
+        #[arg(
+            long = "speed-limit-mbps",
+            help = "per-task limit in MiB/s; blank means unlimited"
+        )]
         speed_limit_mbps: Option<f64>,
         #[arg(long = "sha256")]
         expected_sha256: Option<String>,
@@ -84,9 +88,12 @@ enum Command {
         retry_attempts: usize,
         #[arg(long)]
         restart: bool,
-        #[arg(long, default_value_t = 1)]
+        #[arg(long, default_value_t = DEFAULT_THREAD_COUNT)]
         threads: usize,
-        #[arg(long = "speed-limit-mbps")]
+        #[arg(
+            long = "speed-limit-mbps",
+            help = "global limit in MiB/s; blank means unlimited"
+        )]
         speed_limit_mbps: Option<f64>,
         #[arg(long = "hls-variant-index", help = "HLS master playlist variant index")]
         hls_variant_index: Option<usize>,
@@ -103,9 +110,12 @@ enum Command {
         retry_attempts: usize,
         #[arg(long)]
         restart: bool,
-        #[arg(long, default_value_t = 1)]
+        #[arg(long, default_value_t = DEFAULT_THREAD_COUNT)]
         threads: usize,
-        #[arg(long = "speed-limit-mbps")]
+        #[arg(
+            long = "speed-limit-mbps",
+            help = "global limit in MiB/s; blank means unlimited"
+        )]
         speed_limit_mbps: Option<f64>,
         #[arg(long = "hls-variant-index", help = "HLS master playlist variant index")]
         hls_variant_index: Option<usize>,
@@ -399,11 +409,20 @@ mod tests {
         let options = runner_options(99, 99, Some(-1.0), false, None, false);
 
         assert_eq!(DEFAULT_CONCURRENCY, 1);
+        assert_eq!(DEFAULT_THREAD_COUNT, 8);
         assert_eq!(DEFAULT_RETRY_ATTEMPTS, 1);
         assert_eq!(clamp_concurrency(0), 1);
         assert_eq!(clamp_concurrency(31), 30);
         assert_eq!(options.retry_attempts, 10);
         assert_eq!(options.download.thread_count, 32);
         assert_eq!(options.download.speed_limit_bps, None);
+    }
+
+    #[test]
+    fn cli_default_download_options_use_eight_threads() {
+        let options = download_options(DEFAULT_THREAD_COUNT, None, None, false);
+
+        assert_eq!(options.thread_count, 8);
+        assert_eq!(options.speed_limit_bps, None);
     }
 }
