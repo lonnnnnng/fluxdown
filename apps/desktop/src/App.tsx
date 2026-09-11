@@ -80,12 +80,9 @@ type DoctorReport = {
 type DownloadState = "queued" | "running" | "finished" | "failed" | "paused";
 type QueueFilter =
   | "all"
-  | "running"
-  | "queued"
-  | "paused"
-  | "finished"
-  | "failed"
-  | "history";
+  | "unfinished"
+  | "ended"
+  | "failed";
 type Page = "queue" | "settings";
 type TaskAction = "idle" | "start" | "pause" | "remove" | "copy" | "open";
 type SettingsSection =
@@ -282,22 +279,16 @@ const defaultSettings: Settings = {
 
 const queueFilters: QueueFilter[] = [
   "all",
-  "running",
-  "queued",
-  "paused",
-  "finished",
+  "unfinished",
+  "ended",
   "failed",
-  "history",
 ];
 
 const filterIcons: Record<QueueFilter, IconName> = {
   all: "download",
-  running: "play",
-  queued: "clock",
-  paused: "pause",
-  finished: "check",
+  unfinished: "play",
+  ended: "check",
   failed: "alert",
-  history: "folder",
 };
 
 const stateIcons: Record<DownloadState, IconName> = {
@@ -663,33 +654,32 @@ function stateLabel(state: DownloadState) {
 function filterLabel(filter: QueueFilter) {
   const labels: Record<QueueFilter, string> = {
     all: "全部",
-    queued: "排队中",
-    running: "下载中",
-    paused: "已暂停",
-    finished: "已完成",
+    unfinished: "未完成",
+    ended: "已结束",
     failed: "失败",
-    history: "历史记录",
   };
   return labels[filter];
 }
 
 function filterMatches(task: DownloadTask, filter: QueueFilter) {
   if (filter === "all") return true;
-  if (filter === "history") {
-    return task.state === "finished" || task.state === "failed";
+  if (filter === "unfinished") {
+    return (
+      task.state === "running" ||
+      task.state === "queued" ||
+      task.state === "paused"
+    );
   }
-  return task.state === filter;
+  if (filter === "ended") return task.state === "finished";
+  return task.state === "failed";
 }
 
 function taskCounts(tasks: DownloadTask[]) {
   return {
     all: tasks.length,
-    queued: tasks.filter((task) => filterMatches(task, "queued")).length,
-    running: tasks.filter((task) => task.state === "running").length,
-    paused: tasks.filter((task) => task.state === "paused").length,
-    finished: tasks.filter((task) => task.state === "finished").length,
+    unfinished: tasks.filter((task) => filterMatches(task, "unfinished")).length,
+    ended: tasks.filter((task) => task.state === "finished").length,
     failed: tasks.filter((task) => task.state === "failed").length,
-    history: tasks.filter((task) => filterMatches(task, "history")).length,
   } satisfies Record<QueueFilter, number>;
 }
 
@@ -743,11 +733,12 @@ function formatTaskProgress(task: DownloadTask) {
   return `${percent}% · ${size}`;
 }
 
-function taskSpeedLabel(task: DownloadTask) {
-  if (task.state === "finished") return "完成";
-  if (task.state === "paused") return "0 B/s";
-  if (task.state === "queued" || task.state === "failed") return "--";
-  return currentSpeed(task);
+function taskIndicatorLabel(task: DownloadTask) {
+  if (task.state === "running") return currentSpeed(task);
+  if (task.state === "queued") return "等待启动";
+  if (task.state === "paused") return "已暂停";
+  if (task.state === "finished") return "已结束";
+  return "失败";
 }
 
 function formatRemainingTime(tasks: DownloadTask[]) {
@@ -1820,7 +1811,7 @@ function App() {
                 <div className="metric">
                   <span><Icon name="hard-drive" />已完成数据</span>
                   <strong>{formatBytes(completedBytes)}</strong>
-                  <small>{counts.finished} 个任务完成</small>
+                  <small>{counts.ended} 个任务结束</small>
                 </div>
                 <div className="metric">
                   <span><Icon name="zap" />队列并发</span>
@@ -2001,7 +1992,7 @@ function DownloadList({
         <span>任务</span>
         <span>状态</span>
         <span>进度</span>
-        <span>速度</span>
+        <span>指标</span>
         <span aria-hidden="true" />
       </div>
       <div className="taskList" data-testid="task-list">
@@ -2036,7 +2027,7 @@ function emptyTaskTitle(
   totalTasks: number,
 ) {
   if (searchQuery.trim()) return "没有匹配的任务";
-  if (filter === "history") return "暂无历史记录";
+  if (filter === "ended") return "暂无已结束任务";
   if (totalTasks === 0) return "暂无下载记录";
   return "当前状态没有任务";
 }
@@ -2047,9 +2038,9 @@ function emptyTaskSubtitle(
   totalTasks: number,
 ) {
   if (searchQuery.trim()) return "换个关键词，或清空搜索后查看完整任务列表。";
-  if (filter === "history") return "完成或失败的任务会自动出现在这里。";
+  if (filter === "ended") return "完成的任务会自动出现在这里。";
   if (totalTasks === 0) return "新建任务后会保留在这里，完成和失败任务也会进入历史记录。";
-  return "切换左侧状态或历史记录，可查看其他下载任务。";
+  return "切换左侧状态，可查看其他下载任务。";
 }
 
 function TaskRow({
@@ -2152,7 +2143,7 @@ function TaskRow({
           {taskEtaLabel(task) !== "--" ? ` · 剩余 ${taskEtaLabel(task)}` : ""}
         </small>
       </div>
-      <span className="speedCell">{taskSpeedLabel(task)}</span>
+      <span className="speedCell">{taskIndicatorLabel(task)}</span>
       <div className="rowActions">
         <button
           aria-label="更多任务操作"

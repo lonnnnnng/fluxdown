@@ -81,7 +81,7 @@ const _storageChannel = MethodChannel('dev.fluxdown.mobile/storage');
 
 enum AppLanguage { zh, en }
 
-enum QueueFilter { all, running, queued, paused, handedOff, finished, failed }
+enum QueueFilter { all, unfinished, ended, failed }
 
 enum MobileHomeTab { tasks, settings }
 
@@ -211,6 +211,12 @@ class AppStrings {
   String get torrentFileMetricsUnavailable => language == AppLanguage.zh
       ? '下载中数据由 libtorrent 管理'
       : 'Managed by libtorrent while downloading';
+  String get downloadedSize =>
+      language == AppLanguage.zh ? '已下载' : 'Downloaded';
+  String get metadataDirectory =>
+      language == AppLanguage.zh ? '资源目录' : 'Resource folder';
+  String get resourceDetails =>
+      language == AppLanguage.zh ? '资源详情' : 'Resource details';
   String get detected => language == AppLanguage.zh ? '识别结果' : 'Detected';
   String get protocolSupport =>
       language == AppLanguage.zh ? '协议能力' : 'Protocols';
@@ -258,9 +264,8 @@ class AppStrings {
       : '0-10 retries, default 3; 0 disables';
   String get speedLimitSetting =>
       language == AppLanguage.zh ? '最大下载网速' : 'Max download speed';
-  String get speedLimitHint => language == AppLanguage.zh
-      ? 'MiB/s，留空不限速'
-      : 'MiB/s, blank means unlimited';
+  String get speedLimitHint =>
+      language == AppLanguage.zh ? 'MB/s，留空不限速' : 'MB/s, blank means unlimited';
   String get hlsVariantSetting =>
       language == AppLanguage.zh ? 'HLS 清晰度编号' : 'HLS variant index';
   String get hlsVariantHint => language == AppLanguage.zh
@@ -289,7 +294,7 @@ class AppStrings {
     final value = mbps == mbps.roundToDouble()
         ? mbps.toStringAsFixed(0)
         : mbps.toStringAsFixed(1);
-    return '$value MiB/s';
+    return '$value MB/s';
   }
 
   String get autoStartAddedTasks =>
@@ -300,13 +305,9 @@ class AppStrings {
   String taskCount(int count) =>
       language == AppLanguage.zh ? '$count 个任务' : '$count tasks';
   String get queueAll => language == AppLanguage.zh ? '全部' : 'All';
-  String get queueQueued => language == AppLanguage.zh ? '排队中' : 'Queued';
-  String get queueCompleted => language == AppLanguage.zh ? '已完成' : 'Done';
-  String get queueDownloading =>
-      language == AppLanguage.zh ? '下载中' : 'Downloading';
-  String get queuePaused => language == AppLanguage.zh ? '暂停' : 'Paused';
-  String get queueHandedOff =>
-      language == AppLanguage.zh ? '已移交' : 'Handed off';
+  String get queueUnfinished =>
+      language == AppLanguage.zh ? '未完成' : 'Unfinished';
+  String get queueEnded => language == AppLanguage.zh ? '已结束' : 'Ended';
   String get queueFailed => language == AppLanguage.zh ? '失败' : 'Failed';
   String get noQueuedTasks =>
       language == AppLanguage.zh ? '等待添加任务' : 'Waiting for tasks';
@@ -319,6 +320,11 @@ class AppStrings {
   String get pause => language == AppLanguage.zh ? '暂停' : 'Pause';
   String get resume => language == AppLanguage.zh ? '继续' : 'Resume';
   String get start => language == AppLanguage.zh ? '开始' : 'Start';
+  String get waitingStart =>
+      language == AppLanguage.zh ? '等待启动' : 'Waiting to start';
+  String get queuedAt => language == AppLanguage.zh ? '加入队列' : 'Queued';
+  String get handedOffAt => language == AppLanguage.zh ? '移交时间' : 'Handed off';
+  String get failedAt => language == AppLanguage.zh ? '失败时间' : 'Failed';
   String get realTimeProgress =>
       language == AppLanguage.zh ? '实时进度' : 'Live progress';
   String get realTimeSpeed =>
@@ -339,6 +345,7 @@ class AppStrings {
   String get properties => language == AppLanguage.zh ? '属性' : 'Properties';
   String get openFile => language == AppLanguage.zh ? '显示文件' : 'Show file';
   String get shareFile => language == AppLanguage.zh ? '分享' : 'Share';
+  String get retry => language == AppLanguage.zh ? '重试' : 'Retry';
   String get redownload => language == AppLanguage.zh ? '重新下载' : 'Redownload';
   String get fileNotFound =>
       language == AppLanguage.zh ? '未找到下载文件。' : 'Downloaded file not found.';
@@ -349,6 +356,8 @@ class AppStrings {
   String get sourceLink => language == AppLanguage.zh ? '下载链接' : 'Source';
   String get outputPath => language == AppLanguage.zh ? '文件路径' : 'File path';
   String get fileSize => language == AppLanguage.zh ? '文件大小' : 'File size';
+  String get fileFormat => language == AppLanguage.zh ? '文件格式' : 'File format';
+  String get unknownFileFormat => language == AppLanguage.zh ? '未知' : 'Unknown';
   String get protocol => language == AppLanguage.zh ? '协议' : 'Protocol';
   String get sourceRequired =>
       language == AppLanguage.zh ? '下载源不能为空。' : 'Source is required.';
@@ -792,6 +801,7 @@ class _DownloadHomeState extends State<DownloadHome> {
         onReadClipboard: readClipboardSource,
         onScanQr: scanQrSource,
         onLoadStorageStats: loadStorageStats,
+        onInspectTorrentMetadata: inspectTorrentMetadataFromSource,
         onCreate: createTask,
       ),
     );
@@ -1253,11 +1263,13 @@ class QueueView extends StatelessWidget {
   bool _matchesFilter(DownloadTask task, QueueFilter filter) {
     return switch (filter) {
       QueueFilter.all => true,
-      QueueFilter.running => task.state == DownloadState.running,
-      QueueFilter.queued => task.state == DownloadState.queued,
-      QueueFilter.paused => task.state == DownloadState.paused,
-      QueueFilter.handedOff => task.state == DownloadState.handedOff,
-      QueueFilter.finished => task.state == DownloadState.finished,
+      QueueFilter.unfinished =>
+        task.state == DownloadState.running ||
+            task.state == DownloadState.queued ||
+            task.state == DownloadState.paused,
+      QueueFilter.ended =>
+        task.state == DownloadState.finished ||
+            task.state == DownloadState.handedOff,
       QueueFilter.failed => task.state == DownloadState.failed,
     };
   }
@@ -1271,6 +1283,7 @@ class NewTaskDialog extends StatefulWidget {
     required this.onReadClipboard,
     required this.onScanQr,
     required this.onLoadStorageStats,
+    required this.onInspectTorrentMetadata,
     required this.onCreate,
     super.key,
   });
@@ -1281,6 +1294,8 @@ class NewTaskDialog extends StatefulWidget {
   final Future<String?> Function() onReadClipboard;
   final Future<String?> Function() onScanQr;
   final Future<StorageStats?> Function(String path) onLoadStorageStats;
+  final Future<TorrentMetadata?> Function(String source)
+  onInspectTorrentMetadata;
   final Future<bool> Function({
     required String source,
     required String outputFolder,
@@ -1404,9 +1419,9 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
       });
       return;
     }
+    final protocol = detectProtocol(normalized);
     int? hlsVariantIndex;
-    if (detectProtocol(normalized) == 'm3u8' &&
-        hlsVariantController.text.trim().isNotEmpty) {
+    if (protocol == 'm3u8' && hlsVariantController.text.trim().isNotEmpty) {
       hlsVariantIndex = int.tryParse(hlsVariantController.text.trim());
       if (hlsVariantIndex == null || hlsVariantIndex < 0) {
         setState(() {
@@ -1423,9 +1438,11 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
     String? torrentName;
     var torrentFiles = const <TorrentFileEntry>[];
     List<int>? selectedTorrentFileIndexes;
-    if (detectProtocol(normalized) == 'torrent') {
+    if (protocol == 'torrent' || protocol == 'magnet') {
       try {
-        final metadata = await inspectTorrentMetadataFromSource(normalized);
+        // 作者: long
+        // Torrent/Magnet 的文件选择是新建参数，必须在写入队列前完成，取消时不会留下暂停的半成品任务。
+        final metadata = await widget.onInspectTorrentMetadata(normalized);
         if (!mounted) return;
         if (metadata == null) {
           setState(() {
@@ -1437,7 +1454,13 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
 
         final selection = await selectTorrentFilesForMetadata(metadata);
         if (!mounted) return;
-        if (selection == null || selection.selectedIndexes.isEmpty) {
+        if (selection == null) {
+          setState(() {
+            busy = false;
+          });
+          return;
+        }
+        if (selection.selectedIndexes.isEmpty) {
           setState(() {
             busy = false;
             errorText = strings.torrentSelectionRequired;
@@ -1898,172 +1921,271 @@ class _TorrentFileSelectionDialogState
         context,
       ).copyWith(textScaler: const TextScaler.linear(0.86)),
       child: Dialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 22),
+        key: const ValueKey('torrent-file-selection-dialog'),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560, maxHeight: 620),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
+        clipBehavior: Clip.antiAlias,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // 作者: long
+            // 种子和磁力链接的内容确认需要对比大量文件，弹框占满安全区内的可用空间，仅保留必要边距。
+            return SizedBox(
+              width: constraints.maxWidth,
+              height: constraints.maxHeight,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(
-                      child: Text(
-                        strings.selectTorrentFiles,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: textTheme.titleMedium?.copyWith(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w400,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            strings.selectTorrentFiles,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: textTheme.titleMedium?.copyWith(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
                         ),
-                      ),
+                        Text(
+                          strings.torrentSelectedCount(selectedIndexes.length),
+                          style: textTheme.labelSmall?.copyWith(
+                            color: colorScheme.primary,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ],
                     ),
+                    const SizedBox(height: 4),
                     Text(
-                      strings.torrentSelectedCount(selectedIndexes.length),
-                      style: textTheme.labelSmall?.copyWith(
-                        color: colorScheme.primary,
+                      strings.selectTorrentFilesHint,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
                         fontWeight: FontWeight.w400,
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  strings.selectTorrentFilesHint,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    TextButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          selectedIndexes
-                            ..clear()
-                            ..addAll(files.map((file) => file.index));
-                        });
-                      },
-                      icon: const Icon(Icons.done_all, size: 16),
-                      label: Text(strings.selectAll),
-                    ),
-                    const SizedBox(width: 4),
-                    TextButton.icon(
-                      onPressed: () {
-                        setState(selectedIndexes.clear);
-                      },
-                      icon: const Icon(Icons.remove_done, size: 16),
-                      label: Text(strings.selectNone),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Flexible(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: colorScheme.outlineVariant),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: files.length,
-                      separatorBuilder: (context, index) => Divider(
-                        height: 1,
-                        thickness: 1,
-                        color: colorScheme.outlineVariant,
-                      ),
-                      itemBuilder: (context, index) {
-                        final file = files[index];
-                        final selected = selectedIndexes.contains(file.index);
-                        return CheckboxListTile(
-                          dense: true,
-                          visualDensity: VisualDensity.compact,
-                          value: selected,
-                          onChanged: (value) {
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          onPressed: () {
                             setState(() {
-                              if (value == true) {
-                                selectedIndexes.add(file.index);
-                              } else {
-                                selectedIndexes.remove(file.index);
-                              }
+                              selectedIndexes
+                                ..clear()
+                                ..addAll(files.map((file) => file.index));
                             });
                           },
-                          controlAffinity: ListTileControlAffinity.leading,
-                          title: Text(
-                            file.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                          subtitle: Text(
-                            '${file.path}  ·  ${formatBytes(file.size)}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                        );
-                      },
+                          icon: const Icon(Icons.done_all, size: 16),
+                          label: Text(strings.selectAll),
+                        ),
+                        const SizedBox(width: 4),
+                        TextButton.icon(
+                          onPressed: () {
+                            setState(selectedIndexes.clear);
+                          },
+                          icon: const Icon(Icons.remove_done, size: 16),
+                          label: Text(strings.selectNone),
+                        ),
+                      ],
                     ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
+                    const SizedBox(height: 4),
                     Expanded(
-                      child: TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: Text(strings.close),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: selectedIndexes.isEmpty
-                            ? null
-                            : () => Navigator.of(context).pop(
-                                TorrentFileSelection(
-                                  selectedIndexes: selectedIndexes.toList(
-                                    growable: false,
-                                  )..sort(),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: colorScheme.outlineVariant),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: ListView.separated(
+                          key: const ValueKey('torrent-file-list'),
+                          itemCount: files.length,
+                          separatorBuilder: (context, index) => Divider(
+                            height: 1,
+                            thickness: 1,
+                            color: colorScheme.outlineVariant,
+                          ),
+                          itemBuilder: (context, index) {
+                            final file = files[index];
+                            final selected = selectedIndexes.contains(
+                              file.index,
+                            );
+                            final format = _torrentFileFormat(file.path);
+                            return Material(
+                              color: selected
+                                  ? colorScheme.primaryContainer.withValues(
+                                      alpha: 0.24,
+                                    )
+                                  : Colors.transparent,
+                              child: InkWell(
+                                key: ValueKey('torrent-file-${file.index}'),
+                                onTap: () =>
+                                    _setFileSelected(file.index, !selected),
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    4,
+                                    8,
+                                    10,
+                                    8,
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Checkbox(
+                                        value: selected,
+                                        onChanged: (value) => _setFileSelected(
+                                          file.index,
+                                          value == true,
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                      const SizedBox(width: 2),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              file.name,
+                                              key: ValueKey(
+                                                'torrent-file-name-${file.index}',
+                                              ),
+                                              softWrap: true,
+                                              overflow: TextOverflow.visible,
+                                              style: const TextStyle(
+                                                fontSize: 12.5,
+                                                height: 1.28,
+                                                fontWeight: FontWeight.w400,
+                                              ),
+                                            ),
+                                            if (file.path != file.name) ...[
+                                              const SizedBox(height: 3),
+                                              Text(
+                                                file.path,
+                                                key: ValueKey(
+                                                  'torrent-file-path-${file.index}',
+                                                ),
+                                                softWrap: true,
+                                                overflow: TextOverflow.visible,
+                                                style: TextStyle(
+                                                  fontSize: 10.5,
+                                                  height: 1.25,
+                                                  color: colorScheme
+                                                      .onSurfaceVariant,
+                                                  fontWeight: FontWeight.w400,
+                                                ),
+                                              ),
+                                            ],
+                                            const SizedBox(height: 5),
+                                            Wrap(
+                                              spacing: 12,
+                                              runSpacing: 3,
+                                              children: [
+                                                Text(
+                                                  '${strings.fileFormat}: ${format ?? strings.unknownFileFormat}',
+                                                  key: ValueKey(
+                                                    'torrent-file-format-${file.index}',
+                                                  ),
+                                                  style: TextStyle(
+                                                    fontSize: 10.5,
+                                                    color: colorScheme
+                                                        .onSurfaceVariant,
+                                                    fontWeight: FontWeight.w400,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  '${strings.fileSize}: ${formatBytes(file.size)}',
+                                                  key: ValueKey(
+                                                    'torrent-file-size-${file.index}',
+                                                  ),
+                                                  style: TextStyle(
+                                                    fontSize: 10.5,
+                                                    color: colorScheme
+                                                        .onSurfaceVariant,
+                                                    fontWeight: FontWeight.w400,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                        icon: const Icon(Icons.check, size: 17),
-                        label: Text(strings.confirmSelection),
-                        style: FilledButton.styleFrom(
-                          textStyle: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w400,
-                          ),
-                          minimumSize: const Size.fromHeight(42),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                            );
+                          },
                         ),
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: Text(strings.close),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: FilledButton.icon(
+                            key: const ValueKey(
+                              'torrent-file-selection-confirm',
+                            ),
+                            onPressed: selectedIndexes.isEmpty
+                                ? null
+                                : () => Navigator.of(context).pop(
+                                    TorrentFileSelection(
+                                      selectedIndexes: selectedIndexes.toList(
+                                        growable: false,
+                                      )..sort(),
+                                    ),
+                                  ),
+                            icon: const Icon(Icons.check, size: 17),
+                            label: Text(strings.confirmSelection),
+                            style: FilledButton.styleFrom(
+                              textStyle: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w400,
+                              ),
+                              minimumSize: const Size.fromHeight(42),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
       ),
     );
   }
+
+  void _setFileSelected(int index, bool selected) {
+    setState(() {
+      if (selected) {
+        selectedIndexes.add(index);
+      } else {
+        selectedIndexes.remove(index);
+      }
+    });
+  }
+}
+
+String? _torrentFileFormat(String filePath) {
+  final extension = p.extension(filePath).replaceFirst('.', '').trim();
+  if (extension.isEmpty) return null;
+  return extension.toUpperCase();
 }
 
 class StorageStatsPanel extends StatelessWidget {
@@ -2460,11 +2582,15 @@ class QueueFilterTabs extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final counts = <QueueFilter, int>{
       QueueFilter.all: tasks.length,
-      QueueFilter.running: _count(DownloadState.running),
-      QueueFilter.queued: _count(DownloadState.queued),
-      QueueFilter.paused: _count(DownloadState.paused),
-      QueueFilter.handedOff: _count(DownloadState.handedOff),
-      QueueFilter.finished: _count(DownloadState.finished),
+      QueueFilter.unfinished: _countAny(const {
+        DownloadState.running,
+        DownloadState.queued,
+        DownloadState.paused,
+      }),
+      QueueFilter.ended: _countAny(const {
+        DownloadState.finished,
+        DownloadState.handedOff,
+      }),
       QueueFilter.failed: _count(DownloadState.failed),
     };
 
@@ -2499,14 +2625,15 @@ class QueueFilterTabs extends StatelessWidget {
     return tasks.where((task) => task.state == state).length;
   }
 
+  int _countAny(Set<DownloadState> states) {
+    return tasks.where((task) => states.contains(task.state)).length;
+  }
+
   String _label(QueueFilter filter) {
     return switch (filter) {
       QueueFilter.all => strings.queueAll,
-      QueueFilter.running => strings.queueDownloading,
-      QueueFilter.queued => strings.queueQueued,
-      QueueFilter.paused => strings.queuePaused,
-      QueueFilter.handedOff => strings.queueHandedOff,
-      QueueFilter.finished => strings.queueCompleted,
+      QueueFilter.unfinished => strings.queueUnfinished,
+      QueueFilter.ended => strings.queueEnded,
       QueueFilter.failed => strings.queueFailed,
     };
   }
@@ -2743,7 +2870,7 @@ class SettingsView extends StatelessWidget {
               subtitle: strings.speedLimitHint,
               valueText: speedLimitInputValue(speedLimitKbps),
               hintText: language == AppLanguage.zh ? '不限速' : 'Unlimited',
-              suffixText: 'MiB/s',
+              suffixText: 'MB/s',
               allowDecimal: true,
               allowEmpty: true,
               onSubmitted: (value) {
@@ -3603,11 +3730,12 @@ class DownloadTaskCard extends StatelessWidget {
                               Expanded(
                                 child: Text(
                                   _taskOutputFileName(task),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                  key: ValueKey('task-name-${task.id}'),
+                                  softWrap: true,
+                                  overflow: TextOverflow.visible,
                                   style: textTheme.titleSmall?.copyWith(
                                     fontSize: 12,
-                                    height: 1.05,
+                                    height: 1.2,
                                     color: colorScheme.onSurface,
                                     fontWeight: FontWeight.w400,
                                   ),
@@ -3622,83 +3750,9 @@ class DownloadTaskCard extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: 3),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  _taskSubtitle(strings, task),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: textTheme.labelSmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                    fontSize: 8.5,
-                                    height: 1,
-                                    fontWeight: FontWeight.w400,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _formatSpeed(_visibleSpeedBytesPerSecond(task)),
-                                maxLines: 1,
-                                style: textTheme.labelSmall?.copyWith(
-                                  color: colorScheme.onSurface,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w400,
-                                ),
-                              ),
-                            ],
-                          ),
+                          _TaskCardStatusRow(strings: strings, task: task),
                           const SizedBox(height: 2),
-                          Row(
-                            children: [
-                              Expanded(
-                                flex: 7,
-                                child: Text(
-                                  '${strings.start} ${_formatDateTime(task.startedAt)}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: textTheme.labelSmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                    fontSize: 8.5,
-                                    height: 1,
-                                    fontWeight: FontWeight.w400,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                flex: 5,
-                                child: Text(
-                                  '${strings.totalElapsed} ${_formatDuration(task.elapsed)}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: textTheme.labelSmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                    fontSize: 8.5,
-                                    height: 1,
-                                    fontWeight: FontWeight.w400,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                flex: 6,
-                                child: Text(
-                                  _formatBytePair(task),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.end,
-                                  style: textTheme.labelSmall?.copyWith(
-                                    color: colorScheme.onSurface,
-                                    fontSize: 8.8,
-                                    height: 1,
-                                    fontWeight: FontWeight.w400,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                          _TaskCardMetricsRow(strings: strings, task: task),
                         ],
                       ),
                     ),
@@ -3768,8 +3822,9 @@ class DownloadTaskCard extends StatelessWidget {
         ? strings.pause
         : task.state == DownloadState.paused
         ? strings.resume
-        : task.state == DownloadState.failed ||
-              task.state == DownloadState.handedOff
+        : task.state == DownloadState.failed
+        ? strings.retry
+        : task.state == DownloadState.handedOff
         ? strings.redownload
         : strings.start;
     final primaryIcon = task.canPause
@@ -3841,6 +3896,167 @@ class DownloadTaskCard extends StatelessWidget {
         break;
     }
   }
+}
+
+class _TaskCardStatusRow extends StatelessWidget {
+  const _TaskCardStatusRow({required this.strings, required this.task});
+
+  final AppStrings strings;
+  final DownloadTask task;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final isRunning = task.state == DownloadState.running;
+    final trailing = _taskCardTrailingValue(strings, task);
+    final trailingStyle = textTheme.labelSmall?.copyWith(
+      color: isRunning ? colorScheme.primary : colorScheme.onSurfaceVariant,
+      fontSize: 9,
+      height: 1,
+      fontWeight: FontWeight.w400,
+    );
+
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            _taskSubtitle(strings, task),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: textTheme.labelSmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontSize: 8.5,
+              height: 1,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          trailing,
+          key: ValueKey(
+            isRunning
+                ? 'task-live-speed-${task.id}'
+                : 'task-state-indicator-${task.id}',
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: trailingStyle,
+        ),
+      ],
+    );
+  }
+}
+
+class _TaskCardMetricsRow extends StatelessWidget {
+  const _TaskCardMetricsRow({required this.strings, required this.task});
+
+  final AppStrings strings;
+  final DownloadTask task;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final values = _taskCardMetricValues(strings, task);
+    final style = textTheme.labelSmall?.copyWith(
+      color: colorScheme.onSurfaceVariant,
+      fontSize: 8.5,
+      height: 1,
+      fontWeight: FontWeight.w400,
+    );
+
+    return Row(
+      children: [
+        for (var index = 0; index < values.length; index++) ...[
+          if (index > 0) const SizedBox(width: 6),
+          Expanded(
+            flex: values.length == 3
+                ? (index == 0
+                      ? 7
+                      : index == 1
+                      ? 5
+                      : 6)
+                : index == values.length - 1
+                ? 5
+                : 7,
+            child: Text(
+              values[index],
+              key: index == values.length - 1
+                  ? ValueKey('task-size-${task.id}')
+                  : null,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: index == values.length - 1
+                  ? TextAlign.end
+                  : TextAlign.start,
+              style: index == values.length - 1
+                  ? style?.copyWith(color: colorScheme.onSurface)
+                  : style,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+String _taskCardTrailingValue(AppStrings strings, DownloadTask task) {
+  return switch (task.state) {
+    DownloadState.running => _formatSpeed(task.currentSpeedBytesPerSecond),
+    DownloadState.queued => strings.waitingStart,
+    DownloadState.paused => strings.stateLabel(task.state),
+    DownloadState.finished =>
+      '${strings.endTime} ${_formatDateTime(task.finishedAt)}',
+    DownloadState.handedOff =>
+      '${strings.handedOffAt} ${_formatDateTime(task.updatedAt)}',
+    DownloadState.failed =>
+      '${strings.failedAt} ${_formatDateTime(task.updatedAt)}',
+  };
+}
+
+List<String> _taskCardMetricValues(AppStrings strings, DownloadTask task) {
+  return switch (task.state) {
+    DownloadState.running => [
+      '${strings.start} ${_formatDateTime(task.startedAt)}',
+      '${strings.totalElapsed} ${_formatDuration(task.elapsed)}',
+      _formatBytePair(task),
+    ],
+    DownloadState.queued => [
+      '${strings.queuedAt} ${_formatDateTime(task.createdAt)}',
+      _formatBytePair(task),
+    ],
+    DownloadState.paused => [
+      '${strings.start} ${_formatDateTime(task.startedAt)}',
+      '${strings.totalElapsed} ${_formatDuration(task.elapsed)}',
+      _formatBytePair(task),
+    ],
+    DownloadState.finished => [
+      '${strings.start} ${_formatDateTime(task.startedAt)}',
+      '${strings.totalElapsed} ${_formatDuration(task.elapsed)}',
+      _formatBytePair(task),
+    ],
+    DownloadState.handedOff => [
+      '${strings.handedOffAt} ${_formatDateTime(task.updatedAt)}',
+      _formatBytePair(task),
+    ],
+    DownloadState.failed => [
+      '${strings.failedAt} ${_formatDateTime(task.updatedAt)}',
+      '${strings.totalElapsed} ${_formatDuration(_taskCardElapsed(task))}',
+      _formatBytePair(task),
+    ],
+  };
+}
+
+Duration? _taskCardElapsed(DownloadTask task) {
+  // 作者: long
+  // 失败任务的 updatedAt 是最后一次失败落点，列表耗时必须冻结在该时刻，不能继续按当前时间增长。
+  if (task.state != DownloadState.failed || task.startedAt == null) {
+    return task.elapsed;
+  }
+  final elapsed = task.updatedAt.difference(task.startedAt!);
+  return elapsed.isNegative ? Duration.zero : elapsed;
 }
 
 class _TaskStatePill extends StatelessWidget {
@@ -4106,17 +4322,58 @@ class TaskActionButton extends StatelessWidget {
   }
 }
 
+typedef TorrentFileProgressLoader =
+    Future<List<int?>> Function(
+      DownloadTask task,
+      List<TorrentFileEntry> files,
+    );
+
+Future<List<int?>> _loadTorrentFileProgress(
+  DownloadTask task,
+  List<TorrentFileEntry> files,
+) async {
+  if (task.state == DownloadState.finished) {
+    return files.map<int?>((file) => file.size).toList(growable: false);
+  }
+  if (task.state == DownloadState.queued) {
+    return List<int?>.filled(files.length, 0, growable: false);
+  }
+
+  try {
+    final values = await _storageChannel
+        .invokeListMethod<Object?>('getAllocatedFileBytes', {
+          'paths': files
+              .map((file) => _torrentFileOutputPath(task, file))
+              .toList(growable: false),
+        });
+    if (values == null || values.length != files.length) {
+      return List<int?>.filled(files.length, null, growable: false);
+    }
+    return List<int?>.generate(files.length, (index) {
+      final value = values[index];
+      if (value is! num || value < 0) return null;
+      return value.toInt().clamp(0, files[index].size).toInt();
+    }, growable: false);
+  } on PlatformException {
+    return List<int?>.filled(files.length, null, growable: false);
+  } on MissingPluginException {
+    return List<int?>.filled(files.length, null, growable: false);
+  }
+}
+
 class TorrentFolderPage extends StatefulWidget {
   const TorrentFolderPage({
     required this.strings,
     required this.controller,
     required this.task,
+    this.loadFileProgress = _loadTorrentFileProgress,
     super.key,
   });
 
   final AppStrings strings;
   final DownloadController controller;
   final DownloadTask task;
+  final TorrentFileProgressLoader loadFileProgress;
 
   @override
   State<TorrentFolderPage> createState() => _TorrentFolderPageState();
@@ -4125,12 +4382,17 @@ class TorrentFolderPage extends StatefulWidget {
 class _TorrentFolderPageState extends State<TorrentFolderPage> {
   late DownloadTask task = widget.task;
   Timer? _refreshTimer;
+  var _fileDownloadedBytes = <int, int?>{};
+  var _fileSpeeds = <int, int>{};
+  DateTime? _lastFileProgressAt;
+  bool _loadingFileProgress = false;
 
   @override
   void initState() {
     super.initState();
+    unawaited(_refreshFileProgress(task));
     _refreshTimer = Timer.periodic(
-      const Duration(milliseconds: 500),
+      const Duration(milliseconds: 750),
       (_) => _refreshTask(),
     );
   }
@@ -4153,6 +4415,47 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
     setState(() {
       task = latest!;
     });
+    unawaited(_refreshFileProgress(latest));
+  }
+
+  Future<void> _refreshFileProgress(DownloadTask snapshot) async {
+    if (_loadingFileProgress) return;
+    _loadingFileProgress = true;
+    try {
+      final files = snapshot.selectedTorrentFiles;
+      final values = await widget.loadFileProgress(snapshot, files);
+      if (!mounted || task.id != snapshot.id) return;
+
+      final now = DateTime.now();
+      final previousAt = _lastFileProgressAt;
+      final elapsedSeconds = previousAt == null
+          ? 0.0
+          : now.difference(previousAt).inMicroseconds / 1000000;
+      final downloaded = <int, int?>{};
+      final speeds = <int, int>{};
+      for (var index = 0; index < files.length; index += 1) {
+        final file = files[index];
+        final current = index < values.length ? values[index] : null;
+        downloaded[file.index] = current;
+        final previous = _fileDownloadedBytes[file.index];
+        speeds[file.index] =
+            snapshot.state == DownloadState.running &&
+                current != null &&
+                previous != null &&
+                current >= previous &&
+                elapsedSeconds > 0
+            ? ((current - previous) / elapsedSeconds).round()
+            : 0;
+      }
+
+      setState(() {
+        _fileDownloadedBytes = downloaded;
+        _fileSpeeds = speeds;
+        _lastFileProgressAt = now;
+      });
+    } finally {
+      _loadingFileProgress = false;
+    }
   }
 
   Future<void> _openTorrentFile(TorrentFileEntry file) async {
@@ -4183,8 +4486,7 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final selectedIndexes = task.effectiveSelectedTorrentFileIndexes.toSet();
-    final files = task.torrentFiles;
+    final files = task.selectedTorrentFiles;
     final visualState = _taskVisualState(task);
     final progress = _taskProgressValue(task);
     final accentColor = _taskStateAccent(visualState, colorScheme);
@@ -4192,11 +4494,8 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          task.torrentFolderName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
+        toolbarHeight: 64,
+        title: Text(widget.strings.resourceDetails),
       ),
       body: SafeArea(
         child: ListView.builder(
@@ -4255,16 +4554,31 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
                                 mainAxisSize: MainAxisSize.min,
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  Text(
+                                    widget.strings.metadataDirectory,
+                                    style: textTheme.labelSmall?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                      fontSize: 8.5,
+                                      height: 1,
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
                                   Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Expanded(
                                         child: Text(
                                           task.torrentFolderName,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
+                                          key: const ValueKey(
+                                            'torrent-folder-name',
+                                          ),
+                                          softWrap: true,
+                                          overflow: TextOverflow.visible,
                                           style: textTheme.titleSmall?.copyWith(
                                             fontSize: 12,
-                                            height: 1.05,
+                                            height: 1.2,
                                             color: colorScheme.onSurface,
                                             fontWeight: FontWeight.w400,
                                           ),
@@ -4283,7 +4597,7 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
                                     children: [
                                       Expanded(
                                         child: Text(
-                                          '${protocolLabel(task.protocol)} · ${widget.strings.torrentSelectedCount(task.selectedTorrentFiles.length)} / ${files.length}',
+                                          '${protocolLabel(task.protocol)} · ${widget.strings.torrentSelectedCount(files.length)}',
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: textTheme.labelSmall?.copyWith(
@@ -4296,12 +4610,18 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
                                       ),
                                       const SizedBox(width: 6),
                                       Text(
-                                        _formatSpeed(
-                                          _visibleSpeedBytesPerSecond(task),
+                                        _taskCardTrailingValue(
+                                          widget.strings,
+                                          task,
                                         ),
                                         maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                         style: textTheme.labelSmall?.copyWith(
-                                          color: colorScheme.onSurface,
+                                          color:
+                                              visualState ==
+                                                  DownloadState.running
+                                              ? colorScheme.primary
+                                              : colorScheme.onSurfaceVariant,
                                           fontSize: 9,
                                           fontWeight: FontWeight.w400,
                                         ),
@@ -4350,15 +4670,18 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
             }
 
             final file = files[index - 1];
-            final selected = selectedIndexes.contains(file.index);
-            final metrics = _torrentFileMetrics(task, file, selected);
+            final metrics = _torrentFileMetrics(
+              task,
+              file,
+              _fileDownloadedBytes[file.index],
+              _fileSpeeds[file.index],
+            );
             return _TorrentFileRow(
               strings: widget.strings,
               task: task,
               file: file,
-              selected: selected,
               metrics: metrics,
-              onTap: selected ? () => _openTorrentFile(file) : null,
+              onTap: () => _openTorrentFile(file),
             );
           },
         ),
@@ -4372,7 +4695,6 @@ class _TorrentFileRow extends StatelessWidget {
     required this.strings,
     required this.task,
     required this.file,
-    required this.selected,
     required this.metrics,
     required this.onTap,
   });
@@ -4380,7 +4702,6 @@ class _TorrentFileRow extends StatelessWidget {
   final AppStrings strings;
   final DownloadTask task;
   final TorrentFileEntry file;
-  final bool selected;
   final _TorrentFileMetrics metrics;
   final VoidCallback? onTap;
 
@@ -4388,18 +4709,11 @@ class _TorrentFileRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final visualState = selected
-        ? _taskVisualState(task)
-        : DownloadState.queued;
-    final accentColor = selected
-        ? _taskStateAccent(visualState, colorScheme)
-        : colorScheme.outline;
-    final foreground = selected
-        ? colorScheme.onSurface
-        : colorScheme.onSurfaceVariant;
-    final backgroundColor = selected
-        ? _taskStateBackground(visualState, colorScheme)
-        : colorScheme.surfaceContainerLow;
+    final visualState = _taskVisualState(task);
+    final accentColor = _taskStateAccent(visualState, colorScheme);
+    final foreground = colorScheme.onSurface;
+    final backgroundColor = _taskStateBackground(visualState, colorScheme);
+    final format = _torrentFileFormat(file.path) ?? strings.unknownFileFormat;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 3),
@@ -4408,17 +4722,14 @@ class _TorrentFileRow extends StatelessWidget {
         color: backgroundColor,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
-          side: BorderSide(
-            color: selected
-                ? _taskStateBorder(visualState, colorScheme)
-                : colorScheme.outlineVariant.withValues(alpha: 0.72),
-          ),
+          side: BorderSide(color: _taskStateBorder(visualState, colorScheme)),
         ),
         child: InkWell(
           onTap: onTap,
           child: Stack(
             children: [
-              if (selected && (metrics.progress ?? 0) > 0)
+              if (visualState == DownloadState.running &&
+                  (metrics.progress ?? 0) > 0)
                 Positioned.fill(
                   child: FractionallySizedBox(
                     alignment: Alignment.centerLeft,
@@ -4438,9 +4749,7 @@ class _TorrentFileRow extends StatelessWidget {
                         borderRadius: BorderRadius.circular(7),
                       ),
                       child: Icon(
-                        selected
-                            ? Icons.insert_drive_file_outlined
-                            : Icons.radio_button_unchecked_outlined,
+                        Icons.insert_drive_file_outlined,
                         size: 14,
                         color: accentColor,
                       ),
@@ -4452,95 +4761,112 @@ class _TorrentFileRow extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Expanded(
                                 child: Text(
                                   file.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                  key: ValueKey(
+                                    'torrent-detail-file-name-${file.index}',
+                                  ),
+                                  softWrap: true,
+                                  overflow: TextOverflow.visible,
                                   style: textTheme.titleSmall?.copyWith(
                                     color: foreground,
                                     fontSize: 11.5,
-                                    height: 1.05,
+                                    height: 1.2,
                                     fontWeight: FontWeight.w400,
                                   ),
                                 ),
                               ),
                               const SizedBox(width: 6),
-                              Text(
-                                metrics.progress == null
-                                    ? '--'
-                                    : '${(metrics.progress! * 100).round()}%',
-                                maxLines: 1,
-                                style: textTheme.labelSmall?.copyWith(
-                                  color: foreground,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w400,
-                                ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    metrics.progress == null
+                                        ? '--'
+                                        : '${(metrics.progress! * 100).round()}%',
+                                    maxLines: 1,
+                                    style: textTheme.labelSmall?.copyWith(
+                                      color: foreground,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _formatSpeed(metrics.speedBytesPerSecond),
+                                    maxLines: 1,
+                                    style: textTheme.labelSmall?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                      fontSize: 8.5,
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                          const SizedBox(height: 3),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  file.path,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: textTheme.labelSmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                    fontSize: 8.5,
-                                    height: 1,
-                                    fontWeight: FontWeight.w400,
-                                  ),
-                                ),
+                          if (file.path != file.name) ...[
+                            const SizedBox(height: 3),
+                            Text(
+                              file.path,
+                              key: ValueKey(
+                                'torrent-detail-file-path-${file.index}',
                               ),
-                              const SizedBox(width: 6),
+                              softWrap: true,
+                              overflow: TextOverflow.visible,
+                              style: textTheme.labelSmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                                fontSize: 8.5,
+                                height: 1.15,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 3,
+                            children: [
                               Text(
-                                '--',
-                                maxLines: 1,
+                                '${strings.fileFormat}: $format',
                                 style: textTheme.labelSmall?.copyWith(
-                                  color: foreground,
-                                  fontSize: 9,
+                                  color: colorScheme.onSurfaceVariant,
+                                  fontSize: 8.8,
                                   fontWeight: FontWeight.w400,
                                 ),
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 2),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  selected
-                                      ? metrics.downloadedBytes == null
-                                            ? strings
-                                                  .torrentFileMetricsUnavailable
-                                            : '${formatBytes(metrics.downloadedBytes)} / ${formatBytes(file.size)}'
-                                      : strings.notSelectedFile,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: textTheme.labelSmall?.copyWith(
-                                    color: foreground,
-                                    fontSize: 8.8,
-                                    height: 1,
-                                    fontWeight: FontWeight.w400,
-                                  ),
+                              Text(
+                                '${strings.fileSize}: ${formatBytes(file.size)}',
+                                style: textTheme.labelSmall?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                  fontSize: 8.8,
+                                  fontWeight: FontWeight.w400,
                                 ),
                               ),
-                              if (selected) ...[
-                                const SizedBox(width: 6),
-                                Icon(
-                                  Icons.visibility_outlined,
-                                  size: 14,
-                                  color: accentColor,
+                              Text(
+                                '${strings.downloadedSize}: ${metrics.downloadedBytes == null ? '--' : formatBytes(metrics.downloadedBytes)} / ${formatBytes(file.size)}',
+                                key: ValueKey(
+                                  'torrent-detail-file-downloaded-${file.index}',
                                 ),
-                              ],
+                                style: textTheme.labelSmall?.copyWith(
+                                  color: foreground,
+                                  fontSize: 8.8,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                              ),
                             ],
                           ),
                         ],
                       ),
+                    ),
+                    const SizedBox(width: 5),
+                    Icon(
+                      Icons.visibility_outlined,
+                      size: 14,
+                      color: accentColor,
                     ),
                   ],
                 ),
@@ -4557,27 +4883,43 @@ class _TorrentFileMetrics {
   const _TorrentFileMetrics({
     required this.downloadedBytes,
     required this.progress,
+    required this.speedBytesPerSecond,
   });
 
   final int? downloadedBytes;
   final double? progress;
+  final int speedBytesPerSecond;
 }
 
 _TorrentFileMetrics _torrentFileMetrics(
   DownloadTask task,
   TorrentFileEntry file,
-  bool selected,
+  int? downloadedBytes,
+  int? speedBytesPerSecond,
 ) {
-  if (!selected || file.size <= 0) {
-    return const _TorrentFileMetrics(downloadedBytes: 0, progress: 0);
+  if (file.size <= 0) {
+    return _TorrentFileMetrics(
+      downloadedBytes: 0,
+      progress: 0,
+      speedBytesPerSecond: speedBytesPerSecond ?? 0,
+    );
   }
   if (task.state == DownloadState.finished) {
-    return _TorrentFileMetrics(downloadedBytes: file.size, progress: 1);
+    return _TorrentFileMetrics(
+      downloadedBytes: file.size,
+      progress: 1,
+      speedBytesPerSecond: 0,
+    );
   }
 
   // 作者: long
-  // libtorrent_flutter 2.0.0 仍只提供任务总进度，没有逐文件完成字节；此处保留未知值，避免把比例估算展示成真实数据。
-  return const _TorrentFileMetrics(downloadedBytes: null, progress: null);
+  // libtorrent 使用稀疏文件随机落盘，逻辑文件长度不能代表已下载量；这里只使用平台层统计的实际已写入稀疏数据区间。
+  final current = downloadedBytes?.clamp(0, file.size).toInt();
+  return _TorrentFileMetrics(
+    downloadedBytes: current,
+    progress: current == null ? null : current / file.size,
+    speedBytesPerSecond: speedBytesPerSecond ?? 0,
+  );
 }
 
 String _torrentFileOutputPath(DownloadTask task, TorrentFileEntry file) {

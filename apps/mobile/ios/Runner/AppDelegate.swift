@@ -53,6 +53,20 @@ import UIKit
   }
 
   private func handleStorageMethod(_ call: FlutterMethodCall, result: FlutterResult) {
+    if call.method == "getAllocatedFileBytes" {
+      let arguments = call.arguments as? [String: Any]
+      let paths = arguments?["paths"] as? [String] ?? []
+      // 作者: long
+      // Torrent 稀疏文件的逻辑长度会提前扩到完整大小，必须读取实际分配字节才能反映已落盘进度。
+      DispatchQueue.global(qos: .utility).async {
+        let values = paths.map(self.allocatedFileBytes)
+        DispatchQueue.main.async {
+          result(values)
+        }
+      }
+      return
+    }
+
     guard call.method == "getStorageStats" else {
       result(FlutterMethodNotImplemented)
       return
@@ -79,6 +93,23 @@ import UIKit
         )
       )
     }
+  }
+
+  private func allocatedFileBytes(_ path: String) -> Int64 {
+    guard FileManager.default.fileExists(atPath: path) else {
+      return 0
+    }
+    do {
+      let values = try URL(fileURLWithPath: path).resourceValues(
+        forKeys: [.fileAllocatedSizeKey, .totalFileAllocatedSizeKey]
+      )
+      if let allocated = values.fileAllocatedSize ?? values.totalFileAllocatedSize {
+        return Int64(allocated)
+      }
+    } catch {
+      return -1
+    }
+    return -1
   }
 
   private func handleMediaMethod(_ call: FlutterMethodCall, result: @escaping FlutterResult) {

@@ -42,7 +42,7 @@ use url::Url;
 
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
 const HLS_SEGMENT_ATTEMPTS: usize = 3;
-const TORRENT_STALL_TIMEOUT: Duration = Duration::from_secs(45);
+const TORRENT_STALL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const TORRENT_LISTEN_PORT_START: u16 = 49152;
 const TORRENT_LISTEN_PORT_END: u16 = 65535;
 
@@ -159,6 +159,9 @@ impl DownloadError {
                 error.is_retryable() || matches!(error.kind(), SmbErrorKind::SessionExpired)
             }
             Self::Torrent(error) => protocol_error_is_retryable(&error.to_string()),
+            // 作者: long
+            // Peer 和 Tracker 属于瞬时网络发现条件，释放旧会话后重建 DHT/Tracker 连接有机会恢复，应纳入用户配置的自动重试。
+            Self::TorrentStalled { .. } => true,
             Self::Paused
             | Self::UnsupportedProtocol(_)
             | Self::MissingBackend { .. }
@@ -173,7 +176,6 @@ impl DownloadError {
             | Self::InvalidHlsByteRange(_)
             | Self::HlsDecrypt(_)
             | Self::HlsRemux(_)
-            | Self::TorrentStalled { .. }
             | Self::InvalidFtpUrl(_)
             | Self::HlsVariantOutOfRange { .. }
             | Self::TorrentSourceUnreadable(_)
@@ -3071,7 +3073,7 @@ mod tests {
             total_bytes: 10,
             elapsed_secs: 45,
         };
-        assert!(!no_peer.is_retryable());
+        assert!(no_peer.is_retryable());
         assert!(no_peer.user_message().contains("Peer"));
     }
 

@@ -72,7 +72,7 @@ flowchart TD
 - 状态：桌面 Rust core 使用 `queued`、`running`、`finished`、`failed`、`paused`；移动端额外使用 `handedOff` 表示 ed2k 已交给外部兼容 App，不能把外部 App 的传输结果当作 FluxDown 内建下载完成。
 - 输出：`output_dir`、`file_name`。
 - 校验：`expected_sha256`。
-- 每任务选项：`torrent_file_indices`、`speed_limit_mbps`（历史字段名，实际单位 MiB/s）、`hls_variant_index`、`hls_keep_transport_stream`。
+- 每任务选项：`torrent_file_indices`、`speed_limit_mbps`（历史字段名，界面单位 MB/s，实际按 1024² 字节/秒换算）、`hls_variant_index`、`hls_keep_transport_stream`。
 - 进度：`total_bytes`、`downloaded_bytes`。
 - 速率：`current_speed_bytes_per_second`；桌面 UI 根据剩余字节与速率计算 ETA。
 - 错误：`error`。

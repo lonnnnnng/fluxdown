@@ -33,14 +33,21 @@ class MobileDownloadRunner {
     http.Client? client,
     Ed2kLauncher? ed2kLauncher,
   }) : _client = client ?? http.Client(),
-       _ed2kLauncher = ed2kLauncher ?? launchEd2kUri;
+       _ed2kLauncher = ed2kLauncher ?? launchEd2kUri {
+    _torrentRunner = MobileTorrentRunner(client: _client);
+  }
 
   final http.Client _client;
   final Ed2kLauncher _ed2kLauncher;
+  late final MobileTorrentRunner _torrentRunner;
   final _cancelled = <String>{};
 
   void cancel(String taskId) {
     _cancelled.add(taskId);
+  }
+
+  void discardTorrent(String taskId) {
+    _torrentRunner.discard(taskId);
   }
 
   Future<DownloadTask> download(
@@ -849,9 +856,8 @@ class MobileDownloadRunner {
     TorrentMetadataSelector? onMetadata,
   }) async {
     _cancelled.remove(task.id);
-    final runner = MobileTorrentRunner(client: _client);
     try {
-      final finished = await runner.download(
+      final finished = await _torrentRunner.download(
         task,
         speedLimitKbps: speedLimitKbps,
         onProgress: onProgress,

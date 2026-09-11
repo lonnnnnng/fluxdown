@@ -7,6 +7,7 @@ import android.media.MediaMuxer
 import android.os.StatFs
 import android.os.Handler
 import android.os.Looper
+import android.system.Os
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -38,6 +39,26 @@ class MainActivity : FlutterActivity() {
                     } catch (error: Exception) {
                         result.error("storage_stats_failed", error.message, null)
                     }
+                }
+
+                "getAllocatedFileBytes" -> {
+                    val paths = call.argument<List<*>>("paths")
+                        ?.mapNotNull { it as? String }
+                        .orEmpty()
+                    // 作者: long
+                    // Torrent 会先创建逻辑长度完整的稀疏文件，File.length() 会虚报已下载量；
+                    // st_blocks 只统计已落盘的数据块，用于详情页展示每个文件的实时进度。
+                    Thread {
+                        val values = paths.map { path ->
+                            try {
+                                if (!File(path).exists()) 0L else Os.stat(path).st_blocks * 512L
+                            } catch (_: Exception) {
+                                -1L
+                            }
+                        }
+                        mainHandler.post { result.success(values) }
+                    }.start()
+                    return@setMethodCallHandler
                 }
 
                 else -> result.notImplemented()

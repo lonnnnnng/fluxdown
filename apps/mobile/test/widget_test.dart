@@ -346,7 +346,7 @@ void main() {
       source: 'magnet:?xt=urn:btih:abc',
       protocol: 'magnet',
     );
-    expect(noPeer.retryable, isFalse);
+    expect(noPeer.retryable, isTrue);
     expect(noPeer.message, contains('Peer'));
 
     final hlsInvalid = describeDownloadFailure(

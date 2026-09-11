@@ -106,7 +106,7 @@ DownloadFailureInfo describeDownloadFailure(
   ])) {
     return const DownloadFailureInfo(
       message: '暂无可用 Peer 或 Tracker 未响应，请检查网络、Tracker 后稍后重试。',
-      retryable: false,
+      retryable: true,
     );
   }
 

@@ -109,6 +109,7 @@ class DownloadController {
 
   Future<void> remove(String id) async {
     _runner.cancel(id);
+    _runner.discardTorrent(id);
     _pendingStarts.remove(id);
     _tasks.removeWhere((task) => task.id == id);
     await _save();
@@ -133,6 +134,7 @@ class DownloadController {
 
   Future<void> resetForRedownload(String id) async {
     _runner.cancel(id);
+    _runner.discardTorrent(id);
     _pendingStarts.remove(id);
     _replace(
       id,
