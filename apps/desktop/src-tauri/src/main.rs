@@ -2918,6 +2918,89 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    #[ignore = "requires a live local tracker and seeder; use scripts/verify-macos-desktop-p2p.sh"]
+    async fn desktop_manual_pauses_resumes_and_cancels_torrent_tasks() {
+        let _guard = DESKTOP_COMMAND_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _xdg_guard = EnvVarGuard::set("XDG_DATA_HOME", temp_dir.path().join("xdg"));
+        let output_dir = temp_dir.path().join("downloads");
+        let source = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_PAUSE_TORRENT",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let expected_name = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_PAUSE_FILE_NAME",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+        let expected_sha256 = manual_fixture(
+            "FLUXDOWN_DESKTOP_P2P_PAUSE_SHA256",
+            "scripts/verify-macos-desktop-p2p.sh",
+        );
+
+        let task = enqueue_download(AddPayload {
+            source: source.clone(),
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            file_name: Some(expected_name.clone()),
+            expected_sha256: None,
+            torrent_file_indices: Vec::new(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let task_id = task.id.clone();
+        let run = tokio::spawn(async move {
+            start_download(task_id, Some(1), Some(0), Some(1), Some(2.0), Some(false)).await
+        });
+        let running = wait_for_desktop_running_progress(&task.id).await;
+        let paused = pause_download(task.id.clone()).await.unwrap();
+        let paused_report = run.await.unwrap().unwrap();
+        assert_eq!(paused.state, DownloadState::Paused);
+        assert_eq!(paused_report.task.state, DownloadState::Paused);
+        assert!(paused_report.task.downloaded_bytes >= running.downloaded_bytes);
+
+        resume_download(task.id.clone()).await.unwrap();
+        let resumed = start_download(
+            task.id.clone(),
+            Some(1),
+            Some(0),
+            Some(1),
+            Some(2.0),
+            Some(false),
+        )
+        .await
+        .unwrap();
+        assert_eq!(resumed.task.state, DownloadState::Finished);
+        assert_eq!(resumed.task.file_name.as_deref(), Some(expected_name.as_str()));
+        let output_path = PathBuf::from(task_output_path(task.id.clone()).await.unwrap());
+        assert_eq!(sha256_file(&output_path), expected_sha256);
+
+        let cancel_task = enqueue_download(AddPayload {
+            source,
+            output_dir: temp_dir.path().join("cancel").to_string_lossy().into_owned(),
+            file_name: Some(expected_name),
+            expected_sha256: None,
+            torrent_file_indices: Vec::new(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let cancel_id = cancel_task.id.clone();
+        let cancel_run = tokio::spawn(async move {
+            start_download(cancel_id, Some(1), Some(0), Some(1), Some(1.0), Some(false)).await
+        });
+        let _ = wait_for_desktop_running_progress(&cancel_task.id).await;
+        let removed = remove_download(cancel_task.id.clone()).await.unwrap();
+        let cancel_report = cancel_run.await.unwrap().unwrap();
+        assert_eq!(removed.id, cancel_task.id);
+        assert_eq!(cancel_report.task.state, DownloadState::Paused);
+        assert!(list_downloads()
+            .await
+            .unwrap()
+            .iter()
+            .all(|task| task.id != cancel_task.id));
+    }
+
     fn sha256_file(path: &Path) -> String {
         let output = Command::new("shasum")
             .args(["-a", "256"])
