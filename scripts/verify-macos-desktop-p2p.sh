@@ -101,6 +101,9 @@ MULTI_DIR="$SEED_DIR/$MULTI_NAME"
 SELECTED_NAME="a-selected.bin"
 SKIPPED_NAME="b-skipped.bin"
 MULTI_TORRENT_FILE="$TMP_DIR/fluxdown-desktop-p2p-bundle.torrent"
+PAUSE_NAME="fluxdown-p2p-pause.bin"
+PAUSE_FILE="$SEED_DIR/$PAUSE_NAME"
+PAUSE_TORRENT_FILE="$TMP_DIR/fluxdown-p2p-pause.torrent"
 TRACKER_URL="http://127.0.0.1:$TRACKER_PORT/announce"
 
 printf 'fluxdown desktop p2p sample\n' > "$SAMPLE_FILE"
@@ -115,6 +118,15 @@ selected.write_bytes(bytes(index % 251 for index in range(64 * 1024)))
 skipped.write_bytes(bytes((index * 7) % 251 for index in range(64 * 1024)))
 PY
 SELECTED_SHA256="$(shasum -a 256 "$MULTI_DIR/$SELECTED_NAME" | awk '{print $1}')"
+python3 - "$PAUSE_FILE" <<'PY'
+import pathlib
+import sys
+
+pathlib.Path(sys.argv[1]).write_bytes(
+    bytes(index % 251 for index in range(8 * 1024 * 1024))
+)
+PY
+PAUSE_SHA256="$(shasum -a 256 "$PAUSE_FILE" | awk '{print $1}')"
 
 transmission-create \
   -o "$TORRENT_FILE" \
@@ -125,6 +137,11 @@ transmission-create \
   -s 32 \
   -t "$TRACKER_URL" \
   "$MULTI_DIR" >/dev/null
+transmission-create \
+  -o "$PAUSE_TORRENT_FILE" \
+  -s 32 \
+  -t "$TRACKER_URL" \
+  "$PAUSE_FILE" >/dev/null
 
 INFO_HASH="$(transmission-show "$TORRENT_FILE" | awk '/Hash v1:/ {print $3; exit}')"
 MULTI_INFO_HASH="$(transmission-show "$MULTI_TORRENT_FILE" | awk '/Hash v1:/ {print $3; exit}')"
@@ -159,6 +176,7 @@ wait_for_transmission
 
 transmission-remote "127.0.0.1:$RPC_PORT" -a "$TORRENT_FILE" >/dev/null
 transmission-remote "127.0.0.1:$RPC_PORT" -a "$MULTI_TORRENT_FILE" >/dev/null
+transmission-remote "127.0.0.1:$RPC_PORT" -a "$PAUSE_TORRENT_FILE" >/dev/null
 transmission-remote "127.0.0.1:$RPC_PORT" -t all --reannounce >/dev/null
 
 echo "macOS desktop P2P fixture"
@@ -166,8 +184,10 @@ echo "  torrent: $TORRENT_FILE"
 echo "  multi:   $MULTI_TORRENT_FILE"
 echo "  magnet:  $MAGNET_URI"
 echo "  multi magnet: $MULTI_MAGNET_URI"
+echo "  pause torrent: $PAUSE_TORRENT_FILE"
 echo "  sha256:  $EXPECTED_SHA256"
 echo "  selected sha256: $SELECTED_SHA256"
+echo "  pause sha256: $PAUSE_SHA256"
 
 cd "$ROOT_DIR"
 FLUXDOWN_DESKTOP_P2P_TORRENT="$TORRENT_FILE" \
@@ -196,3 +216,8 @@ FLUXDOWN_DESKTOP_P2P_SELECTED_NAME="$SELECTED_NAME" \
 FLUXDOWN_DESKTOP_P2P_SKIPPED_NAME="$SKIPPED_NAME" \
 FLUXDOWN_DESKTOP_P2P_SELECTED_SHA256="$SELECTED_SHA256" \
   cargo test -p fluxdown-desktop desktop_manual_downloads_selected_magnet_file_through_queue -- --ignored --nocapture
+
+FLUXDOWN_DESKTOP_P2P_PAUSE_TORRENT="$PAUSE_TORRENT_FILE" \
+FLUXDOWN_DESKTOP_P2P_PAUSE_FILE_NAME="$PAUSE_NAME" \
+FLUXDOWN_DESKTOP_P2P_PAUSE_SHA256="$PAUSE_SHA256" \
+  cargo test -p fluxdown-desktop desktop_manual_pauses_resumes_and_cancels_torrent_tasks -- --ignored --nocapture
