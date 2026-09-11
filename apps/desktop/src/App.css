@@ -1738,6 +1738,142 @@ textarea:focus-visible,
   font-variant-numeric: tabular-nums;
 }
 
+.torrentSelectionSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #cfe5f3;
+  border-radius: 6px;
+  background: #f5faff;
+}
+
+.torrentSelectionSummary > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.torrentSelectionSummary strong,
+.torrentSelectionSummary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.torrentSelectionSummary strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.torrentSelectionSummary span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.torrentSelectionSummary button,
+.torrentSelectionToolbar button {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid #b8d9eb;
+  border-radius: 5px;
+  background: #fff;
+  color: var(--primary-ink);
+  font-size: 11px;
+}
+
+.torrentSelectionSummary button:hover,
+.torrentSelectionToolbar button:hover {
+  border-color: var(--primary-ink);
+  background: var(--primary-soft);
+}
+
+.torrentSelectionBackdrop {
+  z-index: 45;
+}
+
+.torrentSelectionDialog {
+  width: min(900px, 100%);
+  max-height: calc(100vh - 28px);
+  padding: 20px;
+}
+
+.dialogSubline {
+  display: block;
+  max-width: min(62vw, 620px);
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.torrentSelectionToolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e1edf3;
+  border-radius: 6px;
+  background: #f8fbfd;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.torrentSelectionDialogList {
+  max-height: min(58vh, 560px);
+  background: #fff;
+}
+
+.torrentSelectionDialogList .torrentSelectionRow {
+  grid-template-columns: 18px minmax(0, 1fr) 72px 92px;
+  min-height: 54px;
+  padding: 8px 12px;
+}
+
+.torrentSelectionRow.selected {
+  background: #f1f9fe;
+}
+
+.torrentSelectionFileInfo {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.torrentSelectionFileInfo strong,
+.torrentSelectionFileInfo small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.torrentSelectionFileInfo strong {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.torrentSelectionFileInfo small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.torrentSelectionFileType {
+  color: var(--primary-ink);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.torrentSelectionDialog .dialogFooter {
+  margin-top: 14px;
+}
+
 .torrentMetadataState {
   padding: 9px 10px;
   border: 1px solid var(--line);

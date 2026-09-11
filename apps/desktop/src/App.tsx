@@ -723,6 +723,11 @@ function formatBytes(value?: number | null) {
   return `${size >= 10 || index === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[index]}`;
 }
 
+function fileFormatLabel(name: string) {
+  const extension = name.trim().split(".").pop()?.trim();
+  return extension ? extension.toUpperCase() : "未知格式";
+}
+
 function currentSpeed(task: DownloadTask) {
   return `${formatBytes(task.current_speed_bytes_per_second ?? 0)}/s`;
 }
@@ -847,6 +852,8 @@ function App() {
   const [selectedTorrentFileIndices, setSelectedTorrentFileIndices] = useState<number[]>([]);
   const [torrentMetadataLoading, setTorrentMetadataLoading] = useState(false);
   const [torrentMetadataError, setTorrentMetadataError] = useState("");
+  const [torrentSelectionOpen, setTorrentSelectionOpen] = useState(false);
+  const torrentSelectionConfirmedRef = useRef(false);
   const [torrentDetailsTask, setTorrentDetailsTask] =
     useState<DownloadTask | null>(null);
   const [torrentDetails, setTorrentDetails] = useState<TorrentDetails | null>(
@@ -1389,6 +1396,14 @@ function App() {
       setMessage("Torrent 文件编号只能填写非负整数");
       return;
     }
+    const detectedProtocol = sourceSupport?.protocol ?? fallbackDetect(normalizedSource);
+    const isTorrentLike = detectedProtocol === "torrent" || detectedProtocol === "magnet";
+    if (isTorrentLike && torrentFiles.length > 0 && !torrentSelectionConfirmedRef.current) {
+      // 作者: long
+      // Torrent/Magnet 只有在用户确认文件清单后才真正入队，避免取消选择后留下空任务。
+      setTorrentSelectionOpen(true);
+      return;
+    }
     // 作者: long
     // 旧队列用空编号表示下载全部；文件树显式取消全选时必须阻止提交，不能反向变成全量下载。
     if (torrentFiles.length > 0 && selectedTorrentFileIndices.length === 0) {
@@ -1643,6 +1658,8 @@ function App() {
     const protocol = fallbackDetect(source.trim());
     setTorrentMetadataLoading(protocol === "torrent" || protocol === "magnet");
     setTorrentMetadataError("");
+    setTorrentSelectionOpen(false);
+    torrentSelectionConfirmedRef.current = false;
     fileNameEditedRef.current = false;
     setNewDialogOpen(true);
   }
@@ -1656,6 +1673,8 @@ function App() {
     setSelectedTorrentFileIndices([]);
     setTorrentMetadataLoading(false);
     setTorrentMetadataError("");
+    setTorrentSelectionOpen(false);
+    torrentSelectionConfirmedRef.current = false;
     fileNameEditedRef.current = false;
   }
 
@@ -1671,6 +1690,8 @@ function App() {
     setTorrentFileIndices("");
     setTorrentMetadataLoading(detectedProtocol === "torrent" || detectedProtocol === "magnet");
     setTorrentMetadataError("");
+    setTorrentSelectionOpen(false);
+    torrentSelectionConfirmedRef.current = false;
     if (!fileNameEditedRef.current) setFileName(normalizedSource ? suggestedFileName(value) : "");
   }
 
@@ -1680,6 +1701,20 @@ function App() {
       : [...selectedTorrentFileIndices, index].sort((left, right) => left - right);
     setSelectedTorrentFileIndices(next);
     setTorrentFileIndices(next.join(","));
+  }
+
+  async function confirmTorrentSelection() {
+    if (selectedTorrentFileIndices.length === 0) {
+      setMessage("Torrent 至少选择一个文件");
+      return;
+    }
+    setTorrentSelectionOpen(false);
+    torrentSelectionConfirmedRef.current = true;
+    try {
+      await createTask();
+    } finally {
+      torrentSelectionConfirmedRef.current = false;
+    }
   }
 
   const currentMenuTask = tasks.find((task) => task.id === menuTaskId) ?? null;
@@ -1905,6 +1940,7 @@ function App() {
           hlsKeepTs={hlsKeepTs}
           selectedTorrentFileIndices={selectedTorrentFileIndices}
           taskSpeedLimit={taskSpeedLimit}
+          torrentName={torrentName}
           torrentFiles={torrentFiles}
           torrentMetadataError={torrentMetadataError}
           torrentMetadataLoading={torrentMetadataLoading}
@@ -1922,10 +1958,10 @@ function App() {
           onOutputDirChange={setOutputDir}
           onPickOutputDir={pickNewTaskOutputDir}
           onPaste={pasteFromClipboard}
+          onOpenTorrentSelection={() => setTorrentSelectionOpen(true)}
           onSourceChange={updateNewTaskSource}
           onTaskSpeedLimitChange={setTaskSpeedLimit}
           onTorrentFileIndicesChange={setTorrentFileIndices}
-          onToggleTorrentFile={toggleTorrentFile}
           outputDir={outputDir}
           source={source}
           support={sourceSupport}
@@ -1941,6 +1977,22 @@ function App() {
           }}
           onClose={closeTorrentDetails}
           task={inspectedTorrent ?? torrentDetailsTask}
+        />
+      ) : null}
+
+      {torrentSelectionOpen ? (
+        <TorrentSelectionDialog
+          files={torrentFiles}
+          metadataName={torrentName}
+          onClose={() => setTorrentSelectionOpen(false)}
+          onConfirm={confirmTorrentSelection}
+          onSelectAll={(selected) => {
+            const next = selected ? torrentFiles.map((file) => file.index) : [];
+            setSelectedTorrentFileIndices(next);
+            setTorrentFileIndices(next.join(","));
+          }}
+          onToggle={toggleTorrentFile}
+          selectedIndices={selectedTorrentFileIndices}
         />
       ) : null}
 
@@ -2534,6 +2586,97 @@ function UpdateDialog({
   );
 }
 
+function TorrentSelectionDialog({
+  files,
+  metadataName,
+  onClose,
+  onConfirm,
+  onSelectAll,
+  onToggle,
+  selectedIndices,
+}: {
+  files: TorrentDetailsFile[];
+  metadataName: string | null;
+  onClose: () => void;
+  onConfirm: () => void;
+  onSelectAll: (selected: boolean) => void;
+  onToggle: (index: number) => void;
+  selectedIndices: number[];
+}) {
+  const allSelected = files.length > 0 && selectedIndices.length === files.length;
+  const selectedBytes = files
+    .filter((file) => selectedIndices.includes(file.index))
+    .reduce((total, file) => total + file.size, 0);
+
+  return (
+    <div className="modalBackdrop torrentSelectionBackdrop" data-testid="torrent-selection-backdrop" onMouseDown={onClose}>
+      <section
+        className="taskDialog torrentSelectionDialog"
+        data-testid="torrent-selection-dialog"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="dialogHeader">
+          <div>
+            <span className="dialogMark"><Icon name="download" /></span>
+            <div>
+              <h2>确认下载内容</h2>
+              <span className="dialogSubline">{metadataName || "Torrent / Magnet 资源"}</span>
+            </div>
+          </div>
+          <div className="dialogTools">
+            <button aria-label="关闭" data-testid="torrent-selection-close" onClick={onClose} title="关闭">
+              <Icon name="x" />
+            </button>
+          </div>
+        </header>
+        <div className="torrentSelectionToolbar">
+          <span>选择要下载的文件</span>
+          <span>{selectedIndices.length} / {files.length} · {formatBytes(selectedBytes)}</span>
+          <button
+            type="button"
+            onClick={() => onSelectAll(!allSelected)}
+          >
+            {allSelected ? "全不选" : "全选"}
+          </button>
+        </div>
+        <div className="torrentSelectionList torrentSelectionDialogList" data-testid="torrent-selection-files">
+          {files.map((file) => {
+            const selected = selectedIndices.includes(file.index);
+            const displayName = file.name?.trim() || file.path;
+            return (
+              <label className={`torrentSelectionRow ${selected ? "selected" : ""}`} key={file.index}>
+                <input
+                  checked={selected}
+                  data-testid={`torrent-selection-file-${file.index}`}
+                  onChange={() => onToggle(file.index)}
+                  type="checkbox"
+                />
+                <span className="torrentSelectionFileInfo">
+                  <strong title={displayName}>{displayName}</strong>
+                  <small title={file.path}>{file.path}</small>
+                </span>
+                <span className="torrentSelectionFileType">{fileFormatLabel(displayName)}</span>
+                <span className="torrentSelectionSize">{formatBytes(file.size)}</span>
+              </label>
+            );
+          })}
+        </div>
+        <footer className="dialogFooter">
+          <button data-testid="torrent-selection-cancel" onClick={onClose}>取消</button>
+          <button
+            className="primary"
+            data-testid="torrent-selection-confirm"
+            disabled={selectedIndices.length === 0}
+            onClick={onConfirm}
+          >
+            确认并加入队列
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 function NewTaskDialog({
   expectedSha256,
   fileName,
@@ -2542,6 +2685,7 @@ function NewTaskDialog({
   hlsKeepTs,
   selectedTorrentFileIndices,
   taskSpeedLimit,
+  torrentName,
   torrentFiles,
   torrentMetadataError,
   torrentMetadataLoading,
@@ -2554,10 +2698,10 @@ function NewTaskDialog({
   onOutputDirChange,
   onPickOutputDir,
   onPaste,
+  onOpenTorrentSelection,
   onSourceChange,
   onTaskSpeedLimitChange,
   onTorrentFileIndicesChange,
-  onToggleTorrentFile,
   outputDir,
   source,
   support,
@@ -2570,6 +2714,7 @@ function NewTaskDialog({
   hlsKeepTs: boolean;
   selectedTorrentFileIndices: number[];
   taskSpeedLimit: string;
+  torrentName: string | null;
   torrentFiles: TorrentDetailsFile[];
   torrentMetadataError: string;
   torrentMetadataLoading: boolean;
@@ -2582,10 +2727,10 @@ function NewTaskDialog({
   onOutputDirChange: (value: string) => void;
   onPickOutputDir: () => void;
   onPaste: () => void;
+  onOpenTorrentSelection: () => void;
   onSourceChange: (value: string) => void;
   onTaskSpeedLimitChange: (value: string) => void;
   onTorrentFileIndicesChange: (value: string) => void;
-  onToggleTorrentFile: (index: number) => void;
   outputDir: string;
   source: string;
   support: SupportStatus | null;
@@ -2667,7 +2812,7 @@ function NewTaskDialog({
         {isTorrentLike ? (
           <div className="fieldBlock torrentSelectionBlock">
             <div className="fieldLabelRow">
-              <span>选择下载文件</span>
+              <span>下载内容</span>
               {torrentFiles.length > 0 ? (
                 <small>{selectedTorrentFileIndices.length} / {torrentFiles.length}</small>
               ) : null}
@@ -2675,19 +2820,14 @@ function NewTaskDialog({
             {torrentMetadataLoading ? (
               <div className="torrentMetadataState" data-testid="torrent-metadata-loading">正在获取文件列表…</div>
             ) : torrentFiles.length > 0 ? (
-              <div className="torrentSelectionList" data-testid="new-task-torrent-files">
-                {torrentFiles.map((file) => (
-                  <label className="torrentSelectionRow" key={file.index}>
-                    <input
-                      checked={selectedTorrentFileIndices.includes(file.index)}
-                      data-testid={`new-task-torrent-file-${file.index}`}
-                      onChange={() => onToggleTorrentFile(file.index)}
-                      type="checkbox"
-                    />
-                    <span className="torrentSelectionPath" title={file.path}>{file.path}</span>
-                    <span className="torrentSelectionSize">{formatBytes(file.size)}</span>
-                  </label>
-                ))}
+              <div className="torrentSelectionSummary" data-testid="new-task-torrent-files">
+                <div>
+                  <strong>{torrentName || "Torrent 资源"}</strong>
+                  <span>已读取 {torrentFiles.length} 个文件，确认后才会加入队列</span>
+                </div>
+                <button type="button" onClick={onOpenTorrentSelection}>
+                  选择文件
+                </button>
               </div>
             ) : (
               <>
