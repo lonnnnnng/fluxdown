@@ -1972,6 +1972,16 @@ textarea:focus-visible,
   word-break: break-all;
 }
 
+.torrentFileSubpath {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .torrentFileSize {
   color: var(--ink-soft);
   flex: 0 0 auto;

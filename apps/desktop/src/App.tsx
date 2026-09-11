@@ -534,6 +534,9 @@ function compareVersions(left: string, right: string): number {
 }
 
 function taskTitle(task: DownloadTask) {
+  if ((task.protocol === "torrent" || task.protocol === "magnet") && task.torrent_name?.trim()) {
+    return task.torrent_name.trim();
+  }
   if (task.file_name?.trim()) return task.file_name.trim();
   const sourceName = suggestedFileName(task.source);
   return sourceName || protocolLabel(task.protocol);
@@ -733,6 +736,9 @@ function currentSpeed(task: DownloadTask) {
 }
 
 function taskActionTitle(task: DownloadTask) {
+  if ((task.protocol === "torrent" || task.protocol === "magnet") && (task.torrent_files?.length ?? 0) > 0) {
+    return "点击查看详情";
+  }
   if (task.state === "running") return "点击暂停";
   if (task.state === "finished" || task.state === "failed") return "点击重新下载";
   return "点击开始";
@@ -1911,6 +1917,7 @@ function App() {
                 action={action}
                 filter={filter}
                 menuTaskId={menuTaskId}
+                onDetails={openTorrentDetails}
                 onMenu={setMenuTaskId}
                 onToggle={toggleTask}
                 searchQuery={searchQuery}
@@ -2063,6 +2070,7 @@ function DownloadList({
   action,
   filter,
   menuTaskId,
+  onDetails,
   onMenu,
   onToggle,
   searchQuery,
@@ -2073,6 +2081,7 @@ function DownloadList({
   action: TaskAction;
   filter: QueueFilter;
   menuTaskId: string | null;
+  onDetails: (task: DownloadTask) => void;
   onMenu: (id: string | null) => void;
   onToggle: (task: DownloadTask) => void;
   searchQuery: string;
@@ -2106,6 +2115,7 @@ function DownloadList({
               action={activeTaskId === task.id ? action : "idle"}
               key={task.id}
               menuOpen={menuTaskId === task.id}
+              onDetails={onDetails}
               onMenu={onMenu}
               onToggle={onToggle}
               task={task}
@@ -2142,12 +2152,14 @@ function emptyTaskSubtitle(
 function TaskRow({
   action,
   menuOpen,
+  onDetails,
   onMenu,
   onToggle,
   task,
 }: {
   action: TaskAction;
   menuOpen: boolean;
+  onDetails: (task: DownloadTask) => void;
   onMenu: (id: string | null) => void;
   onToggle: (task: DownloadTask) => void;
   task: DownloadTask;
@@ -2182,7 +2194,11 @@ function TaskRow({
       longPressTriggeredRef.current = false;
       return;
     }
-    onToggle(task);
+    if ((task.protocol === "torrent" || task.protocol === "magnet") && (task.torrent_files?.length ?? 0) > 0) {
+      onDetails(task);
+    } else {
+      onToggle(task);
+    }
   }
 
   return (
@@ -2207,7 +2223,11 @@ function TaskRow({
         if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          onToggle(task);
+          if ((task.protocol === "torrent" || task.protocol === "magnet") && (task.torrent_files?.length ?? 0) > 0) {
+            onDetails(task);
+          } else {
+            onToggle(task);
+          }
         }
       }}
       onPointerCancel={cancelLongPress}
@@ -2279,12 +2299,15 @@ function TorrentFileProgressRow({
   // 静态种子没有下载进度，不能冒充 0% 或完成；只有引擎返回已下载量时才显示确定进度。
   const percent = downloaded == null ? null : size === 0 ? 100 : downloaded / size * 100;
   const fileReady = canOpen;
+  const displayName = file.name?.trim() || file.path.split(/[\\/]/).pop() || file.path;
   return (
     <div className="torrentFileRow torrentTransferRow" data-file-index={file.index}>
       <span className="torrentFileIndex">#{file.index}</span>
       <div className="torrentFileContent">
-        <span className="torrentFilePath" title={file.path}>{file.path || "-"}</span>
+        <span className="torrentFilePath" title={file.path}>{displayName || "-"}</span>
+        <small className="torrentFileSubpath" title={file.path}>{file.path || "-"}</small>
         <div className="torrentFileMetrics">
+          <span>{fileFormatLabel(displayName)}</span>
           <span>{downloaded == null ? "--" : formatBytes(downloaded)} / {formatBytes(size)}</span>
           <span>{percent == null ? "进度未知" : `${percent.toFixed(1)}%`}</span>
           <span>{speedBps != null ? `${formatBytes(speedBps)}/s` : "速度未知"}</span>
@@ -2329,6 +2352,22 @@ function TorrentDetailsDialog({
   task: DownloadTask;
 }) {
   const selectedTorrentFileIndices = task.torrent_file_indices ?? [];
+  const persistedFiles = task.torrent_files ?? [];
+  const sourceFiles = details?.files?.length
+    ? details.files
+    : persistedFiles.map((file) => ({ ...file, progress_bytes: null, sampled_speed_bps: null }));
+  const visibleFiles = sourceFiles
+    .filter((file) => selectedTorrentFileIndices.length === 0 || selectedTorrentFileIndices.includes(file.index))
+    .map((file) => ({
+      ...file,
+      progress_bytes: file.progress_bytes ?? (task.state === "finished" ? file.size : null),
+      sampled_speed_bps: details?.runtime ? file.sampled_speed_bps : null,
+    }));
+  const selectedTotalBytes = visibleFiles.reduce((total, file) => total + file.size, 0);
+  const selectedDownloadedBytes = visibleFiles.reduce(
+    (total, file) => total + (file.progress_bytes ?? 0),
+    0,
+  );
 
   return (
     <div
@@ -2344,7 +2383,7 @@ function TorrentDetailsDialog({
         <header className="dialogHeader">
           <div>
             <span className="dialogMark"><Icon name="download" /></span>
-            <h2>Torrent 详情</h2>
+            <h2>资源详情</h2>
           </div>
           <div className="dialogTools">
             <button aria-label="关闭" data-testid="torrent-details-close" onClick={onClose}>
@@ -2375,15 +2414,15 @@ function TorrentDetailsDialog({
             <dl className="detailGrid">
               <div>
                 <dt>名称</dt>
-                <dd>{details.name ?? taskTitle(task)}</dd>
+                <dd>{task.torrent_name ?? details.name ?? taskTitle(task)}</dd>
               </div>
               <div>
                 <dt>大小</dt>
-                <dd>{details.total_bytes ? formatBytes(details.total_bytes) : "--"}</dd>
+                <dd>{selectedTotalBytes > 0 ? formatBytes(selectedTotalBytes) : "--"}</dd>
               </div>
               <div>
                 <dt>已完成</dt>
-                <dd>{details.progress_bytes != null ? formatBytes(details.progress_bytes) : "--"}</dd>
+                <dd>{selectedDownloadedBytes > 0 ? formatBytes(selectedDownloadedBytes) : "0 B"}</dd>
               </div>
               <div>
                 <dt>已上传</dt>
@@ -2399,15 +2438,13 @@ function TorrentDetailsDialog({
                 </div>
               ) : null}
             </dl>
-            {details.files.length > 0 ? (
+            {visibleFiles.length > 0 ? (
               <div className="updateNotesBlock">
-                <span>文件列表（{details.files.length}）</span>
+                <span>已选择文件（{visibleFiles.length}）</span>
                 <div className="torrentFileList" data-testid="torrent-files">
-                  {details.files.map((file) => (
+                  {visibleFiles.map((file) => (
                     <TorrentFileProgressRow
-                      canOpen={(selectedTorrentFileIndices.length === 0
-                        || selectedTorrentFileIndices.includes(file.index))
-                        && (task.state === "finished"
+                      canOpen={(task.state === "finished"
                           || (file.progress_bytes != null && file.progress_bytes >= file.size))}
                       file={file}
                       key={file.index}
