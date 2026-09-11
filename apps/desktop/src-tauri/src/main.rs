@@ -9,8 +9,9 @@ use fluxdown_core::{
     DEFAULT_DOWNLOAD_THREAD_COUNT, DEFAULT_QUEUE_CONCURRENCY, DEFAULT_RETRY_ATTEMPTS, DoctorReport,
     DownloadOptions, DownloadRequest, DownloadState, DownloadTask, Protocol, QueueRunReport,
     QueueRunner, QueueRunnerOptions, RuntimeSupportStatus, TaskRunReport, TaskStore,
-    TorrentDetails, default_store_path, detect_protocol, doctor_report, hls_variants,
-    runtime_support_status, sanitize_download_file_name, torrent_details, validate_sha256_text,
+    TorrentDetails, TorrentFileMetadata, default_store_path, detect_protocol, doctor_report,
+    hls_variants, runtime_support_status, sanitize_download_file_name, torrent_details,
+    validate_sha256_text,
 };
 use serde::Deserialize;
 #[cfg(any(target_os = "macos", test))]
@@ -40,6 +41,10 @@ struct AddPayload {
     expected_sha256: Option<String>,
     #[serde(default)]
     torrent_file_indices: Vec<usize>,
+    #[serde(default)]
+    torrent_name: Option<String>,
+    #[serde(default)]
+    torrent_files: Vec<TorrentFileMetadata>,
     #[serde(default)]
     speed_limit_mbps: Option<f64>,
     #[serde(default)]
@@ -82,6 +87,8 @@ async fn enqueue_download(payload: AddPayload) -> Result<DownloadTask, String> {
     request.file_name = payload.file_name;
     request.expected_sha256 = validated_expected_sha256(payload.expected_sha256)?;
     request.torrent_file_indices = payload.torrent_file_indices;
+    request.torrent_name = payload.torrent_name;
+    request.torrent_files = payload.torrent_files;
     request.speed_limit_mbps = payload
         .speed_limit_mbps
         .filter(|limit| limit.is_finite() && *limit > 0.0);
@@ -2033,6 +2040,14 @@ mod tests {
             file_name: Some("multi-file.torrent".to_string()),
             expected_sha256: None,
             torrent_file_indices: vec![4, 1, 4],
+            torrent_name: Some("bundle".to_string()),
+            torrent_files: vec![TorrentFileMetadata {
+                index: 1,
+                path: "bundle/video.mp4".to_string(),
+                name: "video.mp4".to_string(),
+                size: 42,
+                is_streamable: true,
+            }],
             ..Default::default()
         })
         .await
@@ -2040,8 +2055,11 @@ mod tests {
 
         assert_eq!(task.protocol, Protocol::Torrent);
         assert_eq!(task.torrent_file_indices, vec![1, 4]);
+        assert_eq!(task.torrent_name.as_deref(), Some("bundle"));
+        assert_eq!(task.torrent_files[0].name, "video.mp4");
         let tasks = list_downloads().await.unwrap();
         assert_eq!(tasks[0].torrent_file_indices, vec![1, 4]);
+        assert_eq!(tasks[0].torrent_files, task.torrent_files);
     }
 
     #[tokio::test]

@@ -20,11 +20,33 @@ use crate::downloader::DownloadError;
 /// 运行中种子的会话句柄。
 type TorrentHandle = Arc<ManagedTorrent>;
 
+fn torrent_file_name(path: &str) -> String {
+    path.replace('\\', "/")
+        .rsplit('/')
+        .find(|part| !part.trim().is_empty())
+        .unwrap_or(path)
+        .to_string()
+}
+
+fn is_streamable_path(path: &str) -> bool {
+    matches!(
+        path.rsplit('.')
+            .next()
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some(
+            "mp4" | "mkv" | "avi" | "mov" | "m4v" | "webm" | "ts" | "mp3" | "m4a" | "aac" | "flac"
+        )
+    )
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct TorrentDetailsFile {
     pub index: usize,
     pub path: String,
+    pub name: String,
     pub size: u64,
+    pub is_streamable: bool,
     pub progress_bytes: Option<u64>,
 }
 
@@ -97,11 +119,16 @@ fn runtime_details(task_id: &str) -> Option<TorrentDetails> {
                 .iter()
                 .enumerate()
                 .filter(|(_, file)| !file.attrs.padding)
-                .map(|(index, file)| TorrentDetailsFile {
-                    index,
-                    path: file.relative_filename.to_string_lossy().into_owned(),
-                    size: file.len,
-                    progress_bytes: stats.file_progress.get(index).copied(),
+                .map(|(index, file)| {
+                    let path = file.relative_filename.to_string_lossy().into_owned();
+                    TorrentDetailsFile {
+                        index,
+                        name: torrent_file_name(&path),
+                        is_streamable: is_streamable_path(&path),
+                        path,
+                        size: file.len,
+                        progress_bytes: stats.file_progress.get(index).copied(),
+                    }
                 })
                 .collect::<Vec<_>>();
             let total = files.iter().map(|file| file.size).sum::<u64>();
@@ -228,6 +255,8 @@ fn static_details_from_torrent_bytes(bytes: &[u8]) -> Result<TorrentDetails, Dow
                         total_bytes += size;
                         files.push(TorrentDetailsFile {
                             index,
+                            name: torrent_file_name(&path),
+                            is_streamable: is_streamable_path(&path),
                             path,
                             size,
                             progress_bytes: None,
@@ -241,6 +270,8 @@ fn static_details_from_torrent_bytes(bytes: &[u8]) -> Result<TorrentDetails, Dow
                     total_bytes = (*length).max(0) as u64;
                     files.push(TorrentDetailsFile {
                         index: 0,
+                        name: name.as_deref().map(torrent_file_name).unwrap_or_default(),
+                        is_streamable: name.as_deref().map(is_streamable_path).unwrap_or(false),
                         path: name.clone().unwrap_or_default(),
                         size: total_bytes,
                         progress_bytes: None,

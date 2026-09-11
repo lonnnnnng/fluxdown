@@ -14,8 +14,8 @@ use std::{
 };
 
 use fluxdown_core::{
-    DownloadRequest, QueueRunner, QueueRunnerOptions, TaskStore, default_store_path,
-    detect_protocol, runtime_support_status,
+    DownloadRequest, QueueRunner, QueueRunnerOptions, TaskStore, TorrentFileMetadata,
+    default_store_path, detect_protocol, runtime_support_status,
 };
 use serde_json::json;
 use tokio::{runtime::Runtime, sync::Mutex};
@@ -114,7 +114,7 @@ pub extern "C" fn fluxdown_queue_list(store_path: *const c_char) -> *mut c_char 
 }
 
 /// 入队任务：`request_json` 为统一任务请求对象
-/// `{"source":..,"outputDir":..,"fileName":..,"expectedSha256":..,"torrentFileIndices":[..],"speedLimitMbps":..,"hlsVariantIndex":..,"hlsKeepTransportStream":..}`。
+/// `{"source":..,"outputDir":..,"fileName":..,"expectedSha256":..,"torrentFileIndices":[..],"torrentName":..,"torrentFiles":[..],"speedLimitMbps":..,"hlsVariantIndex":..,"hlsKeepTransportStream":..}`。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxdown_queue_add(
     store_path: *const c_char,
@@ -155,6 +155,45 @@ pub extern "C" fn fluxdown_queue_add(
             request.torrent_file_indices = indices
                 .iter()
                 .filter_map(|value| value.as_u64().map(|value| value as usize))
+                .collect();
+        }
+        if let Some(name) = payload.get("torrentName").and_then(|value| value.as_str()) {
+            request.torrent_name = Some(name.to_string());
+        }
+        if let Some(files) = payload
+            .get("torrentFiles")
+            .and_then(|value| value.as_array())
+        {
+            // 作者: long
+            // 移动端和桌面端通过 FFI 传递同一份文件树；字段同时兼容 camelCase 与 snake_case，
+            // 这样升级后的调用方可以读取旧版本生成的队列而无需转换文件。
+            request.torrent_files = files
+                .iter()
+                .filter_map(|value| {
+                    let object = value.as_object()?;
+                    let index = object.get("index").and_then(|value| value.as_u64())? as usize;
+                    let path = object
+                        .get("path")
+                        .and_then(|value| value.as_str())?
+                        .to_string();
+                    let name = object
+                        .get("name")
+                        .and_then(|value| value.as_str())?
+                        .to_string();
+                    let size = object.get("size").and_then(|value| value.as_u64())?;
+                    let is_streamable = object
+                        .get("isStreamable")
+                        .or_else(|| object.get("is_streamable"))
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(false);
+                    Some(TorrentFileMetadata {
+                        index,
+                        path,
+                        name,
+                        size,
+                        is_streamable,
+                    })
+                })
                 .collect();
         }
         if let Some(limit) = payload
@@ -242,7 +281,7 @@ mod tests {
         let store = CString::new(root.join("queue.json").to_string_lossy().as_bytes())
             .expect("queue path contains no NUL");
         let payload = CString::new(
-            r#"{"source":"https://example.com/master.m3u8","outputDir":"/tmp/downloads","hlsVariantIndex":2,"hlsKeepTransportStream":true}"#,
+            r#"{"source":"https://example.com/master.m3u8","outputDir":"/tmp/downloads","torrentName":"bundle","torrentFiles":[{"index":1,"path":"bundle/video.mp4","name":"video.mp4","size":42,"isStreamable":true}],"hlsVariantIndex":2,"hlsKeepTransportStream":true}"#,
         )
         .expect("payload contains no NUL");
 
@@ -257,6 +296,8 @@ mod tests {
         assert_eq!(value["ok"], true);
         assert_eq!(value["data"]["hls_variant_index"], 2);
         assert_eq!(value["data"]["hls_keep_transport_stream"], true);
+        assert_eq!(value["data"]["torrent_name"], "bundle");
+        assert_eq!(value["data"]["torrent_files"][0]["name"], "video.mp4");
         fluxdown_string_free(pointer);
 
         let _ = fs::remove_dir_all(root);

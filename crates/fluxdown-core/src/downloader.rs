@@ -3174,6 +3174,8 @@ mod tests {
             file_name: Some("../movie:name.m3u8".to_string()),
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
+            torrent_name: None,
+            torrent_files: Vec::new(),
             speed_limit_mbps: None,
             hls_variant_index: None,
             hls_keep_transport_stream: None,

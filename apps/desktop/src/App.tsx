@@ -129,6 +129,8 @@ type DownloadTask = {
   file_name?: string | null;
   expected_sha256?: string | null;
   torrent_file_indices?: number[];
+  torrent_name?: string | null;
+  torrent_files?: TorrentFileMetadata[];
   total_bytes?: number | null;
   downloaded_bytes: number;
   current_speed_bytes_per_second?: number;
@@ -140,6 +142,14 @@ type DownloadTask = {
   updated_at_ms?: number;
   started_at_ms?: number | null;
   finished_at_ms?: number | null;
+};
+
+type TorrentFileMetadata = {
+  index: number;
+  path: string;
+  name: string;
+  size: number;
+  is_streamable?: boolean;
 };
 
 type HlsVariantInfo = {
@@ -155,7 +165,9 @@ type HlsVariantInfo = {
 type TorrentDetailsFile = {
   index: number;
   path: string;
+  name?: string;
   size: number;
+  is_streamable?: boolean;
   progress_bytes?: number | null;
   sampled_speed_bps?: number | null;
 };
@@ -183,6 +195,16 @@ type TorrentDetails = {
   peers?: TorrentPeerSummary | null;
   error?: string | null;
 };
+
+function torrentMetadataFromDetails(details: TorrentDetails): TorrentFileMetadata[] {
+  return details.files.map((file) => ({
+    index: file.index,
+    path: file.path,
+    name: file.name?.trim() || file.path.split(/[\\/]/).pop() || file.path,
+    size: file.size,
+    is_streamable: file.is_streamable ?? false,
+  }));
+}
 
 type DownloadSummary = {
   protocol: Protocol;
@@ -820,6 +842,7 @@ function App() {
   const [hlsVariantIndex, setHlsVariantIndex] = useState("");
   const [hlsKeepTs, setHlsKeepTs] = useState(false);
   const [taskSpeedLimit, setTaskSpeedLimit] = useState("");
+  const [torrentName, setTorrentName] = useState<string | null>(null);
   const [torrentFiles, setTorrentFiles] = useState<TorrentDetailsFile[]>([]);
   const [selectedTorrentFileIndices, setSelectedTorrentFileIndices] = useState<number[]>([]);
   const [torrentMetadataLoading, setTorrentMetadataLoading] = useState(false);
@@ -1262,12 +1285,14 @@ function App() {
         .then((details) => {
           if (cancelled) return;
           if (details.files.length === 0) {
+            setTorrentName(details.name ?? null);
             setTorrentFiles([]);
             setSelectedTorrentFileIndices([]);
             setTorrentMetadataError(details.error || "暂未获取到文件列表，请检查 tracker 或网络");
             return;
           }
           const indices = details.files.map((file) => file.index);
+          setTorrentName(details.name ?? null);
           setTorrentFiles(details.files);
           setSelectedTorrentFileIndices(indices);
           setTorrentFileIndices(indices.join(","));
@@ -1276,6 +1301,7 @@ function App() {
         })
         .catch((error) => {
           if (!cancelled) {
+            setTorrentName(null);
             setTorrentFiles([]);
             setSelectedTorrentFileIndices([]);
             setTorrentMetadataError(safeErrorText(error));
@@ -1388,6 +1414,13 @@ function App() {
           file_name: fileName.trim() || null,
           expected_sha256: normalizedSha256,
           torrent_file_indices: selectedTorrentFiles,
+          torrent_name: torrentName,
+          torrent_files: torrentMetadataFromDetails({
+            runtime: false,
+            name: torrentName,
+            files: torrentFiles,
+            trackers: [],
+          }),
           speed_limit_mbps: speedLimitMbps,
           hls_variant_index: variantIndex,
           hls_keep_transport_stream: hlsKeepTs || null,
@@ -1410,6 +1443,13 @@ function App() {
         file_name: fileName.trim() || suggestedFileName(normalizedSource),
         expected_sha256: normalizedSha256,
         torrent_file_indices: selectedTorrentFiles,
+        torrent_name: torrentName,
+        torrent_files: torrentMetadataFromDetails({
+          runtime: false,
+          name: torrentName,
+          files: torrentFiles,
+          trackers: [],
+        }),
         speed_limit_mbps: speedLimitMbps,
         hls_variant_index: variantIndex,
         hls_keep_transport_stream: hlsKeepTs,
@@ -1425,6 +1465,7 @@ function App() {
     fileNameEditedRef.current = false;
     setExpectedSha256("");
     setTorrentFileIndices("");
+    setTorrentName(null);
     setOutputDir(settings.outputDir);
     setTaskSpeedLimit("");
     setHlsVariantIndex("");
@@ -1596,6 +1637,7 @@ function App() {
     setOutputDir(settings.outputDir);
     setSourceSupport(source.trim() ? fallbackSupport(source.trim()) : null);
     setHlsVariants([]);
+    setTorrentName(null);
     setTorrentFiles([]);
     setSelectedTorrentFileIndices([]);
     const protocol = fallbackDetect(source.trim());
@@ -1609,6 +1651,7 @@ function App() {
     setNewDialogOpen(false);
     setSourceSupport(null);
     setHlsVariants([]);
+    setTorrentName(null);
     setTorrentFiles([]);
     setSelectedTorrentFileIndices([]);
     setTorrentMetadataLoading(false);
@@ -1622,6 +1665,7 @@ function App() {
     setSource(value);
     setSourceSupport(normalizedSource ? fallbackSupport(normalizedSource) : null);
     setHlsVariants([]);
+    setTorrentName(null);
     setTorrentFiles([]);
     setSelectedTorrentFileIndices([]);
     setTorrentFileIndices("");

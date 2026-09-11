@@ -6,6 +6,20 @@ use std::path::PathBuf;
 use url::Url;
 use uuid::Uuid;
 
+/// Torrent 元数据中的一个可下载文件。
+///
+/// 该结构只保存稳定的文件描述，不混入运行时进度；运行时进度仍由
+/// `TorrentDetailsFile` 提供。这样任务重启后仍可直接展示用户确认过的文件树。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TorrentFileMetadata {
+    pub index: usize,
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    #[serde(default)]
+    pub is_streamable: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadRequest {
     pub source: String,
@@ -15,6 +29,12 @@ pub struct DownloadRequest {
     pub expected_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub torrent_file_indices: Vec<usize>,
+    /// Torrent metadata 目录名；普通下载任务为空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub torrent_name: Option<String>,
+    /// 用户确认时看到的完整 Torrent 文件列表；旧任务缺失时按空列表处理。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub torrent_files: Vec<TorrentFileMetadata>,
     /// 每任务限速（MiB/s）；字段名保留 mbps 以兼容既有队列，None 表示跟随队列/全局策略。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed_limit_mbps: Option<f64>,
@@ -37,6 +57,8 @@ impl DownloadRequest {
             file_name: None,
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
+            torrent_name: None,
+            torrent_files: Vec::new(),
             speed_limit_mbps: None,
             hls_variant_index: None,
             hls_keep_transport_stream: None,
@@ -72,6 +94,12 @@ pub struct DownloadTask {
     pub expected_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub torrent_file_indices: Vec<usize>,
+    /// Torrent metadata 目录名；缺失于旧队列时由 metadata 或文件名回退。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub torrent_name: Option<String>,
+    /// 用户确认时看到的完整 Torrent 文件列表。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub torrent_files: Vec<TorrentFileMetadata>,
     pub total_bytes: Option<u64>,
     pub downloaded_bytes: u64,
     #[serde(default)]
@@ -114,6 +142,8 @@ impl DownloadTask {
                 .as_deref()
                 .map(normalize_sha256_text),
             torrent_file_indices: normalize_torrent_file_indices(request.torrent_file_indices),
+            torrent_name: normalize_torrent_name(request.torrent_name),
+            torrent_files: normalize_torrent_file_metadata(request.torrent_files),
             speed_limit_mbps: normalize_speed_limit_mbps(request.speed_limit_mbps),
             hls_variant_index: request.hls_variant_index,
             hls_keep_transport_stream: request.hls_keep_transport_stream.unwrap_or(false),
@@ -138,6 +168,8 @@ impl DownloadTask {
                 .map(|name| sanitize_download_file_name(name, "download.bin")),
             expected_sha256: self.expected_sha256.as_deref().map(normalize_sha256_text),
             torrent_file_indices: normalize_torrent_file_indices(self.torrent_file_indices.clone()),
+            torrent_name: normalize_torrent_name(self.torrent_name.clone()),
+            torrent_files: normalize_torrent_file_metadata(self.torrent_files.clone()),
             speed_limit_mbps: normalize_speed_limit_mbps(self.speed_limit_mbps),
             hls_variant_index: self.hls_variant_index,
             hls_keep_transport_stream: Some(self.hls_keep_transport_stream),
@@ -228,6 +260,26 @@ pub fn normalize_torrent_file_indices(indices: Vec<usize>) -> Vec<usize> {
         .into_iter()
         .collect::<BTreeSet<_>>()
         .into_iter()
+        .collect()
+}
+
+pub fn normalize_torrent_name(name: Option<String>) -> Option<String> {
+    name.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+pub fn normalize_torrent_file_metadata(
+    mut files: Vec<TorrentFileMetadata>,
+) -> Vec<TorrentFileMetadata> {
+    // 作者: long
+    // metadata 来自本地种子或网络响应，排序去重后再持久化，确保桌面列表、详情页和下载选择使用同一份稳定索引。
+    files.sort_by_key(|file| file.index);
+    files.dedup_by_key(|file| file.index);
+    files
+        .into_iter()
+        .filter(|file| !file.path.trim().is_empty() && !file.name.trim().is_empty())
         .collect()
 }
 
@@ -607,6 +659,49 @@ mod tests {
 
         assert_eq!(task.torrent_file_indices, vec![0, 1, 3]);
         assert_eq!(task.request().torrent_file_indices, vec![0, 1, 3]);
+    }
+
+    #[test]
+    fn persists_torrent_metadata_and_keeps_legacy_defaults() {
+        let mut request = DownloadRequest::new("/tmp/multi.torrent", "/tmp");
+        request.torrent_name = Some("  Example Bundle  ".to_string());
+        request.torrent_files = vec![
+            TorrentFileMetadata {
+                index: 2,
+                path: "bundle/video.mkv".to_string(),
+                name: "video.mkv".to_string(),
+                size: 20,
+                is_streamable: true,
+            },
+            TorrentFileMetadata {
+                index: 2,
+                path: "duplicate.bin".to_string(),
+                name: "duplicate.bin".to_string(),
+                size: 1,
+                is_streamable: false,
+            },
+            TorrentFileMetadata {
+                index: 0,
+                path: "bundle/readme.txt".to_string(),
+                name: "readme.txt".to_string(),
+                size: 5,
+                is_streamable: false,
+            },
+        ];
+
+        let task = DownloadTask::from_request(request);
+        assert_eq!(task.torrent_name.as_deref(), Some("Example Bundle"));
+        assert_eq!(task.torrent_files.len(), 2);
+        assert_eq!(task.torrent_files[0].index, 0);
+        assert!(task.torrent_files[1].is_streamable);
+        assert_eq!(task.request().torrent_files, task.torrent_files);
+
+        let mut legacy = serde_json::to_value(&task).unwrap();
+        legacy.as_object_mut().unwrap().remove("torrent_name");
+        legacy.as_object_mut().unwrap().remove("torrent_files");
+        let decoded: DownloadTask = serde_json::from_value(legacy).unwrap();
+        assert_eq!(decoded.torrent_name, None);
+        assert!(decoded.torrent_files.is_empty());
     }
 
     #[test]

@@ -18,6 +18,8 @@ FFI 的字段投影不等于跨端队列已经统一，当前没有自动导入/
 | `file_name` | string \| null | 另存文件名（规范化为单文件名） |
 | `expected_sha256` | string \| null | 64 位小写十六进制；下载完成后按此校验产物 |
 | `torrent_file_indices` | number[] | 多文件种子的选择下标（排序去重）；空数组=全部 |
+| `torrent_name` | string \| null | metadata 中的资源目录名；旧任务缺失时为空 |
+| `torrent_files` | object[] | 用户确认时保存的完整文件元数据；字段为 `index`/`path`/`name`/`size`/`is_streamable`，旧任务缺失时为空数组 |
 | `speed_limit_mbps` | number \| null | 每任务限速，界面单位为 MB/s（字节）；缺省/null=跟随全局；有限正数才生效。字段名中的 `mbps` 是历史兼容命名，当前按值 × 1024² 字节/秒执行，不是兆比特/秒 |
 | `hls_variant_index` | number \| null | HLS master 的清晰度下标；null=第一个 variant |
 | `hls_keep_transport_stream` | bool | true=保留 TS 原始流，跳过转封装 |
@@ -31,7 +33,8 @@ FFI 的字段投影不等于跨端队列已经统一，当前没有自动导入/
 ## 任务请求对象（DownloadRequest）
 
 Rust 请求包含 `source`、`output_dir`、可选 `file_name`、`expected_sha256`、
-`torrent_file_indices`、`speed_limit_mbps`、`hls_variant_index`、`hls_keep_transport_stream`。
+`torrent_file_indices`、`torrent_name`、`torrent_files`、`speed_limit_mbps`、
+`hls_variant_index`、`hls_keep_transport_stream`。
 `task_id` 用于运行器关联活动会话，不是新建任务必填项。请求中的
 `hls_keep_transport_stream` 为可选布尔值，落入任务时缺省为 false。
 
@@ -47,11 +50,13 @@ Rust 请求包含 `source`、`output_dir`、可选 `file_name`、`expected_sha25
 | `fileName` | 否 | 未指定时按链接推断文件名 |
 | `expectedSha256` | 否 | 校验格式后保存期望 hash |
 | `torrentFileIndices` | 否 | 无符号文件编号列表，核心排序去重；空列表代表全部 |
+| `torrentName` | 否 | metadata 资源目录名；为空时不覆盖链接推断名称 |
+| `torrentFiles` | 否 | 完整文件元数据数组，核心按索引排序去重；每项包含 `index`、`path`、`name`、`size`、`is_streamable` |
 | `speedLimitMbps` | 否 | 对应 `speed_limit_mbps`，输入单位为 MB/s（字节）；同样按值 × 1024² 换算为字节/秒 |
 | `hlsVariantIndex` | 否 | HLS master playlist 的 zero-based variant 编号；缺省使用第一个 |
 | `hlsKeepTransportStream` | 否 | 为 true 时保留 HLS TS 原始流，不尝试转封装为 MP4 |
 
-当前 FFI 队列新增接口会读取并映射 `hlsVariantIndex` 与 `hlsKeepTransportStream`；移动端下载器同时通过自己的 camelCase 队列字段执行这些选项。FFI 只负责 Rust 队列投影和同步 `queue_run` 调用，不能把 Rust 运行器的全局并发、线程数、重试或限速配置视为已由移动端透传。
+当前 FFI 队列接口会读取并映射 Torrent metadata、`hlsVariantIndex` 与 `hlsKeepTransportStream`；移动端下载器同时通过自己的 camelCase 队列字段执行这些选项。FFI 只负责 Rust 队列投影和同步 `queue_run` 调用，不能把 Rust 运行器的全局并发、线程数、重试或限速配置视为已由移动端透传。
 
 ### 返回值与执行边界
 
@@ -79,7 +84,8 @@ Rust 请求包含 `source`、`output_dir`、可选 `file_name`、`expected_sha25
 | `hls_keep_transport_stream` | `hlsKeepTransportStream` | 移动端新建任务可选，默认 false；true 时保留 TS |
 | `created_at_ms` 等 | `createdAt` 等 `DateTime` | 移动端以 ISO-8601 字符串存储；当前没有与 Rust 毫秒时间戳互转的队列导入/导出流程 |
 | 无 | `pausedAt` | 移动端专属暂停时间 |
-| 无直接同构对象 | `torrentName` / `torrentFiles` / `selectedTorrentFileIndexes` | 移动端保存 metadata/选择信息；Rust 用选择编号及独立会话快照 |
+| `torrent_name` / `torrent_files` | `torrentName` / `torrentFiles` | 桌面与移动端均保存 metadata 目录名和完整文件描述；选择结果仍由 `torrent_file_indices` / `selectedTorrentFileIndexes` 保存 |
+| `torrent_file_indices` | `selectedTorrentFileIndexes` | 命名差异，均为用户确认的文件索引；空值/空数组沿用“全部”兼容语义 |
 
 `lib/src/ffi/fluxdown_ffi.dart` 的 `FluxDownCoreTask` 从 snake_case JSON 投影
 `id`、`source`、`protocol`、`state`、`file_name`、`output_dir`、`expected_sha256`、
@@ -89,6 +95,6 @@ Rust 队列文件为 `{"tasks":[...]}`，移动端队列文件为任务数组；
 
 ## 后续演进约束
 
-1. 新增持久化字段应提供默认值，并用旧队列样例做向后兼容测试。
+1. 新增持久化字段应提供默认值，并用旧队列样例做向后兼容测试。当前 Torrent metadata 字段均为可选，旧队列读取后为空，不影响 HTTP 等普通任务。
 2. 状态扩展要同时明确各端读取行为，尤其不能把外部移交等同下载完成；当前没有统一未知状态降级策略。
 3. 统一队列格式之前必须补转换工具、设置透传与迁移测试。这里只记录建设方向，不宣称已实现导入导出。
