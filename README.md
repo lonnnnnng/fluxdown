@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.18](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.18)。以下功能说明以当前源码为准，历史验证单独标注。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.19](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.19)。以下功能说明以当前源码为准，历史验证单独标注。
 
 ## 当前状态
 
@@ -22,9 +22,9 @@ FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版�
 - 移动端协议识别优先通过 FFI 调用 Rust，库不可用时回退 Dart；队列与实际下载仍由 Dart/移动原生适配器执行，尚未统一到 Rust 下载引擎。
 - 普通提交和 tag 推送不会触发 GitHub Actions；只有明确打包或发版时才手动运行流水线。
 
-### 1.0.18 更新（2026-09-10）
+### 1.0.19 更新（2026-09-12）
 
-完善 Torrent/Magnet 多文件选择、文件夹详情、分文件进度与完成文件打开；移动端补齐 HLS 清晰度和 TS 输出配置。下载失败现在会区分可重试与不可恢复错误，异常中断任务可恢复为暂停状态继续处理；保存位置交互与跨端默认参数保持一致，并将默认并发、线程和重试调整为 `5 / 16 / 3`。macOS DMG 改为标准拖拽安装镜像，公开发行附件精简为 10 个，SHA-256 直接写入 Release Notes。详见 [发行说明](docs/releases/1.0.18.md)。
+新增移动端当前版本检查、Release Notes 展示和 Android APK 下载入口；优化更新弹框的长文案滚动和三按钮布局。同步桌面与移动端 Torrent/Magnet metadata、多文件选择、目录详情和暂停/继续/取消验证，并升级移动端 `libtorrent_flutter` 至 `2.0.0`。此前的跨端下载、异常恢复、默认参数和发行资产精简继续保留。详见 [发行说明](docs/releases/1.0.19.md)。
 
 ### 1.0.17 更新（2026-09-08）
 
@@ -127,13 +127,13 @@ Runner 构建阶段自动编译并静态链接 Rust FFI，最低部署版本为 
 | 命令行 | Windows x64 CLI ZIP、macOS ARM64 / Linux x64 CLI TAR.GZ |
 | 许可说明 | LICENSE、第三方许可证清单 |
 
-Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.18.md)。
+Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.19.md)。
 
 发布 manifest 继续在流水线内部生成和校验，但不再作为公开附件；每个公开文件的大小与 SHA-256 直接写入 Release Notes。三个 ZIP/TAR.GZ 是独立 CLI 版本，不是桌面安装包的重复副本。
 
 CLI 解压后运行 `fluxdown` / `fluxdown.exe`，Unix 可执行权限已保留。Android APK 仍包含 arm64-v8a、armeabi-v7a、x86_64；Release 启用 R8，Dart 符号和 R8 mapping 单独保存在 Actions Artifacts，不是从 App 删除功能。
 
-Release 页面：[FluxDown 1.0.18](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.18)。
+Release 页面：[FluxDown 1.0.19](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.19)。
 
 ## 文档
 

@@ -1,7 +1,7 @@
 {
   "name": "fluxdown",
   "private": true,
-  "version": "1.0.18",
+  "version": "1.0.19",
   "workspaces": [
     "apps/desktop"
   ],

@@ -9,7 +9,7 @@
 - Rust workspace `Cargo.toml`
 - Flutter `apps/mobile/pubspec.yaml`
 
-当前版本号为 `1.0.18`，完善 Torrent/HLS 跨端体验、异常恢复、默认下载参数和 macOS 安装镜像，并精简公开附件，见 [发行说明](releases/1.0.18.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
+当前版本号为 `1.0.19`，新增移动端版本检查与更新弹框，继续完善 Torrent/Magnet 跨端体验，见 [发行说明](releases/1.0.19.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
 
 ## 本地依赖
 

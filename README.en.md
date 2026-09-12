@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.18](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.18). Features below describe the current source; historical verification is labeled separately.
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.19](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.19). Features below describe the current source; historical verification is labeled separately.
 
 ## Current Status
 
@@ -22,9 +22,9 @@ FluxDown is a multi-protocol downloader for desktop and mobile. The current vers
 - Mobile protocol detection tries Rust through FFI, with a Dart fallback when unavailable. Its queue and actual downloads still use Dart/native mobile adapters; migration to the Rust download engine is not complete.
 - Normal commits and tag pushes do not trigger GitHub Actions. CI is run manually only for explicit packaging or release work.
 
-### 1.0.18 Update (2026-09-10)
+### 1.0.19 Update (2026-09-12)
 
-Improved Torrent/Magnet multi-file selection, folder details, per-file progress, and opening completed files. Mobile now exposes HLS variant and TS-output options. Download failures distinguish retryable and non-recoverable cases, interrupted tasks recover to a resumable paused state, and output-location behavior is consistent across surfaces. Defaults are now 5 concurrent tasks, 16 download threads, and 3 retries. The macOS DMG is a standard drag-to-Applications installer, and public uploads are reduced to 10 files with SHA-256 values in the release notes. See the [release notes](docs/releases/1.0.18.md) (Chinese).
+Added mobile current-version checks, Release Notes display, and a direct Android APK download entry. The update dialog now scrolls long notes and keeps the three actions aligned to the right. Desktop and mobile Torrent/Magnet metadata, multi-file selection, folder details, and pause/resume/cancel validation are synchronized; mobile upgrades `libtorrent_flutter` to `2.0.0`. Earlier cross-platform download, recovery, default settings, and release-asset improvements remain included. See the [release notes](docs/releases/1.0.19.md) (Chinese).
 
 ### 1.0.17 Update (2026-09-08)
 
@@ -127,11 +127,11 @@ Releases `v1.0.16` and `v1.0.17` contain 11 uploaded files. Starting with `v1.0.
 | Command line | Windows x64 CLI ZIP; macOS ARM64 / Linux x64 CLI TAR.GZ |
 | License notices | LICENSE, third-party license notices |
 
-Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.18.md) for signing and verification limits. The manifest remains an internal CI check, while file sizes and SHA-256 values are written directly into the release notes.
+Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.19.md) for signing and verification limits. The manifest remains an internal CI check, while file sizes and SHA-256 values are written directly into the release notes.
 
 Extract the CLI archive and run `fluxdown` / `fluxdown.exe`; Unix executable permissions are retained. Android still includes arm64-v8a, armeabi-v7a, and x86_64. Release uses R8; Dart symbols and R8 mapping are retained separately in Actions Artifacts.
 
-Release page: [FluxDown 1.0.18](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.18).
+Release page: [FluxDown 1.0.19](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.19).
 
 ## Documentation
 

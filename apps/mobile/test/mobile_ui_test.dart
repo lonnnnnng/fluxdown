@@ -7,6 +7,104 @@ import 'package:fluxdown_mobile/src/mobile_torrent.dart';
 import 'package:fluxdown_mobile/src/transfer_metrics.dart';
 
 void main() {
+  testWidgets('compact navigation shifts content in a 26dp bar', (
+    tester,
+  ) async {
+    var selectedIndex = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(padding: const EdgeInsets.only(bottom: 24)),
+          child: child!,
+        ),
+        home: StatefulBuilder(
+          builder: (context, setState) => Scaffold(
+            bottomNavigationBar: CompactHomeNavigationBar(
+              selectedIndex: selectedIndex,
+              onDestinationSelected: (index) {
+                setState(() => selectedIndex = index);
+              },
+              destinations: const [
+                CompactHomeNavigationDestination(
+                  icon: Icons.download_outlined,
+                  selectedIcon: Icons.download,
+                  label: '任务',
+                ),
+                CompactHomeNavigationDestination(
+                  icon: Icons.settings_outlined,
+                  selectedIcon: Icons.settings,
+                  label: '设置',
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final bar = find.byKey(const ValueKey('compact-home-navigation-bar'));
+    expect(tester.getSize(bar).height, 26);
+
+    final barCenter = tester.getCenter(bar).dy;
+    final taskContent = find.byKey(
+      const ValueKey('compact-home-navigation-content-任务'),
+    );
+    final indicator = find.byKey(
+      const ValueKey('compact-home-navigation-indicator-任务'),
+    );
+    final label = find.byKey(
+      const ValueKey('compact-home-navigation-label-任务'),
+    );
+    expect(tester.getCenter(taskContent).dy, barCenter + 10);
+    expect(tester.getRect(indicator).contains(tester.getCenter(label)), isTrue);
+    expect(
+      tester
+          .getRect(indicator)
+          .contains(tester.getCenter(find.byIcon(Icons.download))),
+      isTrue,
+    );
+    final primary = Theme.of(tester.element(label)).colorScheme.primary;
+    expect(tester.widget<Text>(label).style?.color, primary);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('compact-home-navigation-label-设置')),
+          )
+          .style
+          ?.color,
+      Colors.black,
+    );
+    final taskInkWell = tester.widget<InkWell>(
+      find.byKey(const ValueKey('compact-home-navigation-item-任务')),
+    );
+    expect(taskInkWell.splashFactory, NoSplash.splashFactory);
+    expect(
+      taskInkWell.overlayColor?.resolve({WidgetState.pressed}),
+      Colors.transparent,
+    );
+    expect(tester.widget<SizedBox>(indicator).child, isA<Center>());
+
+    await tester.tap(
+      find.byKey(const ValueKey('compact-home-navigation-item-设置')),
+    );
+    await tester.pumpAndSettle();
+    expect(selectedIndex, 1);
+    expect(find.byIcon(Icons.settings), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('compact-home-navigation-label-设置')),
+          )
+          .style
+          ?.color,
+      primary,
+    );
+    expect(tester.widget<Text>(label).style?.color, Colors.black);
+  });
+
   testWidgets('new task dialog fills clipboard and QR sources', (tester) async {
     final storagePaths = <String>[];
     await tester.pumpWidget(
@@ -58,10 +156,9 @@ void main() {
     expect(storagePaths, ['/downloads', '/picked']);
   });
 
-  testWidgets('settings submits values and opens protocol details', (
+  testWidgets('settings submits values without a protocol details entry', (
     tester,
   ) async {
-    var protocolsOpened = false;
     int? concurrency;
     int? threads;
     int? retries;
@@ -86,7 +183,6 @@ void main() {
             onRetryAttemptsChanged: (value) => retries = value,
             onSpeedLimitChanged: (value) => speed = value,
             onPickOutputFolder: () {},
-            onOpenProtocols: () => protocolsOpened = true,
             storageStats: const StorageStats(totalBytes: 1000, freeBytes: 400),
             storageLoading: false,
             storageUnavailable: false,
@@ -111,12 +207,40 @@ void main() {
     expect(threads, 12);
     expect(retries, 2);
     expect(speed, 1536);
+    expect(find.text('协议能力'), findsNothing);
+    final settingsTitle = find.byKey(const ValueKey('settings-page-title'));
+    expect(tester.widget<Text>(settingsTitle).style?.fontSize, 18);
+    expect(tester.getTopLeft(settingsTitle).dy, 10);
+  });
 
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('settings-protocol-open')),
+  testWidgets('queue page title uses compact spacing', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: QueueView(
+            strings: AppStrings.zh,
+            tasks: const [],
+            filter: QueueFilter.all,
+            onFilterChanged: (_) {},
+            onStartTask: (_) {},
+            onPauseTask: (_) {},
+            onRemoveTask: (_) {},
+            onCopySource: (_) {},
+            onShowProperties: (_) {},
+            onOpenTaskDetails: (_) {},
+            onOpenFile: (_) {},
+            onShareFile: (_) {},
+            onRedownloadTask: (_) {},
+          ),
+        ),
+      ),
     );
-    await tester.tap(find.byKey(const ValueKey('settings-protocol-open')));
-    expect(protocolsOpened, isTrue);
+
+    final title = find.byKey(const ValueKey('queue-page-title'));
+    final tabs = find.byType(QueueFilterTabs);
+    expect(tester.widget<Text>(title).style?.fontSize, 18);
+    expect(tester.getTopLeft(title).dy, 10);
+    expect(tester.getTopLeft(tabs).dy - tester.getBottomLeft(title).dy, 6);
   });
 
   testWidgets('task card toggles on tap and opens actions on long press', (

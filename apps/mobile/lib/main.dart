@@ -12,11 +12,13 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'src/download_controller.dart';
 import 'src/download_defaults.dart';
 import 'src/download_task.dart';
 import 'src/mobile_torrent.dart';
+import 'src/mobile_update.dart';
 import 'src/protocol_e2e_runner.dart';
 import 'src/protocol.dart';
 
@@ -187,6 +189,7 @@ class AppStrings {
   String get selectNone => language == AppLanguage.zh ? '全不选' : 'Select none';
   String get confirmSelection =>
       language == AppLanguage.zh ? '确认选择' : 'Confirm';
+  String get confirm => language == AppLanguage.zh ? '确定' : 'OK';
   String torrentSelectedCount(int count) =>
       language == AppLanguage.zh ? '已选择 $count 项' : '$count selected';
   String get torrentSelectionRequired =>
@@ -217,25 +220,18 @@ class AppStrings {
       language == AppLanguage.zh ? '资源目录' : 'Resource folder';
   String get resourceDetails =>
       language == AppLanguage.zh ? '资源详情' : 'Resource details';
-  String get detected => language == AppLanguage.zh ? '识别结果' : 'Detected';
-  String get protocolSupport =>
-      language == AppLanguage.zh ? '协议能力' : 'Protocols';
-  String get backend => language == AppLanguage.zh ? '后端' : 'Backend';
   String get add => language == AppLanguage.zh ? '添加' : 'Add';
   String get queue => language == AppLanguage.zh ? '队列' : 'Queue';
-  String get allProtocols =>
-      language == AppLanguage.zh ? '全部协议' : 'All protocols';
   String get currentSource =>
       language == AppLanguage.zh ? '当前下载源' : 'Current source';
-  String get currentDetection =>
-      language == AppLanguage.zh ? '当前检测' : 'Current detection';
-  String get protocolList =>
-      language == AppLanguage.zh ? '支持列表' : 'Supported list';
-  String get protocolListHint => language == AppLanguage.zh
-      ? '移动端后端与能力'
-      : 'Mobile backends and capabilities';
   String get concurrency => language == AppLanguage.zh ? '并发' : 'Parallel';
   String get settings => language == AppLanguage.zh ? '设置' : 'Settings';
+  String get exitAppTitle => language == AppLanguage.zh ? '退出应用' : 'Exit app';
+  String get exitAppMessage => language == AppLanguage.zh
+      ? '确定要退出 FluxDown 吗？未完成的任务会保留在队列中。'
+      : 'Exit FluxDown? Unfinished tasks will remain in the queue.';
+  String get stayInApp => language == AppLanguage.zh ? '留在应用' : 'Stay';
+  String get exitApp => language == AppLanguage.zh ? '退出' : 'Exit';
   String get downloadSettings =>
       language == AppLanguage.zh ? '下载设置' : 'Download settings';
   String get newTaskSettings =>
@@ -266,6 +262,32 @@ class AppStrings {
       language == AppLanguage.zh ? '最大下载网速' : 'Max download speed';
   String get speedLimitHint =>
       language == AppLanguage.zh ? 'MB/s，留空不限速' : 'MB/s, blank means unlimited';
+  String get currentVersion =>
+      language == AppLanguage.zh ? '当前版本' : 'Current version';
+  String get checkForUpdates =>
+      language == AppLanguage.zh ? '检查更新' : 'Check for updates';
+  String get checkingForUpdates =>
+      language == AppLanguage.zh ? '正在检查更新...' : 'Checking for updates...';
+  String get alreadyLatestVersion =>
+      language == AppLanguage.zh ? '已是最新版本' : 'You are up to date';
+  String latestVersionFound(String version) => language == AppLanguage.zh
+      ? '找到最新版本 $version'
+      : 'Latest version $version is available';
+  String get downloadUpdate =>
+      language == AppLanguage.zh ? '下载更新' : 'Download update';
+  String get openDownloadPage =>
+      language == AppLanguage.zh ? '打开下载页' : 'Open download page';
+  String get updateCheckFailed => language == AppLanguage.zh
+      ? '检查更新失败，请稍后重试。'
+      : 'Could not check for updates. Please try again later.';
+  String get updateApkUnavailable => language == AppLanguage.zh
+      ? '暂未找到 Android 安装包，请打开下载页查看可用资源。'
+      : 'No Android package was found. Open the download page to see available assets.';
+  String get updateNotes =>
+      language == AppLanguage.zh ? '更新说明' : 'Release notes';
+  String get openDownloadPageFailed => language == AppLanguage.zh
+      ? '无法打开下载页，请稍后重试。'
+      : 'Could not open the download page. Please try again later.';
   String get hlsVariantSetting =>
       language == AppLanguage.zh ? 'HLS 清晰度编号' : 'HLS variant index';
   String get hlsVariantHint => language == AppLanguage.zh
@@ -371,71 +393,12 @@ class AppStrings {
       ? '队列完成：$finished 个完成，$failed 个失败。'
       : 'Queue complete: $finished finished, $failed failed.';
 
-  String detectedLine(String protocol, String backend) =>
-      language == AppLanguage.zh
-      ? '$detected：${protocolLabel(protocol)} · $backend'
-      : '$detected: ${protocolLabel(protocol)} · $backend';
-
   String backendLabel(String protocol) {
     if (protocol == 'unknown') return planned;
     if (protocol == 'ed2k') {
       return language == AppLanguage.zh ? '移动端移交' : 'Mobile handoff';
     }
     return language == AppLanguage.zh ? '移动端内建' : 'Built-in mobile';
-  }
-
-  String supportNote(String protocol) {
-    if (protocol == 'http' || protocol == 'https') {
-      return language == AppLanguage.zh
-          ? '原生 HTTP 下载器，支持进度、暂停和 Range 续传。'
-          : 'Native HTTP downloader with progress, pause, and Range resume.';
-    }
-
-    if (protocol == 'webdav' || protocol == 'webdavs') {
-      return language == AppLanguage.zh
-          ? '通过 HTTP/WebDAVS 执行原生 WebDAV 下载，支持进度、暂停和 Range 续传。'
-          : 'Native WebDAV downloader over HTTP/WebDAVS with progress, pause, and Range resume.';
-    }
-
-    if (protocol == 'm3u8') {
-      return language == AppLanguage.zh
-          ? '原生 VOD HLS 下载器，支持主播放列表、字节范围和 AES-128 分片解密。'
-          : 'Native VOD HLS downloader with master playlist selection, byte ranges, and AES-128 segment decryption.';
-    }
-
-    if (protocol == 'ftp' || protocol == 'ftps') {
-      return language == AppLanguage.zh
-          ? '原生 FTP/FTPS 下载器，支持被动模式、进度、暂停和 REST 续传。'
-          : 'Native FTP/FTPS downloader with passive mode, progress, pause, and REST resume.';
-    }
-
-    if (protocol == 'sftp') {
-      return language == AppLanguage.zh
-          ? '原生 SFTP 下载器，支持密码认证、进度、暂停和偏移续传。'
-          : 'Native SFTP downloader with password authentication, progress, pause, and offset resume.';
-    }
-
-    if (protocol == 'torrent' || protocol == 'magnet') {
-      return language == AppLanguage.zh
-          ? '通过原生 libtorrent 下载 .torrent 文件和磁力链接。'
-          : 'Native libtorrent downloader for .torrent files and magnet links.';
-    }
-
-    if (protocol == 'ed2k') {
-      return language == AppLanguage.zh
-          ? '将 ed2k 链接移交给已安装的 eMule/aMule 兼容 App。'
-          : 'Hands ed2k links to an installed eMule/aMule-compatible app.';
-    }
-
-    if (protocol == 'smb') {
-      return language == AppLanguage.zh
-          ? '原生 SMB2/3 文件下载后端，支持进度和取消。'
-          : 'Native SMB2/3 file download backend with progress and cancellation.';
-    }
-
-    return language == AppLanguage.zh
-        ? '当前下载源还没有可用后端。'
-        : 'No backend has been configured for this source yet.';
   }
 
   String stateLabel(DownloadState state) {
@@ -449,19 +412,6 @@ class AppStrings {
       DownloadState.failed => language == AppLanguage.zh ? '失败' : 'failed',
     };
   }
-}
-
-IconData _protocolIcon(String protocol) {
-  return switch (protocol.toLowerCase()) {
-    'http' || 'https' => Icons.public,
-    'webdav' || 'webdavs' => Icons.cloud_queue,
-    'ftp' || 'ftps' || 'sftp' => Icons.dns_outlined,
-    'torrent' || 'magnet' => Icons.hub_outlined,
-    'ed2k' => Icons.swap_horiz,
-    'm3u8' => Icons.movie_filter_outlined,
-    'smb' => Icons.storage_outlined,
-    _ => Icons.file_download_outlined,
-  };
 }
 
 int clampQueueConcurrency(int value) =>
@@ -628,18 +578,6 @@ class _FluxDownMobileAppState extends State<FluxDownMobileApp> {
           foregroundColor: Colors.white,
           shape: CircleBorder(),
         ),
-        navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: Colors.white,
-          elevation: 0,
-          indicatorColor: Color(0xffdff2fd),
-          surfaceTintColor: Colors.white,
-          indicatorShape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          labelTextStyle: WidgetStateProperty.resolveWith(
-            (states) => TextStyle(fontWeight: FontWeight.w400),
-          ),
-        ),
       ),
       home: DownloadHome(
         strings: strings,
@@ -684,6 +622,8 @@ class _DownloadHomeState extends State<DownloadHome> {
   var settingsStorageRequestId = 0;
   var queueFilter = QueueFilter.all;
   var currentTab = MobileHomeTab.tasks;
+  var updateChecking = false;
+  var _exitDialogShowing = false;
 
   AppStrings get strings => widget.strings;
 
@@ -805,6 +745,100 @@ class _DownloadHomeState extends State<DownloadHome> {
         onCreate: createTask,
       ),
     );
+  }
+
+  Future<void> checkForUpdates() async {
+    if (updateChecking || !mounted) return;
+    setState(() {
+      updateChecking = true;
+    });
+    try {
+      final report = await MobileUpdateChecker().check();
+      if (!mounted) return;
+      setState(() {
+        updateChecking = false;
+      });
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => MobileUpdateResultDialog(
+          strings: strings,
+          report: report,
+          onDownloadUpdate: report.downloadUrl == null
+              ? null
+              : () {
+                  Navigator.of(dialogContext).pop();
+                  unawaited(_openUpdateUrl(report.downloadUrl!));
+                },
+          onOpenDownloadPage: () {
+            Navigator.of(dialogContext).pop();
+            unawaited(_openUpdateUrl(report.releaseUrl));
+          },
+        ),
+      );
+    } on MobileUpdateException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        updateChecking = false;
+      });
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(
+            strings.checkForUpdates,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+          ),
+          content: Text(
+            error.message,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w400),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(strings.confirm),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        updateChecking = false;
+      });
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(
+            strings.checkForUpdates,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+          ),
+          content: Text(
+            strings.updateCheckFailed,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w400),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(strings.confirm),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          updateChecking = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _openUpdateUrl(String value) async {
+    final uri = Uri.tryParse(value);
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (mounted) _showSnack(strings.openDownloadPageFailed);
+    }
   }
 
   Future<String?> readClipboardSource() async {
@@ -1059,17 +1093,41 @@ class _DownloadHomeState extends State<DownloadHome> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void openProtocols() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ProtocolsPage(
-          strings: strings,
-          activeProtocol: 'https',
-          backend: strings.backendLabel('https'),
-          executable: supportStatus('https').executable,
+  Future<void> _confirmExit() async {
+    if (_exitDialogShowing || !mounted) return;
+    _exitDialogShowing = true;
+    try {
+      final shouldExit = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(
+            strings.exitAppTitle,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+          ),
+          content: Text(
+            strings.exitAppMessage,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w400),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(strings.stayInApp),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(strings.exitApp),
+            ),
+          ],
         ),
-      ),
-    );
+      );
+      if (shouldExit == true && mounted) {
+        // 作者: long
+        // 根页面确认退出后交给系统关闭应用，未完成任务由控制器的持久化状态负责恢复。
+        await SystemNavigator.pop();
+      }
+    } finally {
+      _exitDialogShowing = false;
+    }
   }
 
   @override
@@ -1083,75 +1141,241 @@ class _DownloadHomeState extends State<DownloadHome> {
       retryAttempts: retryAttempts,
       speedLimitKbps: speedLimitKbps,
       outputFolderListenable: outputController,
+      currentVersion: mobileAppVersion,
+      updateChecking: updateChecking,
       onLanguageChanged: widget.onLanguageChanged,
       onConcurrencyChanged: setQueueConcurrency,
       onDownloadThreadCountChanged: setDownloadThreadCount,
       onRetryAttemptsChanged: setRetryAttempts,
       onSpeedLimitChanged: setSpeedLimitKbps,
+      onCheckForUpdates: checkForUpdates,
       onPickOutputFolder: pickOutputFolder,
-      onOpenProtocols: openProtocols,
       storageStats: settingsStorageStats,
       storageLoading: settingsStorageLoading,
       storageUnavailable: settingsStorageUnavailable,
     );
 
-    return Scaffold(
-      body: SafeArea(
-        child: loading
-            ? const Center(child: CircularProgressIndicator())
-            : IndexedStack(
-                index: currentTab.index,
-                children: [
-                  QueueView(
-                    strings: strings,
-                    tasks: tasks,
-                    filter: queueFilter,
-                    onFilterChanged: (value) => setState(() {
-                      queueFilter = value;
-                    }),
-                    onStartTask: startTask,
-                    onPauseTask: pauseTask,
-                    onRemoveTask: removeTask,
-                    onCopySource: copyTaskSource,
-                    onShowProperties: showTaskProperties,
-                    onOpenTaskDetails: showTorrentFolder,
-                    onOpenFile: openTaskFile,
-                    onShareFile: shareTaskFile,
-                    onRedownloadTask: redownloadTask,
+    // 作者: long
+    // 一级页面没有可返回的上级路由，系统返回和边缘返回都先确认，避免误触退出应用。
+    return PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) unawaited(_confirmExit());
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: loading
+              ? const Center(child: CircularProgressIndicator())
+              : IndexedStack(
+                  index: currentTab.index,
+                  children: [
+                    QueueView(
+                      strings: strings,
+                      tasks: tasks,
+                      filter: queueFilter,
+                      onFilterChanged: (value) => setState(() {
+                        queueFilter = value;
+                      }),
+                      onStartTask: startTask,
+                      onPauseTask: pauseTask,
+                      onRemoveTask: removeTask,
+                      onCopySource: copyTaskSource,
+                      onShowProperties: showTaskProperties,
+                      onOpenTaskDetails: showTorrentFolder,
+                      onOpenFile: openTaskFile,
+                      onShareFile: shareTaskFile,
+                      onRedownloadTask: redownloadTask,
+                    ),
+                    settingsView,
+                  ],
+                ),
+        ),
+        floatingActionButton: loading || currentTab != MobileHomeTab.tasks
+            ? null
+            : FloatingActionButton(
+                onPressed: showNewTaskDialog,
+                tooltip: strings.newTask,
+                child: const Icon(Icons.add),
+              ),
+        bottomNavigationBar: loading
+            ? null
+            : CompactHomeNavigationBar(
+                selectedIndex: currentTab.index,
+                onDestinationSelected: (index) {
+                  setState(() {
+                    currentTab = MobileHomeTab.values[index];
+                  });
+                },
+                destinations: [
+                  CompactHomeNavigationDestination(
+                    icon: Icons.download_outlined,
+                    selectedIcon: Icons.download,
+                    label: strings.tabQueue,
                   ),
-                  settingsView,
+                  CompactHomeNavigationDestination(
+                    icon: Icons.settings_outlined,
+                    selectedIcon: Icons.settings,
+                    label: strings.tabSettings,
+                  ),
                 ],
               ),
       ),
-      floatingActionButton: loading || currentTab != MobileHomeTab.tasks
-          ? null
-          : FloatingActionButton(
-              onPressed: showNewTaskDialog,
-              tooltip: strings.newTask,
-              child: const Icon(Icons.add),
+    );
+  }
+}
+
+class CompactHomeNavigationDestination {
+  const CompactHomeNavigationDestination({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+}
+
+class CompactHomeNavigationBar extends StatelessWidget {
+  const CompactHomeNavigationBar({
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+    required this.destinations,
+    super.key,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+  final List<CompactHomeNavigationDestination> destinations;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+
+    return Material(
+      color: Colors.white,
+      child: SizedBox(
+        height: 26 + bottomInset,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 26,
+              child: SizedBox(key: ValueKey('compact-home-navigation-bar')),
             ),
-      bottomNavigationBar: loading
-          ? null
-          : NavigationBar(
-              selectedIndex: currentTab.index,
-              onDestinationSelected: (index) {
-                setState(() {
-                  currentTab = MobileHomeTab.values[index];
-                });
-              },
-              destinations: [
-                NavigationDestination(
-                  icon: const Icon(Icons.download_outlined),
-                  selectedIcon: const Icon(Icons.download),
-                  label: strings.tabQueue,
-                ),
-                NavigationDestination(
-                  icon: const Icon(Icons.settings_outlined),
-                  selectedIcon: const Icon(Icons.settings),
-                  label: strings.tabSettings,
-                ),
-              ],
+            Positioned.fill(
+              child: Row(
+                children: [
+                  for (var index = 0; index < destinations.length; index++)
+                    Expanded(
+                      child: _CompactHomeNavigationItem(
+                        destination: destinations[index],
+                        selected: selectedIndex == index,
+                        colorScheme: colorScheme,
+                        onTap: () => onDestinationSelected(index),
+                      ),
+                    ),
+                ],
+              ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactHomeNavigationItem extends StatelessWidget {
+  const _CompactHomeNavigationItem({
+    required this.destination,
+    required this.selected,
+    required this.colorScheme,
+    required this.onTap,
+  });
+
+  final CompactHomeNavigationDestination destination;
+  final bool selected;
+  final ColorScheme colorScheme;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = selected ? colorScheme.primary : Colors.black;
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: destination.label,
+      onTap: onTap,
+      excludeSemantics: true,
+      child: InkWell(
+        key: ValueKey('compact-home-navigation-item-${destination.label}'),
+        onTap: onTap,
+        splashFactory: NoSplash.splashFactory,
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+            height: 26,
+            child: Transform.translate(
+              offset: const Offset(0, 10),
+              child: Center(
+                child: OverflowBox(
+                  minHeight: 0,
+                  maxHeight: double.infinity,
+                  alignment: Alignment.center,
+                  // 作者: long
+                  // 图标和文字共用同一个选中容器与前景色，让菜单状态作为整体变化而不是只突出图标。
+                  child: SizedBox(
+                    key: ValueKey(
+                      'compact-home-navigation-indicator-${destination.label}',
+                    ),
+                    width: 64,
+                    height: 33,
+                    child: Center(
+                      child: Column(
+                        key: ValueKey(
+                          'compact-home-navigation-content-${destination.label}',
+                        ),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            selected
+                                ? destination.selectedIcon
+                                : destination.icon,
+                            size: 18,
+                            color: foreground,
+                          ),
+                          Text(
+                            destination.label,
+                            key: ValueKey(
+                              'compact-home-navigation-label-${destination.label}',
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: foreground,
+                              fontSize: 10.5,
+                              height: 1,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1197,21 +1421,22 @@ class QueueView extends StatelessWidget {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
           child: Column(
             children: [
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
                   strings.tabQueue,
+                  key: const ValueKey('queue-page-title'),
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontSize: 22,
-                    height: 1.1,
+                    fontSize: 18,
+                    height: 1,
                     fontWeight: FontWeight.w400,
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 6),
               QueueFilterTabs(
                 strings: strings,
                 tasks: tasks,
@@ -2341,143 +2566,6 @@ class StorageStatItem extends StatelessWidget {
   }
 }
 
-class ProtocolsView extends StatelessWidget {
-  const ProtocolsView({
-    required this.strings,
-    required this.activeProtocol,
-    required this.backend,
-    required this.executable,
-    super.key,
-  });
-
-  final AppStrings strings;
-  final String activeProtocol;
-  final String backend;
-  final bool executable;
-
-  static const protocolLabels = [
-    'HTTP',
-    'HTTPS',
-    'WebDAV',
-    'FTP',
-    'Torrent',
-    'Magnet',
-    'ed2k',
-    'm3u8',
-    'SFTP',
-    'SMB',
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 14),
-      children: [
-        SettingsGroupCard(
-          children: [
-            SettingsCompactRow(
-              icon: Icons.trip_origin,
-              title: strings.currentDetection,
-              subtitle: strings.supportNote(activeProtocol),
-              trailing: StatusPill(
-                icon: executable ? Icons.check_circle : Icons.pending_outlined,
-                label: protocolLabel(activeProtocol),
-                foreground: executable
-                    ? colorScheme.primary
-                    : colorScheme.onSurfaceVariant,
-                background: executable
-                    ? colorScheme.primaryContainer.withValues(alpha: 0.55)
-                    : colorScheme.surfaceContainerHighest,
-                dense: true,
-              ),
-            ),
-            SettingsCompactRow(
-              icon: Icons.memory_outlined,
-              title: strings.backend,
-              subtitle: strings.detectedLine(activeProtocol, backend),
-              trailing: StatusPill(
-                icon: executable ? Icons.done : Icons.schedule,
-                label: backend,
-                foreground: colorScheme.onSurfaceVariant,
-                background: colorScheme.surfaceContainerHighest,
-                dense: true,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        SettingsGroupCard(
-          children: [
-            SettingsCompactRow(
-              icon: Icons.hub_outlined,
-              title: strings.protocolList,
-              subtitle: strings.protocolListHint,
-              trailing: Text(
-                strings.allProtocols,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w400,
-                ),
-              ),
-            ),
-            ...protocolLabels.map(
-              (label) => ProtocolDetailCard(
-                strings: strings,
-                label: label,
-                active: label.toLowerCase() == activeProtocol.toLowerCase(),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class ProtocolsPage extends StatelessWidget {
-  const ProtocolsPage({
-    required this.strings,
-    required this.activeProtocol,
-    required this.backend,
-    required this.executable,
-    super.key,
-  });
-
-  final AppStrings strings;
-  final String activeProtocol;
-  final String backend;
-  final bool executable;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 44,
-        title: Text(
-          strings.protocolSupport,
-          style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w400),
-        ),
-      ),
-      body: SafeArea(
-        child: MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: const TextScaler.linear(0.82)),
-          child: ProtocolsView(
-            strings: strings,
-            activeProtocol: activeProtocol,
-            backend: backend,
-            executable: executable,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class QrScannerPage extends StatefulWidget {
   const QrScannerPage({required this.strings, super.key});
 
@@ -2595,11 +2683,11 @@ class QueueFilterTabs extends StatelessWidget {
     };
 
     return Container(
-      height: 42,
-      padding: const EdgeInsets.all(3),
+      height: 34,
+      padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         color: const Color(0xffe8f5fc),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: colorScheme.primary.withValues(alpha: 0.2)),
       ),
       child: Row(
@@ -2607,7 +2695,7 @@ class QueueFilterTabs extends StatelessWidget {
           for (final filter in QueueFilter.values)
             Expanded(
               child: Padding(
-                padding: EdgeInsets.only(left: filter.index == 0 ? 0 : 3),
+                padding: EdgeInsets.only(left: filter.index == 0 ? 0 : 2),
                 child: QueueFilterTabButton(
                   label: _label(filter),
                   count: counts[filter] ?? 0,
@@ -2668,10 +2756,10 @@ class QueueFilterTabButton extends StatelessWidget {
       child: ExcludeSemantics(
         child: Material(
           color: selected ? colorScheme.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(6),
           child: InkWell(
             onTap: onTap,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(6),
             child: Center(
               child: FittedBox(
                 fit: BoxFit.scaleDown,
@@ -2734,13 +2822,15 @@ class SettingsView extends StatelessWidget {
     required this.retryAttempts,
     required this.speedLimitKbps,
     required this.outputFolderListenable,
+    this.currentVersion = mobileAppVersion,
+    this.updateChecking = false,
     required this.onLanguageChanged,
     required this.onConcurrencyChanged,
     required this.onDownloadThreadCountChanged,
     required this.onRetryAttemptsChanged,
     required this.onSpeedLimitChanged,
+    this.onCheckForUpdates,
     required this.onPickOutputFolder,
-    required this.onOpenProtocols,
     required this.storageStats,
     required this.storageLoading,
     required this.storageUnavailable,
@@ -2754,13 +2844,15 @@ class SettingsView extends StatelessWidget {
   final int retryAttempts;
   final int speedLimitKbps;
   final ValueListenable<TextEditingValue> outputFolderListenable;
+  final String currentVersion;
+  final bool updateChecking;
   final ValueChanged<AppLanguage> onLanguageChanged;
   final ValueChanged<int> onConcurrencyChanged;
   final ValueChanged<int> onDownloadThreadCountChanged;
   final ValueChanged<int> onRetryAttemptsChanged;
   final ValueChanged<int> onSpeedLimitChanged;
+  final VoidCallback? onCheckForUpdates;
   final VoidCallback onPickOutputFolder;
-  final VoidCallback onOpenProtocols;
   final StorageStats? storageStats;
   final bool storageLoading;
   final bool storageUnavailable;
@@ -2770,17 +2862,18 @@ class SettingsView extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 88),
       children: [
         Text(
           strings.settings,
+          key: const ValueKey('settings-page-title'),
           style: textTheme.titleLarge?.copyWith(
-            fontSize: 22,
-            height: 1.1,
+            fontSize: 18,
+            height: 1,
             fontWeight: FontWeight.w400,
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 6),
         SettingsGroupCard(
           children: [
             ValueListenableBuilder<TextEditingValue>(
@@ -2879,23 +2972,160 @@ class SettingsView extends StatelessWidget {
               },
             ),
             SettingsCompactRow(
-              key: const ValueKey('settings-protocols'),
               icon: Icons.info_outline,
-              title: strings.protocolSupport,
-              subtitle: strings.protocolListHint,
-              trailing: IconButton(
-                key: const ValueKey('settings-protocol-open'),
-                tooltip: strings.protocolSupport,
-                onPressed: onOpenProtocols,
-                icon: const Icon(Icons.chevron_right, size: 18),
-                constraints: const BoxConstraints.tightFor(
-                  width: 38,
-                  height: 38,
-                ),
-                padding: EdgeInsets.zero,
-              ),
+              title: strings.currentVersion,
+              subtitle: 'v$currentVersion',
+              trailing: updateChecking
+                  ? const SizedBox(
+                      width: 38,
+                      height: 38,
+                      child: Center(
+                        child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    )
+                  : IconButton(
+                      key: const ValueKey('settings-check-updates'),
+                      tooltip: strings.checkForUpdates,
+                      onPressed: onCheckForUpdates,
+                      icon: const Icon(Icons.system_update_alt, size: 16),
+                      constraints: const BoxConstraints.tightFor(
+                        width: 38,
+                        height: 38,
+                      ),
+                      padding: EdgeInsets.zero,
+                    ),
             ),
           ],
+        ),
+      ],
+    );
+  }
+}
+
+class MobileUpdateResultDialog extends StatelessWidget {
+  const MobileUpdateResultDialog({
+    required this.strings,
+    required this.report,
+    required this.onOpenDownloadPage,
+    this.onDownloadUpdate,
+    super.key,
+  });
+
+  final AppStrings strings;
+  final MobileUpdateReport report;
+  final VoidCallback onOpenDownloadPage;
+  final VoidCallback? onDownloadUpdate;
+
+  @override
+  Widget build(BuildContext context) {
+    final releaseNotes = report.releaseNotes?.trim();
+    final message = report.hasUpdate
+        ? strings.latestVersionFound('v${report.latestVersion}')
+        : strings.alreadyLatestVersion;
+
+    return AlertDialog(
+      key: const ValueKey('mobile-update-dialog'),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+      title: Text(
+        strings.currentVersion,
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+      ),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 4),
+      content: SizedBox(
+        width: double.infinity,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: (MediaQuery.sizeOf(context).height * 0.48)
+                .clamp(260, 380)
+                .toDouble(),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  message,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+                if (report.hasUpdate && report.downloadFileName != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    report.downloadFileName!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+                if (report.hasUpdate && report.downloadUrl == null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    strings.updateApkUnavailable,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+                if (report.hasUpdate && releaseNotes != null) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    strings.updateNotes,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    releaseNotes,
+                    key: const ValueKey('mobile-update-notes'),
+                    style: TextStyle(
+                      fontSize: 11,
+                      height: 1.35,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+      actionsAlignment: MainAxisAlignment.end,
+      actionsOverflowAlignment: OverflowBarAlignment.end,
+      actionsPadding: const EdgeInsets.fromLTRB(12, 0, 8, 4),
+      buttonPadding: const EdgeInsets.symmetric(horizontal: 6),
+      actions: [
+        if (report.hasUpdate)
+          TextButton(
+            key: const ValueKey('mobile-update-download'),
+            onPressed: onDownloadUpdate,
+            child: Text(strings.downloadUpdate),
+          ),
+        TextButton(
+          key: const ValueKey('mobile-update-open-page'),
+          onPressed: onOpenDownloadPage,
+          child: Text(strings.openDownloadPage),
+        ),
+        TextButton(
+          key: const ValueKey('mobile-update-confirm'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.confirm),
         ),
       ],
     );
@@ -3208,108 +3438,6 @@ class SettingsSwitchTile extends StatelessWidget {
   }
 }
 
-class ProtocolDetailCard extends StatelessWidget {
-  const ProtocolDetailCard({
-    required this.strings,
-    required this.label,
-    required this.active,
-    super.key,
-  });
-
-  final AppStrings strings;
-  final String label;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final protocol = label.toLowerCase();
-    final executable = supportStatus(protocol).executable;
-
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 48),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: active
-              ? colorScheme.primaryContainer.withValues(alpha: 0.38)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Padding(
-          padding: active
-              ? const EdgeInsets.symmetric(horizontal: 7, vertical: 5)
-              : EdgeInsets.zero,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                width: 26,
-                height: 26,
-                decoration: BoxDecoration(
-                  color: active
-                      ? colorScheme.primary
-                      : colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(7),
-                ),
-                child: Icon(
-                  _protocolIcon(label),
-                  color: active
-                      ? colorScheme.onPrimary
-                      : colorScheme.onSurfaceVariant,
-                  size: 15,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontSize: 11.8,
-                        fontWeight: FontWeight.w400,
-                        height: 1.08,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      strings.supportNote(protocol),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        fontSize: 10,
-                        height: 1.05,
-                        fontWeight: FontWeight.w400,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              StatusPill(
-                icon: executable ? Icons.check_circle : Icons.pending_outlined,
-                label: strings.backendLabel(protocol),
-                foreground: active
-                    ? colorScheme.primary
-                    : colorScheme.onSurfaceVariant,
-                background: active
-                    ? colorScheme.primaryContainer.withValues(alpha: 0.62)
-                    : colorScheme.surfaceContainerHighest,
-                dense: true,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class LanguageMenu extends StatelessWidget {
   const LanguageMenu({
     required this.strings,
@@ -3440,92 +3568,6 @@ class SectionHeader extends StatelessWidget {
   }
 }
 
-class StatusPill extends StatelessWidget {
-  const StatusPill({
-    required this.icon,
-    required this.label,
-    required this.foreground,
-    required this.background,
-    this.dense = false,
-    super.key,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color foreground;
-  final Color background;
-  final bool dense;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: BoxConstraints(minHeight: dense ? 28 : 34),
-      padding: EdgeInsets.symmetric(
-        horizontal: dense ? 8 : 10,
-        vertical: dense ? 5 : 7,
-      ),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: dense ? 14 : 17, color: foreground),
-          SizedBox(width: dense ? 4 : 6),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: foreground,
-                fontWeight: FontWeight.w400,
-                fontSize: dense ? 11 : 12,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class CapabilityStrip extends StatelessWidget {
-  const CapabilityStrip({required this.activeProtocol, super.key});
-
-  final String activeProtocol;
-
-  static const protocols = [
-    'HTTP',
-    'HTTPS',
-    'WebDAV',
-    'FTP',
-    'Torrent',
-    'Magnet',
-    'ed2k',
-    'm3u8',
-    'SFTP',
-    'SMB',
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 7,
-      runSpacing: 7,
-      children: protocols
-          .map(
-            (label) => ProtocolChip(
-              label: label,
-              active: label.toLowerCase() == activeProtocol.toLowerCase(),
-            ),
-          )
-          .toList(growable: false),
-    );
-  }
-}
-
 class EmptyQueueCard extends StatelessWidget {
   const EmptyQueueCard({required this.strings, super.key});
 
@@ -3576,52 +3618,6 @@ class EmptyQueueCard extends StatelessWidget {
             textAlign: TextAlign.center,
             style: textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class ProtocolChip extends StatelessWidget {
-  const ProtocolChip({required this.label, this.active = false, super.key});
-
-  final String label;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final foreground = active
-        ? colorScheme.onPrimary
-        : colorScheme.onSurfaceVariant;
-    final background = active
-        ? colorScheme.primary
-        : colorScheme.surfaceContainerLow;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: active
-              ? colorScheme.primary
-              : colorScheme.outlineVariant.withValues(alpha: 0.85),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(_protocolIcon(label), size: 16, color: foreground),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              color: foreground,
-              fontWeight: active ? FontWeight.w400 : FontWeight.w400,
-              fontSize: 12,
             ),
           ),
         ],
