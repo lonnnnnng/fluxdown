@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.21](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.21)。以下功能说明以当前源码为准，历史验证单独标注。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.22](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.22)。以下功能说明以当前源码为准，历史验证单独标注。
 
 ## 当前状态
 
@@ -29,6 +29,10 @@ FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版�
 ### 1.0.21 更新（2026-09-12）
 
 修复 CI 在尚未生成 `ios/.symlinks` 时无法准备 `libtorrent_flutter` simulator slice 的问题：构建脚本现在会从锁定版本对应的 Pub 缓存包回退处理，再执行上游 slice 补齐与 `lipo` 校验。桌面端、Android、CLI 和 iOS 构建流程保持不变。详见 [发行说明](docs/releases/1.0.21.md)。
+
+### 1.0.22 更新（2026-09-12）
+
+修复 iOS Release 流水线只补齐 simulator slice、未补齐 `ios-arm64` 真机 slice 的问题；现在会同时恢复并校验 device 与 simulator 两套静态库，确保 simulator 和 unsigned device 构建都能完成。详见 [发行说明](docs/releases/1.0.22.md)。
 
 ### 1.0.19 更新（2026-09-12）
 

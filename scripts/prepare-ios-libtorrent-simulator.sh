@@ -35,33 +35,49 @@ else
 fi
 
 XCFRAMEWORK_DIR="$PLUGIN_DIR/ios/libtorrent_flutter.xcframework"
+DEVICE_DIR="$XCFRAMEWORK_DIR/ios-arm64"
+DEVICE_LIBRARY="$DEVICE_DIR/liblibtorrent_flutter.a"
 SIMULATOR_DIR="$XCFRAMEWORK_DIR/ios-arm64_x86_64-simulator"
 SIMULATOR_LIBRARY="$SIMULATOR_DIR/liblibtorrent_flutter.a"
 
-if [[ -s "$SIMULATOR_LIBRARY" ]] && lipo -info "$SIMULATOR_LIBRARY" >/dev/null 2>&1; then
-  echo "libtorrent_flutter iOS simulator slice is already present ($PLUGIN_VERSION)."
+if [[ -s "$DEVICE_LIBRARY" ]] && lipo -info "$DEVICE_LIBRARY" >/dev/null 2>&1 \
+  && [[ -s "$SIMULATOR_LIBRARY" ]] && lipo -info "$SIMULATOR_LIBRARY" >/dev/null 2>&1; then
+  echo "libtorrent_flutter iOS device and simulator slices are already present ($PLUGIN_VERSION)."
   exit 0
 fi
 
 # 作者: long
-# pub.dev 包可能只带真机静态库，导致 Flutter 的 simulator 链接阶段找不到对应输入；这里补回同一 Git 标签中的官方模拟器 slice，保持设备与模拟器 ABI 隔离。
+# pub.dev 包不携带预编译 iOS XCFramework，Pods 阶段通常才会下载它；这里提前补齐同一 Git 标签中的 device 和 simulator slice，保证 simulator 与 unsigned device 两条流水线都能复用。
 BASE_URL="https://raw.githubusercontent.com/ayman708-UX/libtorrent_flutter/v${PLUGIN_VERSION}/ios/libtorrent_flutter.xcframework"
+mkdir -p "$DEVICE_DIR/Headers"
 mkdir -p "$SIMULATOR_DIR/Headers"
 
-echo "Restoring libtorrent_flutter iOS simulator slice from $BASE_URL"
-curl --fail --location --retry 3 --silent --show-error \
-  "$BASE_URL/Info.plist" \
-  --output "$XCFRAMEWORK_DIR/Info.plist"
-curl --fail --location --retry 3 --silent --show-error \
-  "$BASE_URL/ios-arm64_x86_64-simulator/liblibtorrent_flutter.a" \
-  --output "$SIMULATOR_LIBRARY"
-curl --fail --location --retry 3 --silent --show-error \
-  "$BASE_URL/ios-arm64_x86_64-simulator/Headers/torrent_bridge.h" \
-  --output "$SIMULATOR_DIR/Headers/torrent_bridge.h"
+echo "Restoring libtorrent_flutter iOS device and simulator slices from $BASE_URL"
+if [[ ! -s "$XCFRAMEWORK_DIR/Info.plist" ]]; then
+  curl --fail --location --retry 3 --silent --show-error \
+    "$BASE_URL/Info.plist" \
+    --output "$XCFRAMEWORK_DIR/Info.plist"
+fi
+if ! lipo -info "$DEVICE_LIBRARY" >/dev/null 2>&1; then
+  curl --fail --location --retry 3 --silent --show-error \
+    "$BASE_URL/ios-arm64/liblibtorrent_flutter.a" \
+    --output "$DEVICE_LIBRARY"
+  curl --fail --location --retry 3 --silent --show-error \
+    "$BASE_URL/ios-arm64/Headers/torrent_bridge.h" \
+    --output "$DEVICE_DIR/Headers/torrent_bridge.h"
+fi
+if ! lipo -info "$SIMULATOR_LIBRARY" >/dev/null 2>&1; then
+  curl --fail --location --retry 3 --silent --show-error \
+    "$BASE_URL/ios-arm64_x86_64-simulator/liblibtorrent_flutter.a" \
+    --output "$SIMULATOR_LIBRARY"
+  curl --fail --location --retry 3 --silent --show-error \
+    "$BASE_URL/ios-arm64_x86_64-simulator/Headers/torrent_bridge.h" \
+    --output "$SIMULATOR_DIR/Headers/torrent_bridge.h"
+fi
 
-if [[ ! -s "$SIMULATOR_LIBRARY" ]]; then
-  echo "Downloaded iOS simulator library is empty: $SIMULATOR_LIBRARY" >&2
+if [[ ! -s "$DEVICE_LIBRARY" || ! -s "$SIMULATOR_LIBRARY" ]]; then
+  echo "Downloaded iOS XCFramework slice is empty: $DEVICE_LIBRARY or $SIMULATOR_LIBRARY" >&2
   exit 1
 fi
 
-echo "Prepared libtorrent_flutter iOS simulator slice: $SIMULATOR_LIBRARY"
+echo "Prepared libtorrent_flutter iOS device and simulator slices."

@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.21](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.21). Features below describe the current source; historical verification is labeled separately.
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.22](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.22). Features below describe the current source; historical verification is labeled separately.
 
 ## Current Status
 
@@ -29,6 +29,10 @@ Fixed the missing `libtorrent_flutter` simulator static library and Swift async 
 ### 1.0.21 Update (2026-09-12)
 
 Fixed CI preparation when Flutter has not generated `ios/.symlinks` yet. The build now falls back to the locked `libtorrent_flutter` package in Pub cache before restoring and validating the simulator slice. See the [release notes](docs/releases/1.0.21.md) (Chinese).
+
+### 1.0.22 Update (2026-09-12)
+
+Fixed iOS Release builds where only the simulator slice was restored and the `ios-arm64` device slice was missing. The preparation step now restores and validates both device and simulator static libraries. See the [release notes](docs/releases/1.0.22.md) (Chinese).
 
 ### 1.0.19 Update (2026-09-12)
 

@@ -10,7 +10,7 @@ resolver = "3"
 [workspace.package]
 edition = "2024"
 license = "MIT"
-version = "1.0.21"
+version = "1.0.22"
 
 # 作者: long
 # 保留吞吐优先的优化等级和 panic 展开行为，避免为了减包改变 FFI 错误恢复；链接阶段合并重复代码。

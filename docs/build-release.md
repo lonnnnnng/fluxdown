@@ -9,7 +9,7 @@
 - Rust workspace `Cargo.toml`
 - Flutter `apps/mobile/pubspec.yaml`
 
-当前版本号为 `1.0.21`，修复 iOS simulator 构建前 Flutter 插件 symlink 尚未生成时的准备路径问题，见 [发行说明](releases/1.0.21.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
+当前版本号为 `1.0.22`，修复 iOS simulator 与 unsigned device 构建前 Flutter 插件静态库不完整的问题，见 [发行说明](releases/1.0.22.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
 
 ## 本地依赖
 
