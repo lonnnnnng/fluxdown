@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 
 // 作者: long
 // 移动端版本号与 pubspec.yaml 保持同步，避免为版本展示引入额外运行时依赖。
-const mobileAppVersion = '1.0.19';
+const mobileAppVersion = '1.0.20';
 const mobileUpdateApiUrl =
     'https://api.github.com/repos/lonnnnnng/fluxdown/releases/latest';
 const mobileReleasePageUrl =

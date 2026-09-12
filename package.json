@@ -1,7 +1,7 @@
 {
   "name": "fluxdown",
   "private": true,
-  "version": "1.0.19",
+  "version": "1.0.20",
   "workspaces": [
     "apps/desktop"
   ],
@@ -16,7 +16,8 @@
     "mobile:android": "cd apps/mobile && flutter build apk --debug",
     "mobile:android:release": "cd apps/mobile && flutter build apk --release --split-debug-info=build/symbols/android",
     "mobile:android:aab": "cd apps/mobile && flutter build appbundle --release --split-debug-info=build/symbols/android",
-    "mobile:ios:simulator": "cd apps/mobile && flutter build ios --simulator",
+    "mobile:ios:simulator": "cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --simulator",
+    "mobile:ios:prepare": "bash scripts/prepare-ios-libtorrent-simulator.sh",
     "mobile:ios:framework": "cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release",
     "mobile:ios:framework:verify": "node scripts/verify-artifacts.mjs ios-framework",
     "mobile:ios:ipa": "cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ipa --split-debug-info=build/symbols/ios --export-options-plist=ios/ExportOptions.plist",

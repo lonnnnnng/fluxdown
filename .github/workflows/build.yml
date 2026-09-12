@@ -336,6 +336,8 @@ jobs:
       - name: Install Flutter dependencies
         working-directory: apps/mobile
         run: flutter pub get
+      - name: Prepare libtorrent iOS simulator slice
+        run: npm run mobile:ios:prepare
       - name: Check iOS signing secrets
         id: ios_secrets
         shell: bash

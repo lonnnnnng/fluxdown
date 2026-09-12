@@ -52,7 +52,7 @@ import UIKit
     }
   }
 
-  private func handleStorageMethod(_ call: FlutterMethodCall, result: FlutterResult) {
+  private func handleStorageMethod(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     if call.method == "getAllocatedFileBytes" {
       let arguments = call.arguments as? [String: Any]
       let paths = arguments?["paths"] as? [String] ?? []

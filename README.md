@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.19](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.19)。以下功能说明以当前源码为准，历史验证单独标注。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.20](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.20)。以下功能说明以当前源码为准，历史验证单独标注。
 
 ## 当前状态
 
@@ -21,6 +21,10 @@ FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版�
 - CLI 和桌面端会脱敏 URL 中的用户名和密码，并把另存文件名规范化为单文件名。
 - 移动端协议识别优先通过 FFI 调用 Rust，库不可用时回退 Dart；队列与实际下载仍由 Dart/移动原生适配器执行，尚未统一到 Rust 下载引擎。
 - 普通提交和 tag 推送不会触发 GitHub Actions；只有明确打包或发版时才手动运行流水线。
+
+### 1.0.20 更新（2026-09-12）
+
+修复 iOS simulator 构建缺少 `libtorrent_flutter` 模拟器静态库和 Swift 异步回调生命周期标注的问题；新增构建前 simulator slice 自动补齐与 `lipo` 完整性校验，并统一 CocoaPods UTF-8 环境。详见 [发行说明](docs/releases/1.0.20.md)。
 
 ### 1.0.19 更新（2026-09-12）
 
@@ -127,13 +131,13 @@ Runner 构建阶段自动编译并静态链接 Rust FFI，最低部署版本为 
 | 命令行 | Windows x64 CLI ZIP、macOS ARM64 / Linux x64 CLI TAR.GZ |
 | 许可说明 | LICENSE、第三方许可证清单 |
 
-Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.19.md)。
+Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.20.md)。
 
 发布 manifest 继续在流水线内部生成和校验，但不再作为公开附件；每个公开文件的大小与 SHA-256 直接写入 Release Notes。三个 ZIP/TAR.GZ 是独立 CLI 版本，不是桌面安装包的重复副本。
 
 CLI 解压后运行 `fluxdown` / `fluxdown.exe`，Unix 可执行权限已保留。Android APK 仍包含 arm64-v8a、armeabi-v7a、x86_64；Release 启用 R8，Dart 符号和 R8 mapping 单独保存在 Actions Artifacts，不是从 App 删除功能。
 
-Release 页面：[FluxDown 1.0.19](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.19)。
+Release 页面：[FluxDown 1.0.20](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.20)。
 
 ## 文档
 

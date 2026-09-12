@@ -10,14 +10,14 @@ void main() {
   test('compares release versions and removes tag prefixes', () {
     expect(normalizeMobileVersion('v1.2.3'), '1.2.3');
     expect(normalizeMobileVersion('1.2.3-beta+4'), '1.2.3');
-    expect(compareMobileVersions('v1.0.19', '1.0.18'), greaterThan(0));
+    expect(compareMobileVersions('v1.0.20', '1.0.18'), greaterThan(0));
     expect(compareMobileVersions('1.0.18', 'v1.0.18'), 0);
     expect(compareMobileVersions('1.0.17', '1.0.18'), lessThan(0));
   });
 
   test('parses latest release and selects the Android APK asset', () async {
     final checker = MobileUpdateChecker(
-      client: _FakeClient(_releasePayload('v1.0.19')),
+      client: _FakeClient(_releasePayload('v1.0.20')),
       currentVersion: '1.0.18',
       apiUri: Uri.parse('https://example.test/releases/latest'),
     );
@@ -25,14 +25,14 @@ void main() {
     final report = await checker.check();
 
     expect(report.currentVersion, '1.0.18');
-    expect(report.latestVersion, '1.0.19');
+    expect(report.latestVersion, '1.0.20');
     expect(report.hasUpdate, isTrue);
     expect(
       report.releaseUrl,
-      'https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.19',
+      'https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.20',
     );
-    expect(report.downloadFileName, 'FluxDown-1.0.19-android-release.apk');
-    expect(report.downloadUrl, contains('FluxDown-1.0.19-android-release.apk'));
+    expect(report.downloadFileName, 'FluxDown-1.0.20-android-release.apk');
+    expect(report.downloadUrl, contains('FluxDown-1.0.20-android-release.apk'));
     expect(report.downloadSizeBytes, 1234);
   });
 
@@ -98,11 +98,11 @@ void main() {
     (tester) async {
       final report = MobileUpdateReport(
         currentVersion: '1.0.18',
-        latestVersion: '1.0.19',
+        latestVersion: '1.0.20',
         hasUpdate: true,
         releaseUrl: mobileReleasePageUrl,
-        downloadUrl: 'https://example.test/FluxDown-1.0.19-android-release.apk',
-        downloadFileName: 'FluxDown-1.0.19-android-release.apk',
+        downloadUrl: 'https://example.test/FluxDown-1.0.20-android-release.apk',
+        downloadFileName: 'FluxDown-1.0.20-android-release.apk',
         releaseNotes: '修复下载队列\n优化暂停继续和更新检查体验。',
       );
 
@@ -131,7 +131,7 @@ void main() {
         find.byKey(const ValueKey('mobile-update-confirm')),
         findsOneWidget,
       );
-      expect(find.text('找到最新版本 v1.0.19'), findsOneWidget);
+      expect(find.text('找到最新版本 v1.0.20'), findsOneWidget);
       expect(find.byKey(const ValueKey('mobile-update-notes')), findsOneWidget);
       expect(find.text('修复下载队列\n优化暂停继续和更新检查体验。'), findsOneWidget);
       final dialog = tester.widget<AlertDialog>(find.byType(AlertDialog));
