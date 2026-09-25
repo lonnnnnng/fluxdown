@@ -341,11 +341,11 @@ class MobileTorrentRunner {
         await onProgress(current);
 
         // 作者: long
-        // 某些 Android 原生存储场景会在文件尚未创建时先返回 finished/seeding；
-        // 只有 native 完成状态与已下载字节都覆盖用户选择的内容，才能结束任务并写入“已完成”。
+        // libtorrent 已在 native 层按 wanted 文件和 piece 校验给出 finished/seeding；
+        // Android 小文件的 finished 快照可能仍带有 totalDone=0，不能再用这个瞬时字段
+        // 阻挡完成落库，否则 native 已完成而队列会一直停在 0 B。
         final nativeDone = info.isFinished || info.state.isDone;
-        final selectedTotalReached = total == null || info.totalDone >= total;
-        final doneByNativeState = nativeDone && selectedTotalReached;
+        final doneByNativeState = nativeDone;
         final canEvaluateStall =
             metadataHandled &&
             info.state == TorrentState.downloading &&
