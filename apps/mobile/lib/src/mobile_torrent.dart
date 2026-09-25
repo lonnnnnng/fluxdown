@@ -107,6 +107,10 @@ class MobileTorrentRunner {
     await outputDir.create(recursive: true);
 
     await LibtorrentFlutter.init(
+      // 作者: long
+      // Android 真机可能优先选到无可用路由的 IPv6 监听地址，导致局域网 Tracker 被误判为不可达；
+      // 固定 IPv4 任意端口，让 Tracker/Peer 发现沿设备实际 Wi-Fi 路由进行。
+      listenInterface: '0.0.0.0:0',
       defaultSavePath: outputDir.path,
       pollInterval: const Duration(milliseconds: 500),
     );
@@ -158,6 +162,7 @@ class MobileTorrentRunner {
       Future<void>? metadataHandling;
       var lastProgressBytes = reusedPausedHandle ? task.downloadedBytes : 0;
       var lastProgressAt = DateTime.now();
+      const outputFlushTimeout = Duration(seconds: 15);
 
       Future<void> applyMetadataBody(TorrentInfo info) async {
         final files = engine.getFiles(torrentId);
@@ -348,12 +353,21 @@ class MobileTorrentRunner {
         await onProgress(current);
 
         // 作者: long
-        // libtorrent 已在 native 层按 wanted 文件和 piece 校验给出 finished/seeding；
-        // Android 小文件的 finished 快照可能仍带有 totalDone=0，不能再用这个瞬时字段
-        // 阻挡完成落库，否则 native 已完成而队列会一直停在 0 B。
+        // 只有 native 完成状态代表 piece 已校验并准备好落盘；totalDone 可能在磁盘写入完成前
+        // 先达到目标值，不能用它提前结束任务，否则 handle 被移除后会留下空文件或半成品。
         final nativeDone = info.isFinished || info.state.isDone;
-        final selectedTotalReached = total != null && info.totalDone >= total;
-        final doneByNativeState = nativeDone || selectedTotalReached;
+        final outputReady = nativeDone
+            ? await _torrentOutputsReady(current)
+            : false;
+        final doneByNativeState = nativeDone && outputReady;
+        if (nativeDone && !outputReady && stalledFor >= outputFlushTimeout) {
+          completion.completeError(
+            StateError(
+              'Torrent reported completion but selected output files are missing or incomplete.',
+            ),
+          );
+          return;
+        }
         final canEvaluateStall =
             metadataHandled &&
             info.state == TorrentState.downloading &&
@@ -511,6 +525,51 @@ class MobileTorrentRunner {
   Future<String> _magnetSourceWithTrackers(String source) async {
     return _prepareMagnetSource(source);
   }
+
+  Future<bool> _torrentOutputsReady(DownloadTask task) async {
+    final files = task.selectedTorrentFiles;
+    if (files.isEmpty) {
+      return false;
+    }
+
+    for (final file in files) {
+      final normalizedPath = file.path.replaceAll('\\', '/').trim();
+      final parts = normalizedPath
+          .split('/')
+          .where((part) => part.isNotEmpty && part != '.' && part != '..')
+          .toList(growable: false);
+      if (parts.isEmpty) {
+        return false;
+      }
+
+      final candidates = <String>{
+        p.joinAll([task.outputFolder, ...parts]),
+      };
+      final torrentRoot = task.torrentName?.trim();
+      if (torrentRoot != null && torrentRoot.isNotEmpty) {
+        candidates.add(p.joinAll([task.outputFolder, torrentRoot, ...parts]));
+      }
+      if (files.length == 1) {
+        candidates.add(p.join(task.outputFolder, task.fileName));
+      }
+
+      var fileReady = false;
+      for (final candidate in candidates) {
+        final output = File(candidate);
+        if (!await output.exists()) {
+          continue;
+        }
+        if (await output.length() >= file.size) {
+          fileReady = true;
+          break;
+        }
+      }
+      if (!fileReady) {
+        return false;
+      }
+    }
+    return true;
+  }
 }
 
 Future<TorrentMetadata?> inspectTorrentMetadataFromSource(
@@ -542,6 +601,9 @@ Future<TorrentMetadata?> _inspectMagnetMetadata(
   int? torrentId;
   try {
     await LibtorrentFlutter.init(
+      // 作者: long
+      // metadata 预览与正式下载共用 IPv4 监听策略，避免预览阶段因 IPv6 路由不可用而拿不到 metadata。
+      listenInterface: '0.0.0.0:0',
       defaultSavePath: tempDirectory.path,
       pollInterval: const Duration(milliseconds: 500),
     );
