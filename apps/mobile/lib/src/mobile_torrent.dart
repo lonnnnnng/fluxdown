@@ -145,6 +145,7 @@ class MobileTorrentRunner {
 
     StreamSubscription<Map<int, TorrentInfo>>? subscription;
     Timer? cancelPoller;
+    Timer? statePoller;
     var preserveHandleOnCancel = false;
     try {
       var current = task.copyWith(
@@ -430,6 +431,26 @@ class MobileTorrentRunner {
         await dispatch(initial);
       }
 
+      var pollDispatchInFlight = false;
+      // 作者: long
+      // 原生最后一个完成事件可能早于文件 flush 到达 Dart，且某些 libtorrent 版本不会再次发出相同快照；
+      // 低频读取当前 torrent 状态，确保输出文件就绪后仍能完成任务并持久化最终进度。
+      statePoller = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        if (completion.isCompleted || pollDispatchInFlight) {
+          return;
+        }
+        final snapshot = engine.torrents[torrentId];
+        if (snapshot == null) {
+          return;
+        }
+        pollDispatchInFlight = true;
+        unawaited(
+          dispatch(snapshot).whenComplete(() {
+            pollDispatchInFlight = false;
+          }),
+        );
+      });
+
       cancelPoller = Timer.periodic(const Duration(milliseconds: 250), (_) {
         if (!completion.isCompleted && isCancelled()) {
           try {
@@ -444,6 +465,7 @@ class MobileTorrentRunner {
       return await completion.future;
     } finally {
       cancelPoller?.cancel();
+      statePoller?.cancel();
       await subscription?.cancel();
       final discardRequested = _discardRequested.contains(task.id);
       final keepPausedHandle = preserveHandleOnCancel && !discardRequested;

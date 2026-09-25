@@ -6,7 +6,11 @@
 - 通过 USB `adb reverse` 使用本地 Range HTTP fixture，正常打开 App、点击右下角新建任务、输入链接并开始下载；未使用 `Test starting...` integration runner 页面。
 - 真实通过：HTTP 21 B 小文件、HLS 两段 TS 播放列表并输出 `playlist.mp4`（24 B）；设置页真实回显保存位置、并发 `5`、线程 `16`、自动重试 `3`。
 - 发现并修复移动端 HTTP 极小文件的多 Range 并发落盘失败：资源小于配置线程所需的分片粒度时自动回退单流；原有多 Range 测试和新增 21 B/16 线程回归均通过。
-- 未完成边界：长文件暂停/继续/重启恢复本轮没有形成稳定真机证据；Torrent/Magnet metadata 和文件选择需在同一前台环境继续验证。本节不把历史版本协议结果升级为当前版本证据。
+- 本轮补齐设备级长文件生命周期证据：通过局域网 Range HTTP 慢速资源 `http://192.168.1.8:8766/source/p1_06_20260925_immediate.bin`（64.0 MB）在 Release App 内新建任务。第一次运行到 `29.9 MB / 64.0 MB` 后执行 `adb shell am force-stop`，重新启动后任务恢复为“已暂停 47%”，并显示“任务因应用退出中断，已暂停，可继续下载。”；点击任务继续后从断点续传，最终进入“已结束(1) / 已完成 100%”，显示 `64.0 MB / 64.0 MB`。
+- 同一资源以另存文件名 `p1_06_pause_20260925.bin` 新建第二条任务，运行到 `1.3 MB` 后点击任务暂停，进入“已暂停 9%”并保留 `5.6 MB / 64.0 MB`；重启应用后仍为暂停状态。随后通过长按菜单删除，重启应用确认队列只保留第一条已完成任务，删除任务没有复活。
+- 本轮继续在同一 Release 前台环境完成 Torrent 真机复验。资源地址为 `http://192.168.1.8:8766/current_torrent/p1_02_20260925_bundle.torrent`，metadata 目录 `p1_02_20260925_bundle`，包含 `notes.txt`（31 B）和 `payload.bin`（8.0 MB）。第一次打开多文件选择弹框后点击“关闭”，队列仍为 `全部(0)`，确认取消不会预先创建任务；第二次仅选择 `payload.bin` 后，任务卡显示真实目录名和“已选择 1 项 / 2”，libtorrent 日志记录 metadata、checking、downloading、piece 完成和 finished，最终 UI 显示 `已完成 100%`、`8.0 MB / 8.0 MB`、耗时 `00:07`。
+- Magnet 真机复验使用 `magnet:?xt=urn:btih:0a5657484cae0230252e62eeeab10e3248138e91&dn=p1_02_20260925_bundle&tr=http%3A%2F%2F192.168.1.8%3A6969%2Fannounce`。清空应用数据后重新测试，metadata 选择弹框同样完整显示两个文件；只选 `payload.bin` 后从空目录真实下载，最终 UI 显示 `已完成 100%`、`8.0 MB / 8.0 MB`、耗时 `00:05`，详情页标题为“资源详情”，仅显示选中项并显示 `已下载: 8.0 MB / 8.0 MB`。强制停止并重启应用后任务仍为 `已结束(1)`，没有回退为暂停；logcat 未发现 `FATAL EXCEPTION`。本轮 Release 沙箱不可用 `run-as` 直接导出文件，因此未把设备文件 hash 写成已验证证据；大小、状态、metadata、piece 完成和重启恢复均为真实设备观测。
+- 本轮对照发现：本地 Debug APK 启动时会触发 Android 16KB 对齐兼容性警告，关闭警告后仍可能停留在 Flutter Splash；本次重新构建的 Release APK `1.0.22 (23)` 在同一 Redmi Note 8 Pro 真机正常绘制并完成 HTTP、Torrent、Magnet 流程。该现象属于 Debug/系统兼容性提示边界，不把 Debug 卡屏误判为下载逻辑失败。本节不把历史版本协议结果升级为当前版本证据。
 
 ## 2026-09-10 跨端下载默认值调整（工作树，未发布）
 
