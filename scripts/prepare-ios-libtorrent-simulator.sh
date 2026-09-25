@@ -22,16 +22,31 @@ if [[ -z "$PLUGIN_VERSION" ]]; then
   exit 2
 fi
 
+# 作者: long
+# Git 依赖不会落在 hosted/pub.dev 目录；CI 的 flutter pub get 会按锁文件的
+# resolved-ref 放到 Pub 缓存的 git checkout 目录。优先使用精确 commit，避免
+# 误把旧版本 hosted 包当成当前插件，导致后续 Xcode 链接到错误的 XCFramework。
+PLUGIN_RESOLVED_REF="$(awk '
+  /^  libtorrent_flutter:/ { in_plugin = 1; next }
+  in_plugin && /^  [^ ]/ { exit }
+  in_plugin && /resolved-ref:/ { gsub(/["\r]/, "", $2); print $2; exit }
+' "$LOCK_FILE" 2>/dev/null)"
+
 if [[ -f "$LINKED_PLUGIN_DIR/pubspec.yaml" ]]; then
   PLUGIN_DIR="$LINKED_PLUGIN_DIR"
 else
   PUB_CACHE_ROOT="${PUB_CACHE:-$HOME/.pub-cache}"
-  PLUGIN_DIR="$PUB_CACHE_ROOT/hosted/pub.dev/libtorrent_flutter-${PLUGIN_VERSION}"
-  if [[ ! -f "$PLUGIN_DIR/pubspec.yaml" ]]; then
+  PLUGIN_DIR=""
+  if [[ -n "$PLUGIN_RESOLVED_REF" && -f "$PUB_CACHE_ROOT/git/libtorrent_flutter-${PLUGIN_RESOLVED_REF}/pubspec.yaml" ]]; then
+    PLUGIN_DIR="$PUB_CACHE_ROOT/git/libtorrent_flutter-${PLUGIN_RESOLVED_REF}"
+    echo "Flutter iOS plugin symlink is not generated yet; using Pub Git checkout $PLUGIN_DIR."
+  elif [[ -f "$PUB_CACHE_ROOT/hosted/pub.dev/libtorrent_flutter-${PLUGIN_VERSION}/pubspec.yaml" ]]; then
+    PLUGIN_DIR="$PUB_CACHE_ROOT/hosted/pub.dev/libtorrent_flutter-${PLUGIN_VERSION}"
+    echo "Flutter iOS plugin symlink is not generated yet; using Pub hosted package $PLUGIN_DIR."
+  else
     echo "libtorrent_flutter $PLUGIN_VERSION is not available in the Flutter plugin link or Pub cache." >&2
     exit 2
   fi
-  echo "Flutter iOS plugin symlink is not generated yet; using Pub cache package $PLUGIN_DIR."
 fi
 
 XCFRAMEWORK_DIR="$PLUGIN_DIR/ios/libtorrent_flutter.xcframework"
