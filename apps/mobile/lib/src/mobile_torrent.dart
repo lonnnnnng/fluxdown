@@ -35,6 +35,26 @@ class TorrentFileSelection {
   final List<int> selectedIndexes;
 }
 
+/// 串行处理原生 torrent 状态，避免异步进度写回顺序反转。
+///
+/// 作者: long
+/// libtorrent 的状态回调可能在上一次 Dart 持久化尚未完成时继续到达；
+/// 将每次处理排到同一条链上，才能保证 finished 不会被迟到的 downloading 覆盖。
+class TorrentUpdateSerializer {
+  Future<void> _tail = Future<void>.value();
+
+  Future<void> enqueue(Future<void> Function() action) {
+    final result = _tail.then<void>((_) => action());
+    // 作者: long
+    // 单次状态处理失败不能毒化整个更新链，后续 native 状态仍需继续送达。
+    _tail = result.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {},
+    );
+    return result;
+  }
+}
+
 typedef TorrentMetadataSelector =
     Future<TorrentFileSelection?> Function(
       DownloadTask task,
@@ -354,13 +374,24 @@ class MobileTorrentRunner {
         }
       }
 
+      final updateSerializer = TorrentUpdateSerializer();
+      Future<void> dispatch(TorrentInfo info) async {
+        try {
+          await updateSerializer.enqueue(() => emit(info));
+        } catch (error, stackTrace) {
+          if (!completion.isCompleted) {
+            completion.completeError(error, stackTrace);
+          }
+        }
+      }
+
       subscription = engine.torrentUpdates.listen(
         (snapshot) {
           final info = snapshot[torrentId];
           if (info == null) {
             return;
           }
-          unawaited(emit(info));
+          unawaited(dispatch(info));
         },
         onError: (Object error, StackTrace stackTrace) {
           if (!completion.isCompleted) {
@@ -374,7 +405,7 @@ class MobileTorrentRunner {
       }
       final initial = engine.torrents[torrentId];
       if (initial != null) {
-        await emit(initial);
+        await dispatch(initial);
       }
 
       cancelPoller = Timer.periodic(const Duration(milliseconds: 250), (_) {
