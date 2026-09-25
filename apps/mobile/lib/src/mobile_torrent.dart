@@ -295,14 +295,21 @@ class MobileTorrentRunner {
         final total =
             selectedTotal ?? (info.totalWanted > 0 ? info.totalWanted : null);
         // 作者: long
-        // total_done 包含过滤文件边界上被一并写入的 piece，不能直接与用户所选文件大小比较；
-        // progress 是 libtorrent 针对 wanted 数据的进度，用它折算任务已下载量可避免提前完成。
-        final nativeReportedDone = total == null
+        // total_done 可能包含选中文件边界上的整块数据，progress 又可能在 Android 小文件
+        // 完成快照中暂时保持 0；两者取较大值并限制到选中文件总量，既不丢失真实进度，
+        // 也不会让边界 piece 把进度显示推过 100%。
+        final progressReportedDone = total == null
             ? info.totalDone
             : (info.progress.clamp(0.0, 1.0) * total)
                   .round()
                   .clamp(0, total)
                   .toInt();
+        final wantedReportedDone = total == null
+            ? info.totalDone
+            : info.totalDone.clamp(0, total).toInt();
+        final nativeReportedDone = progressReportedDone > wantedReportedDone
+            ? progressReportedDone
+            : wantedReportedDone;
         final reportedDone =
             reusedPausedHandle && nativeReportedDone < task.downloadedBytes
             ? task.downloadedBytes
@@ -345,7 +352,8 @@ class MobileTorrentRunner {
         // Android 小文件的 finished 快照可能仍带有 totalDone=0，不能再用这个瞬时字段
         // 阻挡完成落库，否则 native 已完成而队列会一直停在 0 B。
         final nativeDone = info.isFinished || info.state.isDone;
-        final doneByNativeState = nativeDone;
+        final selectedTotalReached = total != null && info.totalDone >= total;
+        final doneByNativeState = nativeDone || selectedTotalReached;
         final canEvaluateStall =
             metadataHandled &&
             info.state == TorrentState.downloading &&
