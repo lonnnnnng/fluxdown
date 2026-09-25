@@ -103,6 +103,7 @@ Future<ProtocolE2eRunResult> runProtocolE2e({
         outputRelativePath: testCase.outputRelativePath,
         scanForLargest:
             actual.protocol == 'torrent' || actual.protocol == 'magnet',
+        selectedTorrentFiles: actual.selectedTorrentFiles,
       );
       final outputBytes = await outputFile.exists()
           ? await outputFile.length()
@@ -257,6 +258,7 @@ Future<File> _resolveOutputFile({
   required String fileName,
   required String? outputRelativePath,
   required bool scanForLargest,
+  required List<TorrentFileEntry> selectedTorrentFiles,
 }) async {
   if (outputRelativePath != null && outputRelativePath.trim().isNotEmpty) {
     return File(
@@ -272,9 +274,37 @@ Future<File> _resolveOutputFile({
     return direct;
   }
 
+  // 作者: long
+  // Torrent/Magnet 目录下载会同时留下隐藏的 piece 临时文件；优先按 metadata 选中文件路径定位，
+  // 避免把 `.parts` 等内部文件误当成最终产物，导致真实下载已成功却被 E2E 报告判错。
+  for (final torrentFile in selectedTorrentFiles) {
+    final parts = torrentFile.path
+        .replaceAll('\\', '/')
+        .split('/')
+        .where((part) => part.isNotEmpty && part != '.' && part != '..')
+        .toList(growable: false);
+    if (parts.isEmpty) continue;
+    final candidates = <String>{
+      p.joinAll([outputDir.path, ...parts]),
+    };
+    if (parts.length > 1) {
+      candidates.add(p.joinAll([outputDir.path, fileName, ...parts]));
+    }
+    for (final candidate in candidates) {
+      final file = File(candidate);
+      if (await file.exists() && await file.length() > 0) {
+        return file;
+      }
+    }
+  }
+
   File? largest;
   await for (final entity in outputDir.list(recursive: true)) {
     if (entity is! File) {
+      continue;
+    }
+    final baseName = p.basename(entity.path);
+    if (baseName.startsWith('.') || baseName.endsWith('.parts')) {
       continue;
     }
     if (largest == null || await entity.length() > await largest.length()) {
