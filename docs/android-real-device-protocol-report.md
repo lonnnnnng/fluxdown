@@ -1,5 +1,39 @@
 # Android 真机协议测试报告
 
+## 2026-09-25 `1.0.22` 源码工作树前台验收
+
+本节只记录当前源码工作树重新构建的本地 Release APK，不代表已经发布的
+`v1.0.22` Release 资产包含本节修复。设备和入口均为正常前台 App，不使用
+Flutter integration test 的 `Test starting...` 页面。
+
+### 环境与资源
+
+- 设备：Redmi Note 8 Pro，adb serial `wsvwypiz7xwslvl7`，Android 16。
+- 包名：`dev.fluxdown.mobile`；本地构建显示 `versionName=1.0.22`、`versionCode=23`。
+- 构建命令：`npm run mobile:android:release`；APK 大小约 `105.7 MB`。
+- 安装命令：`adb -s wsvwypiz7xwslvl7 install -r apps/mobile/build/app/outputs/flutter-apk/app-release.apk`。
+- HTTP/HLS 服务：`python3 scripts/range-http-server.py --bind 0.0.0.0 --port 8765 --directory /tmp/fluxdown-e2e-hls`。
+- USB 映射：`adb -s wsvwypiz7xwslvl7 reverse tcp:8765 tcp:8765`。
+- 资源：`http://127.0.0.1:8765/http-small.txt`（21 B）、
+  `http://127.0.0.1:8765/playlist.m3u8`（两段 TS，输出 24 B）。
+
+### 前台结果
+
+| 用例 | 操作与结果 | 证据 |
+| --- | --- | --- |
+| HTTP 小文件，修复前 | 使用默认 16 线程新建任务，收到完整 `21 B` 后进入失败 | 任务卡片显示 `文件读写失败`、`21 B / 21 B`；服务端收到多个 Range 请求。 |
+| HTTP 小文件，修复后 | 新增任务，保持设置中的 16 线程，正常完成 | 任务卡片显示 `已完成 100%`、`HTTP · 127.0.0.1/http-small.txt`、`21 B / 21 B`；同一资源未再出现文件读写失败。 |
+| HLS 小播放列表 | 新建任务，识别为 `M3U8 · 移动端内建`，文件名自动为 `playlist.mp4` | 任务卡片显示 `已完成 100%`、`M3U8 · 127.0.0.1/playlist.m3u8`、`24 B / 24 B`。 |
+| 设置保存与回显 | 设置页读取并显示下载保存位置、并发、线程、重试 | 真机页面回显 `/data/user/0/dev.fluxdown.mobile/app_flutter/downloads`、`5`、`16`、`3`；版本显示 `v1.0.22`。 |
+
+### 本轮代码修复与自动化回归
+
+- HTTP Range 分片现在按资源大小限制并发：每个分片至少保留 1 KiB，极小文件自动回退单流，大文件仍按用户配置使用多线程。
+- 新增 21 B 文件在 16 线程配置下回退单流的 Flutter 回归测试。
+- `downloads HTTP files with multiple Range threads` 通过；新增
+  `uses a single stream for tiny HTTP files with many configured threads` 通过。
+- 当前未把暂停/继续的长文件真机尝试写成通过：本轮长任务操作期间设备外部测试应用抢占前台，未形成可审计的完整暂停、继续和重启恢复证据，后续需在稳定前台环境补测。
+
 > 历史验证记录：本文协议结果采集自 `1.0.4`（`versionCode=5`），不代表当前 `1.0.8+9` 已重新完成全部协议下载。2026-08-04 仅在同一台 Redmi Note 8 Pro 上安装并复验当前 release APK 的启动、任务页、新建弹框和设置页 UI。
 
 ## 2026-07-01 公开动画 Torrent/Magnet 前台验证

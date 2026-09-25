@@ -1,5 +1,13 @@
 # 下载验证状态
 
+## 2026-09-25 Android `1.0.22` 源码工作树真实前台复验
+
+- 设备 `wsvwypiz7xwslvl7`（Redmi Note 8 Pro，Android 16）安装本地重新构建的 `dev.fluxdown.mobile` `1.0.22 (23)` Release APK；官方已发布的 `v1.0.22` 资产未因本轮工作树修复而改写。
+- 通过 USB `adb reverse` 使用本地 Range HTTP fixture，正常打开 App、点击右下角新建任务、输入链接并开始下载；未使用 `Test starting...` integration runner 页面。
+- 真实通过：HTTP 21 B 小文件、HLS 两段 TS 播放列表并输出 `playlist.mp4`（24 B）；设置页真实回显保存位置、并发 `5`、线程 `16`、自动重试 `3`。
+- 发现并修复移动端 HTTP 极小文件的多 Range 并发落盘失败：资源小于配置线程所需的分片粒度时自动回退单流；原有多 Range 测试和新增 21 B/16 线程回归均通过。
+- 未完成边界：长文件暂停/继续/重启恢复本轮没有形成稳定真机证据；Torrent/Magnet metadata 和文件选择需在同一前台环境继续验证。本节不把历史版本协议结果升级为当前版本证据。
+
 ## 2026-09-10 跨端下载默认值调整（工作树，未发布）
 
 - Android/iOS 共用的 Flutter App、macOS/Windows/Linux 共用的桌面 App，以及三平台 CLI 默认值统一为：并发任务 `5`、单任务下载线程 `16`、自动重试 `3` 次；边界仍为并发 `1-30`、线程 `1-32`、重试 `0-10`。

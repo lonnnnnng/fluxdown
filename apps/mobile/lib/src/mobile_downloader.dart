@@ -25,6 +25,12 @@ class DownloadCancelled implements Exception {
 
 const _mediaChannel = MethodChannel('dev.fluxdown.mobile/media');
 
+// 作者: long
+// 极小文件拆成过多 Range 分片会放大移动端并发文件句柄和临时文件开销，
+// 甚至在真实设备的 Release 沙盒中出现落盘失败；每个分片至少保留 1 KiB，
+// 大文件仍会按照用户配置使用多线程下载。
+const _minimumRangePartBytes = 1024;
+
 class MobileDownloadRunner {
   MobileDownloadRunner({http.Client? client})
     : this.withLauncher(client: client);
@@ -300,7 +306,10 @@ class MobileDownloadRunner {
       return null;
     }
 
-    final effectiveThreadCount = threadCount.clamp(1, totalBytes).toInt();
+    final maxThreadsForPayload = (totalBytes ~/ _minimumRangePartBytes)
+        .clamp(1, threadCount)
+        .toInt();
+    final effectiveThreadCount = maxThreadsForPayload;
     if (effectiveThreadCount <= 1) {
       return null;
     }

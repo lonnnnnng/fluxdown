@@ -1094,6 +1094,76 @@ void main() {
     }
   });
 
+  test(
+    'uses a single stream for tiny HTTP files with many configured threads',
+    () async {
+      final payload = List<int>.generate(21, (index) => index + 1);
+      final tempDir = await Directory.systemTemp.createTemp(
+        'fluxdown_mobile_tiny_http_test_',
+      );
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      var rangeRequests = 0;
+      final serverDone = server.listen((request) async {
+        request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+        if (request.method == 'HEAD') {
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..headers.contentLength = payload.length;
+          await request.response.close();
+          return;
+        }
+
+        final range = request.headers.value(HttpHeaders.rangeHeader);
+        if (range != null) {
+          rangeRequests += 1;
+          final match = RegExp(r'bytes=(\d+)-(\d+)').firstMatch(range);
+          final start = int.parse(match!.group(1)!);
+          final end = int.parse(match.group(2)!);
+          request.response
+            ..statusCode = HttpStatus.partialContent
+            ..headers.set(
+              HttpHeaders.contentRangeHeader,
+              'bytes $start-$end/${payload.length}',
+            )
+            ..headers.contentLength = end - start + 1
+            ..add(payload.sublist(start, end + 1));
+        } else {
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..headers.contentLength = payload.length
+            ..add(payload);
+        }
+        await request.response.close();
+      });
+
+      try {
+        final source = 'http://${server.address.host}:${server.port}/tiny.bin';
+        final task = DownloadTask.create(
+          source: source,
+          outputFolder: tempDir.path,
+          fileName: 'tiny.bin',
+        );
+        final finished = await MobileDownloadRunner().downloadHttp(
+          task,
+          threadCount: 16,
+          onProgress: (_) {},
+        );
+
+        expect(finished.state, DownloadState.finished);
+        expect(finished.downloadedBytes, payload.length);
+        expect(rangeRequests, 0);
+        expect(
+          await File(p.join(tempDir.path, 'tiny.bin')).readAsBytes(),
+          payload,
+        );
+      } finally {
+        await server.close(force: true);
+        await serverDone.cancel();
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
+
   test('retries incomplete HTTP Range parts', () async {
     final payload = List<int>.generate(4096, (index) => index % 251);
     final tempDir = await Directory.systemTemp.createTemp(
