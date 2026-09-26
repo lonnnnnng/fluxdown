@@ -7,8 +7,8 @@
 //    - iOS: Runner 构建阶段执行 scripts/build-ios-ffi.sh，按目标架构链接静态库。
 // 2. 加载：Android 上 DynamicLibrary.open('libfluxdown_ffi.so')；iOS 上
 //    DynamicLibrary.process()（静态链接）。[FluxDownCoreFfi.open] 已按平台处理。
-// 3. 当前仅协议识别接入产品调用链；异步队列接口用于迁移验证，移动下载仍由 Dart/原生适配器执行。
-//    queueRun 保留同步兼容入口，queueRunAsync/status/pause/resume 为后续控制器迁移准备。
+// 3. 协议识别接入默认产品调用链；异步队列接口由 RustQueueBackend 显式注入控制器时使用，
+//    默认移动下载仍由 Dart/原生适配器执行。queueRun 保留同步兼容入口，其他接口负责迁移验证。
 //
 // 协议与队列调用返回统一信封 {ok, data, error}；ABI/版本是独立标量。
 // 任务 JSON 与桌面端 serde schema 对齐（见 docs/task-schema.md）。
@@ -68,6 +68,10 @@ class FluxDownCoreTask {
     this.expectedSha256,
     this.totalBytes,
     this.downloadedBytes = 0,
+    this.currentSpeedBytesPerSecond = 0,
+    this.error,
+    this.startedAt,
+    this.finishedAt,
   });
 
   factory FluxDownCoreTask.fromJson(Map<String, Object?> json) {
@@ -81,6 +85,11 @@ class FluxDownCoreTask {
       expectedSha256: json['expected_sha256'] as String?,
       totalBytes: json['total_bytes'] as int?,
       downloadedBytes: json['downloaded_bytes'] as int? ?? 0,
+      currentSpeedBytesPerSecond:
+          json['current_speed_bytes_per_second'] as int? ?? 0,
+      error: json['error'] as String?,
+      startedAt: _dateTimeFromMilliseconds(json['started_at_ms']),
+      finishedAt: _dateTimeFromMilliseconds(json['finished_at_ms']),
     );
   }
 
@@ -93,6 +102,10 @@ class FluxDownCoreTask {
   final String? expectedSha256;
   final int? totalBytes;
   final int downloadedBytes;
+  final int currentSpeedBytesPerSecond;
+  final String? error;
+  final DateTime? startedAt;
+  final DateTime? finishedAt;
 }
 
 typedef _AbiNative = Int32 Function();
@@ -107,6 +120,11 @@ typedef _StringInDart = Pointer<Utf8> Function(Pointer<Utf8>);
 typedef _TwoStringsNative =
     Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
 typedef _TwoStringsDart = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
+
+typedef _ThreeStringsNative =
+    Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _ThreeStringsDart =
+    Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
 
 typedef _FreeNative = Void Function(Pointer<Utf8>);
 typedef _FreeDart = void Function(Pointer<Utf8>);
@@ -138,10 +156,14 @@ class FluxDownCoreFfi {
     _queueRunAsync = _lib.lookupFunction<_TwoStringsNative, _TwoStringsDart>(
       'fluxdown_queue_run_async',
     );
-    _queueRunQueuedAsync = _lib.lookupFunction<
-      _TwoStringsNative,
-      _TwoStringsDart
-    >('fluxdown_queue_run_queued_async');
+    _queueRunWithOptionsAsync = _lib
+        .lookupFunction<_ThreeStringsNative, _ThreeStringsDart>(
+          'fluxdown_queue_run_with_options_async',
+        );
+    _queueRunQueuedAsync = _lib
+        .lookupFunction<_TwoStringsNative, _TwoStringsDart>(
+          'fluxdown_queue_run_queued_async',
+        );
     _queueRunStatus = _lib.lookupFunction<_StringInNative, _StringInDart>(
       'fluxdown_queue_run_status',
     );
@@ -153,6 +175,12 @@ class FluxDownCoreFfi {
     );
     _queueResume = _lib.lookupFunction<_TwoStringsNative, _TwoStringsDart>(
       'fluxdown_queue_resume',
+    );
+    _queueRemove = _lib.lookupFunction<_TwoStringsNative, _TwoStringsDart>(
+      'fluxdown_queue_remove',
+    );
+    _queueReset = _lib.lookupFunction<_TwoStringsNative, _TwoStringsDart>(
+      'fluxdown_queue_reset',
     );
     _free = _lib.lookupFunction<_FreeNative, _FreeDart>('fluxdown_string_free');
   }
@@ -180,11 +208,14 @@ class FluxDownCoreFfi {
   late final _TwoStringsDart _queueAdd;
   late final _TwoStringsDart _queueRun;
   late final _TwoStringsDart _queueRunAsync;
+  late final _ThreeStringsDart _queueRunWithOptionsAsync;
   late final _TwoStringsDart _queueRunQueuedAsync;
   late final _StringInDart _queueRunStatus;
   late final _StringInDart _queueRunForget;
   late final _TwoStringsDart _queuePause;
   late final _TwoStringsDart _queueResume;
+  late final _TwoStringsDart _queueRemove;
+  late final _TwoStringsDart _queueReset;
   late final _FreeDart _free;
 
   int abi() => _abi();
@@ -223,13 +254,25 @@ class FluxDownCoreFfi {
   Map<String, Object?> queueRunAsync(String storePath, String taskId) =>
       _unwrapMap(_callTwo(_queueRunAsync, storePath, taskId));
 
+  Map<String, Object?> queueRunWithOptionsAsync(
+    String storePath,
+    String taskId,
+    Map<String, Object?> options,
+  ) => _unwrapMap(
+    _callThree(
+      _queueRunWithOptionsAsync,
+      storePath,
+      taskId,
+      jsonEncode(options),
+    ),
+  );
+
   Map<String, Object?> queueRunQueuedAsync(
     String storePath,
     Map<String, Object?> options,
-  ) =>
-      _unwrapMap(
-        _callTwo(_queueRunQueuedAsync, storePath, jsonEncode(options)),
-      );
+  ) => _unwrapMap(
+    _callTwo(_queueRunQueuedAsync, storePath, jsonEncode(options)),
+  );
 
   Map<String, Object?> queueRunStatus(String runId) =>
       _unwrapMap(_call(_queueRunStatus, runId));
@@ -246,6 +289,15 @@ class FluxDownCoreFfi {
   FluxDownCoreTask queueResume(String storePath, String taskId) =>
       FluxDownCoreTask.fromJson(
         _unwrapMap(_callTwo(_queueResume, storePath, taskId)),
+      );
+
+  void queueRemove(String storePath, String taskId) {
+    _unwrap(_callTwo(_queueRemove, storePath, taskId));
+  }
+
+  FluxDownCoreTask queueReset(String storePath, String taskId) =>
+      FluxDownCoreTask.fromJson(
+        _unwrapMap(_callTwo(_queueReset, storePath, taskId)),
       );
 
   /// 解包信封：成功返回 data 载荷（可能是任意 JSON 值），失败抛异常。
@@ -286,4 +338,26 @@ class FluxDownCoreFfi {
       ),
     ),
   );
+
+  String _callThree(
+    _ThreeStringsDart call,
+    String first,
+    String second,
+    String third,
+  ) => using(
+    (arena) => _toDart(
+      call(
+        first.toNativeUtf8(allocator: arena),
+        second.toNativeUtf8(allocator: arena),
+        third.toNativeUtf8(allocator: arena),
+      ),
+    ),
+  );
+}
+
+DateTime? _dateTimeFromMilliseconds(Object? value) {
+  if (value is num && value > 0) {
+    return DateTime.fromMillisecondsSinceEpoch(value.toInt(), isUtc: true);
+  }
+  return null;
 }

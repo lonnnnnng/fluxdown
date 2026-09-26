@@ -170,6 +170,9 @@ pub extern "C" fn fluxdown_queue_add(
             .map(std::path::PathBuf::from)
             .unwrap_or_else(default_store_path_dir);
         let mut request = DownloadRequest::new(source, output_dir);
+        if let Some(task_id) = payload.get("taskId").and_then(|value| value.as_str()) {
+            request.task_id = Some(task_id.to_string());
+        }
         if let Some(name) = payload.get("fileName").and_then(|value| value.as_str()) {
             request.file_name = Some(name.to_string());
         }
@@ -286,6 +289,33 @@ pub extern "C" fn fluxdown_queue_run_async(
 ) -> *mut c_char {
     let store_path = cstr_to_string(store_path);
     let task_id = cstr_to_string(task_id);
+    let run_id = spawn_async_task(store_path, task_id, QueueRunnerOptions::default());
+
+    string_to_cstr(envelope::<serde_json::Value>(Ok(
+        json!({ "runId": run_id }),
+    )))
+}
+
+/// 启动带移动端设置的单任务异步下载；队列并发字段在单任务入口中不参与调度。
+#[unsafe(no_mangle)]
+pub extern "C" fn fluxdown_queue_run_with_options_async(
+    store_path: *const c_char,
+    task_id: *const c_char,
+    options_json: *const c_char,
+) -> *mut c_char {
+    let store_path = cstr_to_string(store_path);
+    let task_id = cstr_to_string(task_id);
+    let (_, options) = match queue_options_from_json(&cstr_to_string(options_json)) {
+        Ok(options) => options,
+        Err(error) => return string_to_cstr(envelope::<serde_json::Value>(Err(error))),
+    };
+    let run_id = spawn_async_task(store_path, task_id, options);
+    string_to_cstr(envelope::<serde_json::Value>(Ok(
+        json!({ "runId": run_id }),
+    )))
+}
+
+fn spawn_async_task(store_path: String, task_id: String, options: QueueRunnerOptions) -> String {
     let run_id = next_async_run_id();
     let state = Arc::new(StdMutex::new(AsyncRunState::Running));
     {
@@ -299,7 +329,7 @@ pub extern "C" fn fluxdown_queue_run_async(
         let result = {
             let store = open_store(&store_path);
             QueueRunner::new(store)
-                .run_task_with_options(&task_id, QueueRunnerOptions::default())
+                .run_task_with_options(&task_id, options)
                 .await
                 .map_err(|error| error.to_string())
                 .and_then(|report| serde_json::to_value(report).map_err(|error| error.to_string()))
@@ -310,10 +340,7 @@ pub extern "C" fn fluxdown_queue_run_async(
             Err(error) => AsyncRunState::Failed(error),
         };
     });
-
-    string_to_cstr(envelope::<serde_json::Value>(Ok(
-        json!({ "runId": run_id }),
-    )))
+    run_id
 }
 
 /// 按移动端设置异步运行队列。`options_json` 支持 concurrency/threadCount/retryAttempts，
@@ -451,6 +478,49 @@ pub extern "C" fn fluxdown_queue_resume(
             .await
             .map_err(|error| error.to_string())?;
         serde_json::to_value(task).map_err(|error| error.to_string())
+    });
+    string_to_cstr(envelope::<serde_json::Value>(output))
+}
+
+/// 从 Rust 队列移除任务；移动端删除任务前先调用该接口，避免 native queue.json 留下孤儿任务。
+#[unsafe(no_mangle)]
+pub extern "C" fn fluxdown_queue_remove(
+    store_path: *const c_char,
+    task_id: *const c_char,
+) -> *mut c_char {
+    let store_path = cstr_to_string(store_path);
+    let task_id = cstr_to_string(task_id);
+    let output = runtime().block_on(async {
+        open_store(&store_path)
+            .remove(&task_id)
+            .await
+            .map(|_| json!({ "removed": task_id }))
+            .map_err(|error| error.to_string())
+    });
+    string_to_cstr(envelope::<serde_json::Value>(output))
+}
+
+/// 重置任务的断点与终态，供移动端“重新下载/重试”重新进入 queued。
+#[unsafe(no_mangle)]
+pub extern "C" fn fluxdown_queue_reset(
+    store_path: *const c_char,
+    task_id: *const c_char,
+) -> *mut c_char {
+    let store_path = cstr_to_string(store_path);
+    let task_id = cstr_to_string(task_id);
+    let output = runtime().block_on(async {
+        let store = open_store(&store_path);
+        let mut task = store
+            .get(&task_id)
+            .await
+            .map_err(|error| error.to_string())?;
+        task.reset_for_restart();
+        task.set_state(DownloadState::Queued);
+        store
+            .update(task)
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|task| serde_json::to_value(task).map_err(|error| error.to_string()))
     });
     string_to_cstr(envelope::<serde_json::Value>(output))
 }
@@ -647,6 +717,64 @@ mod tests {
             serde_json::from_str(resumed_value).expect("valid resume JSON");
         assert_eq!(resumed_json["data"]["state"], "queued");
         fluxdown_string_free(resumed);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn queue_reset_and_remove_update_task_store() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("fluxdown-ffi-reset-{suffix}"));
+        fs::create_dir_all(&root).expect("create temporary queue directory");
+        let store = CString::new(root.join("queue.json").to_string_lossy().as_bytes())
+            .expect("queue path contains no NUL");
+        let payload = CString::new(format!(
+            r#"{{"source":"https://example.com/file.bin","outputDir":"{}"}}"#,
+            root.to_string_lossy()
+        ))
+        .expect("payload contains no NUL");
+        let added = fluxdown_queue_add(store.as_ptr(), payload.as_ptr());
+        let added_value = unsafe { CStr::from_ptr(added) }
+            .to_str()
+            .expect("add response is UTF-8");
+        let added_json: serde_json::Value =
+            serde_json::from_str(added_value).expect("valid add JSON");
+        let task_id = CString::new(added_json["data"]["id"].as_str().expect("task id")).unwrap();
+        fluxdown_string_free(added);
+
+        let paused = fluxdown_queue_pause(store.as_ptr(), task_id.as_ptr());
+        fluxdown_string_free(paused);
+        let reset = fluxdown_queue_reset(store.as_ptr(), task_id.as_ptr());
+        let reset_value = unsafe { CStr::from_ptr(reset) }
+            .to_str()
+            .expect("reset response is UTF-8");
+        let reset_json: serde_json::Value =
+            serde_json::from_str(reset_value).expect("valid reset JSON");
+        assert_eq!(reset_json["data"]["state"], "queued");
+        assert_eq!(reset_json["data"]["downloaded_bytes"], 0);
+        fluxdown_string_free(reset);
+
+        let removed = fluxdown_queue_remove(store.as_ptr(), task_id.as_ptr());
+        let removed_value = unsafe { CStr::from_ptr(removed) }
+            .to_str()
+            .expect("remove response is UTF-8");
+        let removed_json: serde_json::Value =
+            serde_json::from_str(removed_value).expect("valid remove JSON");
+        assert_eq!(removed_json["data"]["removed"], task_id.to_str().unwrap());
+        fluxdown_string_free(removed);
+        let listed = fluxdown_queue_list(store.as_ptr());
+        let listed_value = unsafe { CStr::from_ptr(listed) }
+            .to_str()
+            .expect("list response is UTF-8");
+        let listed_json: serde_json::Value =
+            serde_json::from_str(listed_value).expect("valid list JSON");
+        assert_eq!(
+            listed_json["data"].as_array().map(|items| items.len()),
+            Some(0)
+        );
+        fluxdown_string_free(listed);
         let _ = fs::remove_dir_all(root);
     }
 

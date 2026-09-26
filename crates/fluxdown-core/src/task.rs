@@ -123,6 +123,12 @@ impl DownloadTask {
     pub fn from_request(request: DownloadRequest) -> Self {
         let millis = now_ms();
         let protocol = request.protocol();
+        // 作者: long
+        // 跨端迁移需要在 Rust 队列中保留移动任务 ID；没有显式 ID 的 CLI/桌面请求仍使用新的 UUID，避免改变既有入队行为。
+        let task_id = request
+            .task_id
+            .filter(|id| !id.trim().is_empty())
+            .unwrap_or_else(|| format!("task-{}", Uuid::new_v4()));
         let file_name = request
             .file_name
             .filter(|name| !name.trim().is_empty())
@@ -130,7 +136,7 @@ impl DownloadTask {
         let file_name = file_name.or_else(|| Some(suggested_download_file_name(&request.source)));
 
         Self {
-            id: format!("task-{}", Uuid::new_v4()),
+            id: task_id,
             protocol,
             support: support_status(protocol),
             source: request.source,
@@ -580,6 +586,17 @@ mod tests {
         assert!(!restored.hls_keep_transport_stream);
         // 请求重建时新字段随任务字段回填，task_id 用于运行时状态关联。
         assert_eq!(restored.request().task_id, Some(restored.id.clone()));
+    }
+
+    #[test]
+    fn preserves_explicit_task_id_for_cross_runtime_queue_mapping() {
+        let mut request = DownloadRequest::new("https://example.com/file.bin", "/tmp");
+        request.task_id = Some("mobile-task-42".to_string());
+
+        let task = DownloadTask::from_request(request);
+
+        assert_eq!(task.id, "mobile-task-42");
+        assert_eq!(task.request().task_id, Some("mobile-task-42".to_string()));
     }
 
     #[test]

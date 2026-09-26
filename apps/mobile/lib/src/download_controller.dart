@@ -8,9 +8,11 @@ import 'package:pointycastle/digests/sha256.dart';
 import 'download_defaults.dart';
 import 'download_failure.dart';
 import 'download_task.dart';
+import 'ffi/fluxdown_ffi.dart';
 import 'mobile_downloader.dart';
 import 'mobile_torrent.dart';
 import 'protocol.dart';
+import 'rust_queue_backend.dart';
 import 'task_store.dart';
 
 class MobileQueueRunReport {
@@ -31,13 +33,16 @@ class DownloadController {
   DownloadController({
     TaskStore? store,
     MobileDownloadRunner? runner,
+    RustQueueBackend? rustBackend,
     void Function()? onChanged,
   }) : _store = store ?? TaskStore(),
        _runner = runner ?? MobileDownloadRunner(),
+       _rustBackend = rustBackend,
        _onChanged = onChanged;
 
   final TaskStore _store;
   final MobileDownloadRunner _runner;
+  final RustQueueBackend? _rustBackend;
   final void Function()? _onChanged;
   final List<DownloadTask> _tasks = [];
   final Set<String> _activeTaskIds = {};
@@ -110,6 +115,14 @@ class DownloadController {
   Future<void> remove(String id) async {
     _runner.cancel(id);
     _runner.discardTorrent(id);
+    // 作者: long
+    // Rust 迁移队列与 Flutter 队列是两份持久化数据；删除时必须同时清掉 native 任务，
+    // 否则下一次轮询可能把已删除的任务重新写回或继续占用下载资源。
+    try {
+      _rustBackend?.remove(id);
+    } on Object {
+      // Dart-only 任务尚未同步到 Rust 队列时，native 删除失败不应阻止本地删除。
+    }
     _pendingStarts.remove(id);
     _tasks.removeWhere((task) => task.id == id);
     await _save();
@@ -118,6 +131,11 @@ class DownloadController {
 
   Future<void> pause(String id) async {
     _runner.cancel(id);
+    try {
+      _rustBackend?.pause(id);
+    } on Object {
+      // 任务仍由 Dart/原生适配器执行，或尚未进入 Rust 队列时忽略 native 侧未找到错误。
+    }
     final now = DateTime.now().toUtc();
     _replace(
       id,
@@ -135,6 +153,11 @@ class DownloadController {
   Future<void> resetForRedownload(String id) async {
     _runner.cancel(id);
     _runner.discardTorrent(id);
+    try {
+      _rustBackend?.reset(id);
+    } on Object {
+      // 旧任务可能只存在于 Flutter 队列；本地重置仍需继续完成。
+    }
     _pendingStarts.remove(id);
     _replace(
       id,
@@ -222,6 +245,16 @@ class DownloadController {
       );
       await _save();
       _emit();
+      return;
+    }
+
+    if (_rustBackend != null) {
+      await _startActiveTaskWithRust(
+        task,
+        maxRetries: maxRetries,
+        speedLimitKbps: speedLimitKbps,
+        threadCount: threadCount,
+      );
       return;
     }
 
@@ -363,6 +396,64 @@ class DownloadController {
     _emit();
   }
 
+  Future<void> _startActiveTaskWithRust(
+    DownloadTask task, {
+    required int maxRetries,
+    required int speedLimitKbps,
+    required int threadCount,
+  }) async {
+    final backend = _rustBackend!;
+    try {
+      // 作者: long
+      // 单任务入口允许 queued/paused/failed 继续执行；先确保 Flutter 任务已映射到
+      // Rust 队列，避免直接启动一个不存在的 native ID。
+      final native = backend.list().where((item) => item.id == task.id);
+      if (native.isEmpty) {
+        backend.enqueue(task);
+      }
+      final result = await backend.runTask(
+        task.id,
+        threadCount: threadCount,
+        retryAttempts: maxRetries,
+        speedLimitKbps: speedLimitKbps,
+        onProgress: (nativeTasks) async {
+          _applyRustTasks(nativeTasks);
+          await _save();
+          _emit();
+        },
+      );
+      _applyRustTasks(backend.list());
+      if (result.failed) {
+        _replace(
+          task.id,
+          (current) => current.state == DownloadState.failed
+              ? current
+              : current.copyWith(
+                  state: DownloadState.failed,
+                  error: result.error ?? 'Rust 下载失败',
+                  finishedAt: DateTime.now().toUtc(),
+                  currentSpeedBytesPerSecond: 0,
+                ),
+        );
+      }
+      await _save();
+      _emit();
+    } on Object catch (error) {
+      // 这是显式注入 Rust 后端的路径；句柄启动失败时将错误写回任务，避免静默停在 queued。
+      _replace(
+        task.id,
+        (current) => current.copyWith(
+          state: DownloadState.failed,
+          error: 'Rust 队列启动失败：$error',
+          finishedAt: DateTime.now().toUtc(),
+          currentSpeedBytesPerSecond: 0,
+        ),
+      );
+      await _save();
+      _emit();
+    }
+  }
+
   Future<MobileQueueRunReport> runQueued({
     int concurrency = defaultQueueConcurrency,
     int maxRetries = defaultRetryAttempts,
@@ -418,6 +509,16 @@ class DownloadController {
     required int threadCount,
     TorrentMetadataSelector? onTorrentMetadata,
   }) async {
+    final rustReport = await _runQueuedWithRust(
+      concurrency: concurrency,
+      maxRetries: maxRetries,
+      speedLimitKbps: speedLimitKbps,
+      threadCount: threadCount,
+    );
+    if (rustReport != null) {
+      return rustReport;
+    }
+
     final workerCount = concurrency.clamp(1, 30).toInt();
     final seen = <String>{};
     var started = 0;
@@ -454,6 +555,114 @@ class DownloadController {
       finished: finished,
       failed: failed,
     );
+  }
+
+  Future<MobileQueueRunReport?> _runQueuedWithRust({
+    required int concurrency,
+    required int maxRetries,
+    required int speedLimitKbps,
+    required int threadCount,
+  }) async {
+    final backend = _rustBackend;
+    if (backend == null) return null;
+
+    try {
+      // 作者: long
+      // 先把 Rust 中已有的同 ID 终态同步到 Flutter，再决定本轮 queued 集合；
+      // 这样应用重启或上次运行完成后不会把同一任务重复下载或永久显示为 queued。
+      _applyRustTasks(backend.list());
+      await _save();
+      _emit();
+    } on Object {
+      return null;
+    }
+    final queued = _tasks
+        .where((task) => task.state == DownloadState.queued)
+        .toList(growable: false);
+    if (queued.isEmpty) {
+      return const MobileQueueRunReport(
+        totalQueued: 0,
+        started: 0,
+        finished: 0,
+        failed: 0,
+      );
+    }
+
+    // 作者: long
+    // 只有 Rust 句柄尚未启动时允许初始化失败回退；启动后不能再让 Dart 复制执行同一批任务。
+    try {
+      backend.ensureTasks(queued);
+    } on Object {
+      return null;
+    }
+
+    final result = await backend.runQueued(
+      concurrency: concurrency,
+      threadCount: threadCount,
+      retryAttempts: maxRetries,
+      speedLimitKbps: speedLimitKbps,
+      onProgress: (nativeTasks) async {
+        _applyRustTasks(nativeTasks);
+        await _save();
+        _emit();
+      },
+    );
+    _applyRustTasks(backend.list());
+    await _save();
+    _emit();
+
+    final report = result.report;
+    return MobileQueueRunReport(
+      totalQueued: (report?['total_queued'] as num?)?.toInt() ?? queued.length,
+      started: (report?['started'] as num?)?.toInt() ?? 0,
+      finished: (report?['finished'] as num?)?.toInt() ?? 0,
+      failed:
+          (report?['failed'] as num?)?.toInt() ??
+          (result.failed ? queued.length : 0),
+    );
+  }
+
+  void _applyRustTasks(List<FluxDownCoreTask> nativeTasks) {
+    final byId = {for (final task in nativeTasks) task.id: task};
+    for (var index = 0; index < _tasks.length; index += 1) {
+      final current = _tasks[index];
+      final native = byId[current.id];
+      if (native == null) continue;
+      if (current.state == DownloadState.paused && native.state == 'running') {
+        // 作者: long
+        // 暂停先写入 Flutter 队列时，旧 Rust 轮询可能晚到一个 running 快照；
+        // 不能让这次迟到回调把用户刚点下的暂停恢复成下载中。
+        continue;
+      }
+      final state = switch (native.state) {
+        'queued' => DownloadState.queued,
+        'running' => DownloadState.running,
+        'paused' => DownloadState.paused,
+        'finished' => DownloadState.finished,
+        'failed' => DownloadState.failed,
+        _ => current.state,
+      };
+      final shouldClearStartedAt =
+          native.startedAt == null && state == DownloadState.queued;
+      final shouldClearFinishedAt =
+          state != DownloadState.finished && state != DownloadState.failed;
+      _tasks[index] = current.copyWith(
+        state: state,
+        startedAt: native.startedAt,
+        clearStartedAt: shouldClearStartedAt,
+        finishedAt: native.finishedAt,
+        clearFinishedAt: shouldClearFinishedAt,
+        clearTotalBytes:
+            native.totalBytes == null && state == DownloadState.queued,
+        fileName: native.fileName,
+        downloadedBytes: native.downloadedBytes,
+        totalBytes: native.totalBytes,
+        currentSpeedBytesPerSecond: native.currentSpeedBytesPerSecond,
+        error: native.error,
+        clearError: native.error == null,
+        clearPausedAt: state != DownloadState.paused,
+      );
+    }
   }
 
   String? _nextQueuedTaskId() {

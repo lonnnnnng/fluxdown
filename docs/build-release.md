@@ -195,7 +195,7 @@ bash scripts/build-ios-ffi.sh
 - 脚本默认构建真机 arm64 静态库；Runner 的 `Build FluxDown FFI` 阶段会根据 `PLATFORM_NAME` / `ARCHS` 构建真机或模拟器库，多模拟器架构使用 `lipo` 合并。
 - Rust 与 C 依赖共用 `IPHONEOS_DEPLOYMENT_TARGET=15.0`，与 Runner 对齐。不要让 Rust 默认部署目标与 Xcode SDK/Runner 目标分离。
 - 产物分别位于 `target/ffi-ios/iphoneos/libfluxdown_ffi.a` 和 `target/ffi-ios/iphonesimulator/libfluxdown_ffi.a`，不能因为两者都是 arm64 就混用。
-- `ios/Flutter/FluxDownFfi.xcconfig` 链入静态库和系统依赖，并保留 8 个 C ABI 导出，避免 Release dead-strip 后 `DynamicLibrary.process()` 找不到符号。Debug/Release 配置均包含该文件。
+- `ios/Flutter/FluxDownFfi.xcconfig` 链入静态库和系统依赖，并保留当前 17 个 C ABI 导出（含异步运行与队列控制），避免 Release dead-strip 后 `DynamicLibrary.process()` 找不到符号。Debug/Release 配置均包含该文件。
 - 手动 CI 复用同一脚本，并上传真机静态库 `fluxdown-ffi-ios-static`。静态库 artifact 不是可安装 App，也不能单独证明 Runner 已正确链接。
 
 ### FFI 回归测试
@@ -210,9 +210,9 @@ flutter test --dart-define=FLUXDOWN_FFI_TEST_LIBRARY="$(cd ../.. && pwd)/target/
 
 Linux 库为 `target/debug/libfluxdown_ffi.so`，Windows 为 `target/debug/fluxdown_ffi.dll`，参数须指向当前 host 的绝对路径，不是 Android/iOS 交叉编译产物。Android CI job 在 Linux host 编译该库并传入 Flutter 测试。
 
-`test/core_ffi_test.dart` 覆盖信封解析、ABI/版本、12 类协议识别、Unicode 队列、错误透传，以及真实本地 HTTP 下载后的内容与大小核验。不传该参数时原生库相关的 4 项会跳过，仅跑 Dart 信封测试；不能把这一结果写成 FFI 验证通过。
+`test/core_ffi_test.dart` 覆盖信封解析、ABI/版本、12 类协议识别、Unicode 队列、错误透传、非阻塞运行句柄、真实本地 HTTP 下载，以及 RustQueueBackend 的单任务/队列运行、时间戳回写和暂停/继续/重置/删除同步。不传该参数时原生库相关用例会跳过，仅跑 Dart 信封测试；不能把这一结果写成 FFI 验证通过。
 
-`queueRun` 仍是同步兼容调用；迁移验证可使用 `queueRunAsync` 或带设置透传的 `queueRunQueuedAsync` 获取运行句柄，再用 `queueRunStatus` 查询结束结果、`queueList` 读取实时任务进度，并用 `queuePause`/`queueResume` 控制暂停与继续。句柄完成后调用 `queueRunForget` 回收。当前 Flutter 产品仍未切换到 Rust 下载控制器，测试把 HTTP 服务放在独立 isolate，避免服务端与同步兼容调用互相阻塞。
+`queueRun` 仍是同步兼容调用；迁移验证可使用 `queueRunAsync`、带设置透传的 `queueRunWithOptionsAsync` 或 `queueRunQueuedAsync` 获取运行句柄，再用 `queueRunStatus` 查询结束结果、`queueList` 读取实时任务进度，并用 `queuePause`/`queueResume`/`queueReset`/`queueRemove` 控制任务。句柄完成后调用 `queueRunForget` 回收。当前 Flutter 默认产品仍未切换到 Rust 下载控制器，测试把 HTTP 服务放在独立 isolate，避免服务端与同步兼容调用互相阻塞。
 
 ## iOS 构建
 
@@ -239,7 +239,7 @@ npm run mobile:ios:simulator:verify
 npm run mobile:ios:verify
 ```
 
-这两个入口检查 App 内 `Runner` / `Runner.debug.dylib` 的 8 个 FFI 导出符号。符号检查和 unsigned 构建不代替 iOS App 运行验证或签名验证。
+这两个入口检查 App 内 `Runner` / `Runner.debug.dylib` 的当前 17 个 FFI 导出符号。符号检查和 unsigned 构建不代替 iOS App 运行验证或签名验证。
 
 iOS framework 验证：
 

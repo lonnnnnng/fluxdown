@@ -1,7 +1,8 @@
 // Rust core（crates/fluxdown-ffi）的移动端桥接层。
 //
 // 策略：动态库加载成功时协议能力走 FFI 优先（与桌面端共享 Rust core），
-// 加载失败或调用异常回退 Dart 自实现；下载执行仍由移动端控制器负责。
+// 加载失败或调用异常回退 Dart 自实现；下载执行默认仍由移动端控制器负责，
+// 迁移验证可通过 RustQueueBackend 显式注入 Rust 队列。
 // 动态库由 CI 的 Android 构建打进 jniLibs（libfluxdown_ffi.so），
 // iOS 静态库产物见 docs/build-release.md 的 FFI 章节。
 

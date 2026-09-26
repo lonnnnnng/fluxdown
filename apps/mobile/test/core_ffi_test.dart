@@ -4,7 +4,11 @@ import 'dart:isolate';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fluxdown_mobile/src/core_bridge.dart';
+import 'package:fluxdown_mobile/src/download_controller.dart';
+import 'package:fluxdown_mobile/src/download_task.dart';
 import 'package:fluxdown_mobile/src/ffi/fluxdown_ffi.dart';
+import 'package:fluxdown_mobile/src/rust_queue_backend.dart';
+import 'package:fluxdown_mobile/src/task_store.dart';
 
 const _libraryPath = String.fromEnvironment('FLUXDOWN_FFI_TEST_LIBRARY');
 const _downloadText = 'FluxDown native FFI download\n';
@@ -188,6 +192,135 @@ void main() {
               ).readAsString(),
               _downloadText,
             );
+          } finally {
+            ready.close();
+            server.kill(priority: Isolate.immediate);
+          }
+        },
+      );
+
+      test(
+        'maps a Flutter task into the isolated Rust queue backend',
+        () async {
+          final ready = ReceivePort();
+          final server = await Isolate.spawn(_serveDownload, ready.sendPort);
+          try {
+            final port = await ready.first as int;
+            final task = DownloadTask.create(
+              source: 'http://127.0.0.1:$port/ffi-download.txt',
+              outputFolder: directory.path,
+            );
+            final backend = RustQueueBackend(core: core, storePath: storePath);
+            final nativeTask = backend.enqueue(task);
+            expect(nativeTask.id, task.id);
+
+            final result = await backend.runQueued(
+              concurrency: 2,
+              threadCount: 4,
+              retryAttempts: 1,
+            );
+            expect(result.finished, isTrue);
+            expect(backend.list().single.state, 'finished');
+            expect(
+              await File('${directory.path}/${task.fileName}').readAsString(),
+              _downloadText,
+            );
+          } finally {
+            ready.close();
+            server.kill(priority: Isolate.immediate);
+          }
+        },
+      );
+
+      test(
+        'controller can opt into Rust queue execution without changing Dart default',
+        () async {
+          final ready = ReceivePort();
+          final server = await Isolate.spawn(_serveDownload, ready.sendPort);
+          try {
+            final port = await ready.first as int;
+            final controller = DownloadController(
+              store: TaskStore(baseDirectory: directory),
+              rustBackend: RustQueueBackend(core: core, storePath: storePath),
+            );
+            await controller.load();
+            final task = await controller.add(
+              source: 'http://127.0.0.1:$port/ffi-download.txt',
+              outputFolder: directory.path,
+            );
+            final report = await controller.runQueued(
+              concurrency: 1,
+              maxRetries: 1,
+              threadCount: 2,
+            );
+            expect(report.finished, 1);
+            expect(controller.tasks.single.id, task.id);
+            expect(controller.tasks.single.state, DownloadState.finished);
+            expect(controller.tasks.single.startedAt, isNotNull);
+            expect(controller.tasks.single.finishedAt, isNotNull);
+
+            // 作者: long
+            // 模拟 App 在 Rust 完成后、Flutter 状态落库前退出；下一轮队列运行应从
+            // native 终态修复旧 queued 记录，而不是再次下载同一文件。
+            final flutterStore = TaskStore(baseDirectory: directory);
+            await flutterStore.save([task]);
+            final restored = DownloadController(
+              store: flutterStore,
+              rustBackend: RustQueueBackend(core: core, storePath: storePath),
+            );
+            await restored.load();
+            expect(restored.tasks.single.state, DownloadState.queued);
+            final recoveredReport = await restored.runQueued();
+            expect(recoveredReport.totalQueued, 0);
+            expect(restored.tasks.single.state, DownloadState.finished);
+            expect(restored.tasks.single.startedAt, isNotNull);
+            expect(restored.tasks.single.finishedAt, isNotNull);
+            expect(
+              (await flutterStore.load()).single.state,
+              DownloadState.finished,
+            );
+          } finally {
+            ready.close();
+            server.kill(priority: Isolate.immediate);
+          }
+        },
+      );
+
+      test(
+        'controller pause, resume, reset and remove stay in sync with Rust queue',
+        () async {
+          final ready = ReceivePort();
+          final server = await Isolate.spawn(_serveDownload, ready.sendPort);
+          try {
+            final port = await ready.first as int;
+            final controller = DownloadController(
+              store: TaskStore(baseDirectory: directory),
+              rustBackend: RustQueueBackend(core: core, storePath: storePath),
+            );
+            await controller.load();
+            final task = await controller.add(
+              source: 'http://127.0.0.1:$port/ffi-download.txt',
+              outputFolder: directory.path,
+            );
+            final backend = RustQueueBackend(core: core, storePath: storePath);
+            backend.enqueue(task);
+
+            await controller.pause(task.id);
+            expect(controller.tasks.single.state, DownloadState.paused);
+            expect(backend.list().single.state, 'paused');
+
+            await controller.start(task.id, maxRetries: 0);
+            expect(controller.tasks.single.state, DownloadState.finished);
+            expect(controller.tasks.single.finishedAt, isNotNull);
+
+            await controller.resetForRedownload(task.id);
+            expect(controller.tasks.single.state, DownloadState.queued);
+            expect(backend.list().single.state, 'queued');
+            expect(backend.list().single.downloadedBytes, 0);
+
+            await controller.remove(task.id);
+            expect(controller.tasks, isEmpty);
+            expect(backend.list(), isEmpty);
           } finally {
             ready.close();
             server.kill(priority: Isolate.immediate);

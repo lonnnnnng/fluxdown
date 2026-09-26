@@ -56,7 +56,7 @@ Rust 请求包含 `source`、`output_dir`、可选 `file_name`、`expected_sha25
 | `hlsVariantIndex` | 否 | HLS master playlist 的 zero-based variant 编号；缺省使用第一个 |
 | `hlsKeepTransportStream` | 否 | 为 true 时保留 HLS TS 原始流，不尝试转封装为 MP4 |
 
-当前 FFI 队列接口会读取并映射 Torrent metadata、`hlsVariantIndex` 与 `hlsKeepTransportStream`；移动端下载器同时通过自己的 camelCase 队列字段执行这些选项。FFI 已提供同步和非阻塞运行投影，但不能把 Rust 运行器的全局并发、线程数、重试或限速配置视为已由移动端透传。
+当前 FFI 队列接口会读取并映射 Torrent metadata、`hlsVariantIndex` 与 `hlsKeepTransportStream`；移动端下载器同时通过自己的 camelCase 队列字段执行这些选项。显式注入 `RustQueueBackend` 时，队列并发、线程数、重试和限速会按 Rust 边界透传；默认移动生产入口仍保留 Dart/原生适配器。
 
 ### 返回值与执行边界
 
@@ -64,11 +64,11 @@ Rust 请求包含 `source`、`output_dir`、可选 `file_name`、`expected_sha25
 - 协议与队列接口返回 UTF-8 JSON 信封：成功为 `{"ok":true,"data":...}`，失败包含 `ok:false` 与 `error`。Dart 先 JSON 解码、再解包一次，不重复读取 `data`。
 - `detect` 的 `data` 包含 `protocol` 与运行态 `support`；`support` 返回运行态支持对象；`queue_list` 的 `data` 是 Rust 任务数组，`queue_add` 是单个任务。
 - Rust 返回的字符串用 `fluxdown_string_free` 释放；Dart 分配的入参由 Dart 释放，避免高频识别/轮询泄漏。
-- `fluxdown_queue_run(store_path, task_id)` 保留为同步兼容接口；`fluxdown_queue_run_async` 返回单任务运行句柄，`fluxdown_queue_run_queued_async(store_path, options_json)` 按队列设置异步调度全部 queued 任务。`fluxdown_queue_run_status` 查询完成/失败结果，任务实时进度继续从 `fluxdown_queue_list` 读取。
+- `fluxdown_queue_run(store_path, task_id)` 保留为同步兼容接口；`fluxdown_queue_run_async` 使用默认设置返回单任务运行句柄，`fluxdown_queue_run_with_options_async(store_path, task_id, options_json)` 按移动端设置启动单任务，`fluxdown_queue_run_queued_async(store_path, options_json)` 按队列设置异步调度全部 queued 任务。`fluxdown_queue_run_status` 查询完成/失败结果，任务实时进度继续从 `fluxdown_queue_list` 读取。
 - `options_json` 支持 `concurrency`（1-30）、`threadCount`（1-32）、`retryAttempts`（0-10）和 `speedLimitKbps`（KiB/s 字节限速，0/缺省不限速），边界由 Rust 核心统一收敛。
-- `fluxdown_queue_pause` / `fluxdown_queue_resume` 通过任务状态控制运行器，`fluxdown_queue_run_forget` 回收完成句柄。异步运行不持有 FFI 全局锁，暂停请求可以在下载期间落盘。
+- `fluxdown_queue_pause` / `fluxdown_queue_resume` 通过任务状态控制运行器，`fluxdown_queue_reset` 清理断点并重新进入 `queued`，`fluxdown_queue_remove` 删除 native 任务，`fluxdown_queue_run_forget` 回收完成句柄。异步运行不持有 FFI 全局锁，暂停请求可以在下载期间落盘。
 - 同一个 Rust 队列文件同时只允许一个 `fluxdown_queue_run_queued_async` 调度句柄，避免两个调用方重复启动同一批 queued 任务；单任务句柄仍由核心状态机防止 running 任务重复执行。
-- Flutter 产品目前只使用 FFI 协议识别，异步队列接口仍处于迁移验证阶段；实际下载控制器继续使用 Dart/原生适配器，待补齐设置透传和模型转换后再按协议切换。
+- Flutter 产品默认仍使用 Dart/原生适配器；`RustQueueBackend` 可独立注入 `DownloadController` 做队列迁移验证，已覆盖单任务 start/pause/resume/reset/remove、队列运行、任务 ID、进度、状态、真实文件名和 Rust 毫秒时间戳回写，初始化/入队失败时回退 Dart。完整 schema 迁移、默认生产切换和真机切换仍未完成。
 
 ## 移动端（Flutter）映射
 
@@ -85,14 +85,14 @@ Rust 请求包含 `source`、`output_dir`、可选 `file_name`、`expected_sha25
 | `current_speed_bytes_per_second` | `currentSpeedBytesPerSecond` | 命名差异 |
 | `hls_variant_index` | `hlsVariantIndex` | 移动端新建任务可选，null 使用第一个 master variant |
 | `hls_keep_transport_stream` | `hlsKeepTransportStream` | 移动端新建任务可选，默认 false；true 时保留 TS |
-| `created_at_ms` 等 | `createdAt` 等 `DateTime` | 移动端以 ISO-8601 字符串存储；当前没有与 Rust 毫秒时间戳互转的队列导入/导出流程 |
+| `created_at_ms` 等 | `createdAt` 等 `DateTime` | Rust FFI 投影会将 `started_at_ms`/`finished_at_ms` 转为 UTC `DateTime`；移动端持久化仍使用 ISO-8601，尚未提供整队列导入/导出迁移 |
 | 无 | `pausedAt` | 移动端专属暂停时间 |
 | `torrent_name` / `torrent_files` | `torrentName` / `torrentFiles` | 桌面与移动端均保存 metadata 目录名和完整文件描述；选择结果仍由 `torrent_file_indices` / `selectedTorrentFileIndexes` 保存 |
 | `torrent_file_indices` | `selectedTorrentFileIndexes` | 命名差异，均为用户确认的文件索引；空值/空数组沿用“全部”兼容语义 |
 
 `lib/src/ffi/fluxdown_ffi.dart` 的 `FluxDownCoreTask` 从 snake_case JSON 投影
 `id`、`source`、`protocol`、`state`、`file_name`、`output_dir`、`expected_sha256`、
-`total_bytes`、`downloaded_bytes`。它不是完整 Rust 任务，也不是移动端 `DownloadTask` 的替代物。
+`total_bytes`、`downloaded_bytes`、运行速度、错误和 Rust 毫秒时间戳。它仍不是完整 Rust 任务，也不是移动端 `DownloadTask` 的替代物。
 
 Rust 队列文件为 `{"tasks":[...]}`，移动端队列文件为任务数组；不要直接覆盖或互换文件。
 

@@ -205,12 +205,30 @@ function verifyIosFfiSymbols(relativeAppPath) {
       execFileSync('xcrun', ['nm', '-gjU', resolve(appPath, name)], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
         .split('\n').map((line) => line.trim().split(/\s+/).at(-1)),
     ))
-    const exports = ['ffi_abi', 'version', 'detect', 'support', 'queue_list', 'queue_add', 'queue_run', 'string_free']
+    const exports = [
+      'ffi_abi',
+      'version',
+      'detect',
+      'support',
+      'queue_list',
+      'queue_add',
+      'queue_run',
+      'queue_run_async',
+      'queue_run_with_options_async',
+      'queue_run_queued_async',
+      'queue_run_status',
+      'queue_run_forget',
+      'queue_pause',
+      'queue_resume',
+      'queue_remove',
+      'queue_reset',
+      'string_free',
+    ]
     const missing = exports.filter((name) => !symbols.has(`_fluxdown_${name}`))
     if (missing.length) {
       fail(`${relativeAppPath} is missing FFI exports: ${missing.join(', ')}`)
     } else {
-      console.log(`ok ffi  ${relativeAppPath} (8 linked exports)`)
+      console.log(`ok ffi  ${relativeAppPath} (${exports.length} linked exports)`)
     }
   } catch (error) {
     fail(`cannot inspect iOS FFI symbols: ${error.message}`)
