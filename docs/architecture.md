@@ -180,7 +180,7 @@ Flutter 当前部分复用 Rust core：协议识别走 `protocol.dart` → `Flux
 - 移动端 torrent 依赖 `libtorrent_flutter` 原生组件。
 - 移动端已接入新建弹框扫码/剪切板与可选 SHA-256 文件校验；不依赖 Rust 下载控制器。
 
-FFI `queueRun` 会同步等待任务结束，当前仅在独立 host 测试中调用，不能直接接入 Flutter UI isolate。生产迁移还需要非阻塞执行、进度/取消接口、设置透传和队列模型转换。构建细节见 [移动端 Rust FFI](build-release.md#移动端-rust-ffi)。
+FFI 保留同步 `queueRun` 兼容旧测试，同时新增非阻塞 `queueRunAsync`、状态轮询、暂停/继续和句柄回收接口；实时进度通过 `queueList` 读取任务快照。当前这些接口用于迁移验证，Flutter 生产下载仍由 Dart/原生适配器执行，后续还需设置透传和队列模型转换。构建细节见 [移动端 Rust FFI](build-release.md#移动端-rust-ffi)。
 
 ## 数据流
 

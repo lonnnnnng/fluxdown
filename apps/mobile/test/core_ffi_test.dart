@@ -118,6 +118,29 @@ void main() {
         );
       });
 
+      test('uses non-blocking run status and pause/resume controls', () async {
+        final handle = core.queueRunAsync(storePath, 'missing-task');
+        final runId = handle['runId'] as String;
+        Map<String, Object?>? terminal;
+        for (var attempt = 0; attempt < 50; attempt += 1) {
+          final status = core.queueRunStatus(runId);
+          if (status['state'] == 'failed') {
+            terminal = status;
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(terminal?['state'], 'failed');
+        core.queueRunForget(runId);
+
+        final task = core.queueAdd(storePath, {
+          'source': 'https://example.com/file.bin',
+          'outputDir': directory.path,
+        });
+        expect(core.queuePause(storePath, task.id).state, 'paused');
+        expect(core.queueResume(storePath, task.id).state, 'queued');
+      });
+
       test(
         'runs an actual HTTP task and verifies the downloaded file',
         () async {

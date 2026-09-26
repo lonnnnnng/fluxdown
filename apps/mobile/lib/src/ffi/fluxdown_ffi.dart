@@ -7,8 +7,8 @@
 //    - iOS: Runner 构建阶段执行 scripts/build-ios-ffi.sh，按目标架构链接静态库。
 // 2. 加载：Android 上 DynamicLibrary.open('libfluxdown_ffi.so')；iOS 上
 //    DynamicLibrary.process()（静态链接）。[FluxDownCoreFfi.open] 已按平台处理。
-// 3. 当前仅协议识别接入产品调用链；队列绑定用于独立验证，移动下载仍由 Dart/原生适配器执行。
-//    queueRun 会阻塞调用线程，后续接入下载控制器时需要隔离执行和独立的取消/进度接口。
+// 3. 当前仅协议识别接入产品调用链；异步队列接口用于迁移验证，移动下载仍由 Dart/原生适配器执行。
+//    queueRun 保留同步兼容入口，queueRunAsync/status/pause/resume 为后续控制器迁移准备。
 //
 // 协议与队列调用返回统一信封 {ok, data, error}；ABI/版本是独立标量。
 // 任务 JSON 与桌面端 serde schema 对齐（见 docs/task-schema.md）。
@@ -135,6 +135,21 @@ class FluxDownCoreFfi {
     _queueRun = _lib.lookupFunction<_TwoStringsNative, _TwoStringsDart>(
       'fluxdown_queue_run',
     );
+    _queueRunAsync = _lib.lookupFunction<_TwoStringsNative, _TwoStringsDart>(
+      'fluxdown_queue_run_async',
+    );
+    _queueRunStatus = _lib.lookupFunction<_StringInNative, _StringInDart>(
+      'fluxdown_queue_run_status',
+    );
+    _queueRunForget = _lib.lookupFunction<_StringInNative, _StringInDart>(
+      'fluxdown_queue_run_forget',
+    );
+    _queuePause = _lib.lookupFunction<_TwoStringsNative, _TwoStringsDart>(
+      'fluxdown_queue_pause',
+    );
+    _queueResume = _lib.lookupFunction<_TwoStringsNative, _TwoStringsDart>(
+      'fluxdown_queue_resume',
+    );
     _free = _lib.lookupFunction<_FreeNative, _FreeDart>('fluxdown_string_free');
   }
 
@@ -160,6 +175,11 @@ class FluxDownCoreFfi {
   late final _StringInDart _queueList;
   late final _TwoStringsDart _queueAdd;
   late final _TwoStringsDart _queueRun;
+  late final _TwoStringsDart _queueRunAsync;
+  late final _StringInDart _queueRunStatus;
+  late final _StringInDart _queueRunForget;
+  late final _TwoStringsDart _queuePause;
+  late final _TwoStringsDart _queueResume;
   late final _FreeDart _free;
 
   int abi() => _abi();
@@ -194,6 +214,26 @@ class FluxDownCoreFfi {
 
   Map<String, Object?> queueRun(String storePath, String taskId) =>
       _unwrapMap(_callTwo(_queueRun, storePath, taskId));
+
+  Map<String, Object?> queueRunAsync(String storePath, String taskId) =>
+      _unwrapMap(_callTwo(_queueRunAsync, storePath, taskId));
+
+  Map<String, Object?> queueRunStatus(String runId) =>
+      _unwrapMap(_call(_queueRunStatus, runId));
+
+  void queueRunForget(String runId) {
+    _unwrap(_call(_queueRunForget, runId));
+  }
+
+  FluxDownCoreTask queuePause(String storePath, String taskId) =>
+      FluxDownCoreTask.fromJson(
+        _unwrapMap(_callTwo(_queuePause, storePath, taskId)),
+      );
+
+  FluxDownCoreTask queueResume(String storePath, String taskId) =>
+      FluxDownCoreTask.fromJson(
+        _unwrapMap(_callTwo(_queueResume, storePath, taskId)),
+      );
 
   /// 解包信封：成功返回 data 载荷（可能是任意 JSON 值），失败抛异常。
   // 作者: long
