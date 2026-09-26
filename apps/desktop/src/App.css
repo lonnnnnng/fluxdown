@@ -294,6 +294,22 @@ textarea:focus-visible,
   padding: 0 20px 20px;
 }
 
+/* 作者: long
+ * 剪贴板提示是工作区的可选第二块内容，不能抢占下载列表的剩余高度；
+ * 固定三行后，即使提示出现或消失，任务列表也始终留在主滚动区域内。
+ */
+.workspace {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.workspace > .clipboardSuggestion {
+  grid-row: 2;
+}
+
+.workspace > .contentView {
+  grid-row: 3;
+}
+
 .workspaceHeader,
 .settingsDetailHead {
   min-width: 0;
