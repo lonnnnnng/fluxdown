@@ -973,16 +973,14 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 button_state: MouseButtonState::Up,
                 ..
             } = event
+                && let Some(window) = tray.app_handle().get_webview_window("main")
             {
-                if let Some(window) = tray.app_handle().get_webview_window("main") {
-                    if window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false)
-                    {
-                        let _ = window.hide();
-                    } else {
-                        let _ = window.unminimize();
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+                if window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false) {
+                    let _ = window.hide();
+                } else {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
                 }
             }
         });

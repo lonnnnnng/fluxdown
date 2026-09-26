@@ -16,8 +16,8 @@ async fn main() -> anyhow::Result<()> {
     println!("variant 1: connect_secure_implicit with webpki roots...");
     match AsyncRustlsFtpStream::connect_secure_implicit(address, connector, host).await {
         Ok(mut ftp) => {
-            let text = ftp.login("demo", "password").await?;
-            println!("variant 1 OK, login: {:?}", text);
+            ftp.login("demo", "password").await?;
+            println!("variant 1 OK, login completed");
             let _ = ftp.quit().await;
         }
         Err(error) => println!("variant 1 FAIL: {error}"),
@@ -32,8 +32,8 @@ async fn main() -> anyhow::Result<()> {
     println!("variant 2: connect_secure_implicit with no verifier...");
     match AsyncRustlsFtpStream::connect_secure_implicit(address, connector, host).await {
         Ok(mut ftp) => {
-            let text = ftp.login("demo", "password").await?;
-            println!("variant 2 OK, login: {:?}", text);
+            ftp.login("demo", "password").await?;
+            println!("variant 2 OK, login completed");
             let _ = ftp.quit().await;
         }
         Err(error) => println!("variant 2 FAIL: {error}"),
@@ -46,8 +46,8 @@ async fn main() -> anyhow::Result<()> {
     match AsyncRustlsFtpStream::connect("test.rebex.net:21").await {
         Ok(stream) => match stream.into_secure(connector, host).await {
             Ok(mut ftp) => {
-                let text = ftp.login("demo", "password").await?;
-                println!("variant 3 OK, login: {:?}", text);
+                ftp.login("demo", "password").await?;
+                println!("variant 3 OK, login completed");
                 let _ = ftp.quit().await;
             }
             Err(error) => println!("variant 3 into_secure FAIL: {error}"),
@@ -62,8 +62,8 @@ async fn main() -> anyhow::Result<()> {
     let connector = AsyncRustlsConnector::from(tokio_rustls_connector(config));
     match AsyncRustlsFtpStream::connect_secure_implicit(address, connector, host).await {
         Ok(mut ftp) => {
-            let text = ftp.login("demo", "password").await?;
-            println!("variant 5 OK, login: {:?}", text);
+            ftp.login("demo", "password").await?;
+            println!("variant 5 OK, login completed");
             let _ = ftp.quit().await;
         }
         Err(error) => println!("variant 5 FAIL: {error}"),

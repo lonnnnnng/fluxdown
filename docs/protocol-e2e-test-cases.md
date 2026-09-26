@@ -345,12 +345,17 @@ flutter test integration_test/protocol_e2e_test.dart \
       "source": "http://<mac-lan-ip>:8765/file.txt",
       "fileName": "file.txt",
       "expectedBytes": 12,
+      "expectedSha256": "<64-hex-sha256>",
     }
   ]'
 ```
 
 每个完成用例会打印一行 `FLUXDOWN_E2E_RESULT`；整轮结束会打印
 `FLUXDOWN_E2E_SUMMARY` 和 `FLUXDOWN_E2E_STATUS`。
+结果还会记录 `outputSha256`；Android Release 隐藏自检会将完整 JSON 报告写入
+`/sdcard/Android/data/dev.fluxdown.mobile/files/fluxdown-e2e-report.json`，便于在
+`stdout`/`logcat` 不稳定时用 ADB 拉回复核。Torrent 与 Magnet 用例应使用不同输出目录，
+并可通过 `expectedSha256` 防止复用已有文件造成假通过。
 
 对未安装 handler 的 ed2k 这类边界用例，传入 `expectedState` 和
 `expectedErrorContains`：

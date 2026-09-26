@@ -1,6 +1,6 @@
 # 路线图
 
-核对日期：2026-09-26。源码基线：`main` / 当前工作树（P1-05 错误处理与异常恢复）；当前发行版：[`1.0.25`](releases/1.0.25.md)。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
+核对日期：2026-09-26。源码基线：`main` / 当前工作树（P1-05 错误处理与异常恢复）；当前发行版：[`1.0.26`](releases/1.0.26.md)。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
 
 状态口径：**已实现**表示有实际代码和入口；**部分实现**表示仍有端侧差异或功能缺口；**待验证**表示缺少目标版本、目标设备的运行证据；**规划**表示尚未交付。构建成功、模拟数据 UI 测试、历史真机通过不能互相替代。
 
@@ -50,14 +50,14 @@
 
 当前发行流水线 [34223531407](https://github.com/lonnnnnng/fluxdown/actions/runs/34223531407) 的 10 个作业已通过，正式 11 个附件已回下载校验。详细命令、环境与报告见 [下载验证状态](download-verification.md)，下表不把旧版结果升级为当前版本全量通过。
 
-| 平台 | `1.0.24` 已有证据 | 历史运行证据 | 仍待补验 |
+| 平台 | `1.0.25` 已有证据 | 历史运行证据 | 仍待补验 |
 | --- | --- | --- | --- |
-| Android | 当前 `1.0.24` Release APK 已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）安装并正常启动；本轮 Debug integration E2E 真实通过 HTTP 和 HLS，历史同设备已通过暂停、继续、重启恢复、Torrent/Magnet metadata 多文件选择和任务详情。 | APK/AAB 构建、APK 元数据、三 ABI 和签名检查；`1.0.22` 工作树 Release 前台已完成 64 MB HTTP、Torrent/Magnet 和生命周期闭环。 | 当前 Release 的协议全量重跑、FFI 实际加载、扫码、目录权限、HLS variant/TS 和 Release 沙箱文件 hash 导出；Debug 包的 16KB 对齐警告不能替代 Release 结论。 |
+| Android | `1.0.25 (26)` Release APK 已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）安装并正常启动；12 项协议 Release 自检完成，11 项真实落盘并做大小/SHA-256 校验，ed2k 按无 handler 预期失败。 | 同设备历史已通过暂停、继续、重启恢复、Torrent/Magnet metadata 多文件选择和任务详情。 | 当前 Release 的 FFI 实际加载、扫码、目录权限、HLS variant/TS 及前台手工 UI 仍需目标设备条件补验；Debug 包的 16KB 对齐警告不能替代 Release 结论。 |
 | iOS simulator | `FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration` 已通过当前工作树：HTTP、fMP4 HLS、BYTERANGE HLS 均完成并输出 MP4 头；构建与 FFI 导出检查通过。 | App 内 HTTP、fMP4/BYTERANGE/TS HLS smoke。 | 队列和设置页手工交互、当前包 FFI 实际加载的完整证据；TS/variant 配置和 iPhone 真机流程仍待目标环境。 |
 | iPhone 真机 | unsigned device app 构建及 FFI 导出检查；没有签名 IPA。 | 尚无完整真机验收。 | 签名安装后扫码、目录选择、打开/分享、HTTP/HLS/Torrent/Magnet 和恢复流程。 |
-| macOS 桌面 | App/DMG 构建、DMG checksum 与资产回验。 | 2026-08-05 原生 GUI 12 类协议流程，前 11 类落盘，ed2k 系统移交。 | 当前版托盘、更新、Torrent 详情/选择、暂停继续和协议回归。 |
-| Windows 桌面 | 构建、正式安装器内 EXE 为 GUI `Subsystem=2`。 | 原生 GUI 12 类协议流程，以及后续公网资源、队列、更新/托盘测试。 | 正式安装后快捷方式启动、探测不闪窗、托盘驻留/退出及当前版下载回归。 |
-| Linux 桌面 | GUI、DEB/RPM 构建与发布资产校验。 | 缺少 Linux 原生 GUI 真实下载记录。 | 安装启动、至少 HTTP 与队列流程，再扩展全协议和托盘/文件操作。 |
+| macOS 桌面 | `npm run verify:macos` 与当前 `.app` 前台 GUI 协议回归均通过；DMG 为 `FluxDown_1.0.25_aarch64.dmg`，GUI 11 项真实落盘并校验 SHA-256，ed2k 完成系统移交。 | 2026-08-05 原生 GUI 12 类协议流程。 | 当前版托盘、更新和更多手工交互仍可继续补验；本轮 GUI 脚本生成的结果见 `docs/artifacts/macos-desktop-gui-protocol-e2e-20260926.json`。 |
+| Windows 桌面 | 本轮按用户要求跳过。 | 构建、正式安装器内 EXE 为 GUI `Subsystem=2`；历史原生 GUI 12 协议流程。 | 当前 `1.0.25` 安装启动、托盘和下载回归待 Windows 环境恢复后补验。 |
+| Linux 桌面 | 本轮按用户要求跳过；保留 GUI、DEB/RPM 构建与发布资产校验。 | 缺少 Linux 原生 GUI 真实下载记录。 | 当前版安装启动、HTTP/队列和全协议运行待 Linux 环境恢复后补验。 |
 | 三平台 CLI | Windows/macOS/Linux 实际执行版本、`detect/add/pause/resume/run/list/download`；HTTP/Range 大小与 SHA-256 正确。macOS 正式归档另有本机复跑。 | macOS/Windows 有更多协议和队列控制报告。 | 当前版跨平台完整协议矩阵，重点补 Linux 除 HTTP 以外的协议运行证据。 |
 
 ## 近期优先项
@@ -66,7 +66,7 @@
 
 | 编号 | 要做的功能/验证 | 当前缺口 | 完成标准 |
 | --- | --- | --- | --- |
-| P1-01 | 当前发行版跨端验收 | 代码、可用 macOS/Android/iOS simulator 证据已收口；iPhone 真机和 Linux GUI 受环境阻塞。 | 已完成可用环境的构建、启动、下载 smoke 和回归记录；剩余环境恢复后按同一资源和字段补验，不提前宣称全平台完成。 |
+| P1-01 | 当前发行版跨端验收 | Android `1.0.25` Release 协议矩阵、macOS 非 GUI 总验收已收口；iPhone 真机、Windows/Linux 本轮跳过，macOS 前台 GUI 仍待当前会话补验。 | 已完成可用环境的构建、启动、下载 smoke 和回归记录；剩余环境恢复后按同一资源和字段补验，不提前宣称全平台完成。 |
 | P1-02 | Torrent 文件夹体验补齐 | 桌面新建弹框文件树多选、真实文件名回写、运行中逐文件进度/采样速度、完成文件打开和路径安全校验已完成，并通过隔离 UI、Rust 测试和本地 tracker/seeder P2P 回归；仍缺原生 GUI 前台交互复验、移动端真实逐文件速度和选择重启恢复。 | 桌面与移动端选择结果可持久化、重启可恢复；按后端实际数据展示文件进度/速度，未知时明确显示未知；已落盘文件可打开；补齐原生 GUI、Android/iOS 运行证据。 |
 | P1-03 | HLS 配置跨端对齐 | 代码、core/移动自动化测试、iOS simulator 基础 HLS smoke 已完成；可配置 variant/TS 的 Android/iPhone App 内运行证据仍缺。 | 已达到代码和自动化测试标准；目标设备可用后补跑 variant/TS，不能用 FFI 识别测试替代。 |
 | P1-04 | 设置与保存位置一致性 | macOS 桌面前台已验证目录、并发、线程、重试、限速保存/回显和无效目录提示；移动临时目录权限问题已修复并通过自动化回归。 | 代码和可用环境验证完成；Windows/Linux/iPhone 的原生目录权限和并发限速仍按各自环境补验。 |

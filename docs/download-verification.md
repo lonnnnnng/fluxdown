@@ -1,5 +1,32 @@
 # 下载验证状态
 
+## 2026-09-26 Android `1.0.25` Release 完整协议验收
+
+- Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）安装 `1.0.25 (26)` Release APK，
+  普通 APK 大小 `107,753,056` bytes，SHA-256 `edd491b4b1ffdd95e1971a45d8d88eb1d59dd7f0449c9c6ccffe704d0c229c07`。
+- Release 自检报告从应用专属外部目录拉回，`exitStatus=0`、`failures=[]`；HTTP、HTTPS、
+  WebDAV、WebDAVS、FTP、FTPS、SFTP、SMB、HLS、Torrent、Magnet 共 11 项真实完成，
+  ed2k 因设备无外部 handler 按预期失败。
+- HLS 输出 `16,035 B` MP4；Torrent/Magnet 分别使用独立目录选择多文件种子中的
+  `payload.bin`，均为 `8,388,608 B`，SHA-256 均为
+  `2daeb1f36095b44b318410b3f4e8b5d989dcc7bb023d1426c492dab0a3053e74`。
+- 自检后已重新安装普通 Release APK，确认 `versionName=1.0.25`、`versionCode=26`，
+  应用进程正常运行。详细矩阵见 [Android 真机协议测试报告](android-real-device-protocol-report.md)。
+
+本轮 Windows/Linux 按用户要求跳过，不把历史 Windows 运行记录或 Linux 构建产物升级为
+`1.0.25` 真机/桌面运行结论。
+
+## 2026-09-26 macOS `1.0.25` 原生 GUI 协议回归
+
+- 使用当前 `target/release/bundle/macos/FluxDown.app` 前台窗口运行
+  `npm run verify:macos-desktop-gui-protocols`，HTTP、HTTPS、WebDAV、WebDAVS、FTP、
+  FTPS、HLS、SFTP、SMB、Torrent、Magnet 11 项均完成真实落盘并通过 SHA-256；ed2k
+  完成系统移交，未冒充内建下载。
+- Torrent/Magnet 通过本地 Docker seeder/tracker 完成；HLS 输出 MP4 并通过 ffprobe。
+- 当前证据： [GUI 结果 JSON](artifacts/macos-desktop-gui-protocol-e2e-20260926.json) 和
+  [队列截图](artifacts/macos-desktop-gui-queue-20260926.png)。脚本内部仍使用历史文件名
+  `20260805` 写出中间结果，本轮已复制为带当前日期的证据文件。
+
 ## 2026-09-26 Android `1.0.24` Release 完整协议验收
 
 - Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）使用 Release 编译模式真实跑完

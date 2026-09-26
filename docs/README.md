@@ -17,12 +17,13 @@
 - [Windows CLI 12 协议真实下载验证报告](protocol-e2e-windows-report-20260630.md)：Windows 开发机上 12 种协议的真实用例、落盘 hash 和验证结论。
 - [Windows 原生 Tauri GUI 12 协议真实下载验证报告](protocol-e2e-windows-desktop-gui-report-20260630.md)：Windows 原生桌面窗口前台操作的 12 协议验证、设置页验证和截图证据。
 - [macOS 原生桌面端 12 协议验证报告](macos-desktop-protocol-e2e-report-20260805.md)：macOS 原生 Tauri 前台窗口下 11 类真实下载和 ed2k 系统移交证据。
+- [macOS `1.0.25` GUI 回归结果](artifacts/macos-desktop-gui-protocol-e2e-20260926.json)：当前 Release `.app` 前台协议回归及 SHA-256 结果。
 - [跨平台协议测试资源清单](protocol-test-resources.md)：保留公网小资源、动态实验室地址、复跑方式和跨端复用边界。
 - [构建与发布](build-release.md)：本地构建命令、CI 作业、发布产物、签名配置和版本发布流程。
 - [1.0.20 发行说明](releases/1.0.20.md)：修复 iOS simulator 的 libtorrent 静态库、Swift 编译和 CocoaPods 编码问题。
 - [1.0.21 发行说明](releases/1.0.21.md)：修复 CI 尚未生成 Flutter iOS 插件 symlink 时的 simulator slice 准备问题。
 - [1.0.22 发行说明](releases/1.0.22.md)：同时补齐并校验 iOS device 与 simulator 静态库，修复 unsigned device 构建失败。
-- [1.0.25 发行说明](releases/1.0.25.md)：统一桌面、Android、iOS 和 Web 预览图标，修复移动端版本展示，并记录 Android 协议验收基线。
+- [1.0.26 发行说明](releases/1.0.26.md)：补强 Android Release 协议验收取证、Torrent/Magnet 校验和 macOS GUI 回归记录。
 - [1.0.24 发行说明](releases/1.0.24.md)：修复 iOS 发布流水线识别 `libtorrent_flutter` Git checkout 的问题。
 - [1.0.19 发行说明](releases/1.0.19.md)：移动端版本检查、更新弹框、Torrent/Magnet 跨端同步与 libtorrent 升级。
 - [1.0.17 发行说明](releases/1.0.17.md)：Windows 桌面控制台修复、PE 子系统发布门禁及验证边界。
@@ -41,7 +42,7 @@ FluxDown 是一个跨平台下载器工作区：
 - 共享核心：Rust core crate 提供协议检测、任务模型、任务存储、队列运行器和桌面下载执行能力。
 - 移动 FFI：协议识别优先复用 Rust；Flutter 下载队列仍由 Dart/移动原生适配器执行，不是完整的跨端统一引擎。
 
-当前版本号为 `1.0.25`，统一桌面、Android、iOS 和 Web 预览图标，并保留移动端版本检查、Torrent/Magnet 跨端体验。公开 Assets 精简为 12 项（10 个上传文件与 2 个自动源码包），内部 manifest 继续做上传前校验，大小和 SHA-256 写入 Release Notes。内部调试、商店和 iOS 验证产物仍保留在 Actions Artifacts。发布流水线只允许手动选择 `run_mode=package` 或 `run_mode=release`，普通代码推送和 `v*` 标签推送都不会自动执行。各次构建与运行证据见 [下载验证状态](download-verification.md)。
+当前版本号为 `1.0.26`，补强 Android Release 协议验收取证、Torrent/Magnet 校验和 macOS GUI 回归记录。公开 Assets 精简为 12 项（10 个上传文件与 2 个自动源码包），内部 manifest 继续做上传前校验，大小和 SHA-256 写入 Release Notes。内部调试、商店和 iOS 验证产物仍保留在 Actions Artifacts。发布流水线只允许手动选择 `run_mode=package` 或 `run_mode=release`，普通代码推送和 `v*` 标签推送都不会自动执行。各次构建与运行证据见 [下载验证状态](download-verification.md)。
 
 ## 当前版本重点
 

@@ -39,6 +39,9 @@ void main() {
 
 Future<void> _runProtocolE2eAndExit() async {
   var exitStatus = 0;
+  final startedAt = DateTime.now().toUtc();
+  ProtocolE2eRunResult? runResult;
+  Map<String, String>? fatal;
   IOSink? outputSink;
   void emitLine(String line) {
     stdout.writeln(line);
@@ -53,19 +56,54 @@ Future<void> _runProtocolE2eAndExit() async {
       outputSink = outputFile.openWrite(mode: FileMode.write);
     }
 
-    final result = await runProtocolE2e(emitLine: emitLine);
-    if (result.failures.isNotEmpty) {
+    runResult = await runProtocolE2e(emitLine: emitLine);
+    if (runResult.failures.isNotEmpty) {
       exitStatus = 1;
     }
     emitLine(
-      'FLUXDOWN_E2E_STATUS ${jsonEncode({'exitStatus': exitStatus, 'failures': result.failures})}',
+      'FLUXDOWN_E2E_STATUS ${jsonEncode({'exitStatus': exitStatus, 'failures': runResult.failures})}',
     );
   } catch (error, stackTrace) {
     exitStatus = 1;
-    emitLine(
-      'FLUXDOWN_E2E_FATAL ${jsonEncode({'error': error.toString(), 'stack': stackTrace.toString()})}',
-    );
+    fatal = {'error': error.toString(), 'stack': stackTrace.toString()};
+    emitLine('FLUXDOWN_E2E_FATAL ${jsonEncode(fatal)}');
   } finally {
+    if (Platform.isAndroid) {
+      try {
+        // 作者: long
+        // Release APK 的 stdout 不一定进入 logcat；报告留在应用专属外部目录供 ADB 拉取，
+        // 同时记录失败或致命异常，避免只凭应用退出状态误判协议验收结果。
+        Directory? externalDir;
+        try {
+          externalDir = await getExternalStorageDirectory();
+        } catch (_) {
+          // 作者: long
+          // Android 某些系统在首次安装时尚未准备好外部沙盒；退回应用私有目录仍要保留验收证据，
+          // 不能因为报告路径暂时不可用而把已经完成的下载矩阵误报为失败。
+        }
+        final reportDir =
+            externalDir ?? await getApplicationDocumentsDirectory();
+        final reportFile = File(
+          p.join(reportDir.path, 'fluxdown-e2e-report.json'),
+        );
+        await reportFile.writeAsString(
+          jsonEncode({
+            'schemaVersion': 1,
+            'startedAt': startedAt.toIso8601String(),
+            'finishedAt': DateTime.now().toUtc().toIso8601String(),
+            'exitStatus': exitStatus,
+            'results': runResult?.results ?? const [],
+            'failures': runResult?.failures ?? const [],
+            'fatal': fatal,
+          }),
+          flush: true,
+        );
+        emitLine('FLUXDOWN_E2E_REPORT ${reportFile.path}');
+      } catch (error) {
+        exitStatus = 1;
+        emitLine('FLUXDOWN_E2E_REPORT_ERROR $error');
+      }
+    }
     await outputSink?.flush();
     await outputSink?.close();
     await stdout.flush();

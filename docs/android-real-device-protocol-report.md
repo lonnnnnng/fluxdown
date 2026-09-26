@@ -1,5 +1,46 @@
 # Android 真机协议测试报告
 
+## 2026-09-26 `1.0.25` Release 完整协议验收
+
+本轮在 Redmi Note 8 Pro 真机上使用 `1.0.25 (26)` Release APK 运行完整协议矩阵。
+为了让 Release APK 在 Android 沙盒限制下留下可复核证据，临时自检构建会把结构化
+报告写入应用专属外部目录；自检完成后已重新构建并安装普通 Release APK。
+
+### 环境与门禁
+
+- 设备：Redmi Note 8 Pro，adb serial `wsvwypiz7xwslvl7`，Android 16。
+- 包名与版本：`dev.fluxdown.mobile`，`1.0.25 (26)`。
+- 普通 Release APK：`107,753,056` bytes，SHA-256
+  `edd491b4b1ffdd95e1971a45d8d88eb1d59dd7f0449c9c6ccffe704d0c229c07`。
+- 普通 Release 启动回验：重新安装后 `pidof dev.fluxdown.mobile` 返回进程，
+  `dumpsys package` 显示 `versionName=1.0.25`、`versionCode=26`。
+- 本地服务：HTTP/HTTPS `8767/9443`，FTP/FTPS `2021/2121`，SFTP `2222`，
+  SMB `445`，BT tracker `6969`，Transmission seeder `51415`；Mac 地址
+  `192.168.1.8`。HTTP 资源使用 USB reverse 的 `8767` 映射，避免旧服务目录残留。
+- 设备报告：`/sdcard/Android/data/dev.fluxdown.mobile/files/fluxdown-e2e-report.json`，
+  `exitStatus=0`、`failures=[]`；报告中的每个用例都有独立 `case_N` 输出目录。
+
+### Release 协议结果
+
+| 协议 | 资源与结果 | 证据 |
+| --- | --- | --- |
+| HTTP | 本地 `http.txt`，通过 | `finished`，`8/8 B`，SHA-256 `bc18d24ba27d60df18ebee3e50398330a976782fa5f3713bc1a6cebf560764b1` |
+| HTTPS | 本地自签 `https.txt`，通过 | `finished`，`13/13 B`，SHA-256 `611db50d838121c0f8ea6dced34ec8905b92b92cb929d1f1a7d639e17cbbc096` |
+| WebDAV | `http.txt`，通过 | `finished`，`8/8 B`，SHA-256 `bc18d24ba27d60df18ebee3e50398330a976782fa5f3713bc1a6cebf560764b1` |
+| WebDAVS | `https.txt`，通过 | `finished`，`13/13 B`，SHA-256 `611db50d838121c0f8ea6dced34ec8905b92b92cb929d1f1a7d639e17cbbc096` |
+| FTP | `readme.txt`，通过 | `finished`，`11/11 B`，SHA-256 `e18c2e7832f45b5981d9029e058d70da3f85da713a1fbae5276bdde8c819db59` |
+| FTPS | `readme.txt`，通过 | `finished`，`11/11 B`，SHA-256 `e18c2e7832f45b5981d9029e058d70da3f85da713a1fbae5276bdde8c819db59` |
+| SFTP | `sftp.txt`，通过 | `finished`，`8/8 B`，SHA-256 `bc18d24ba27d60df18ebee3e50398330a976782fa5f3713bc1a6cebf560764b1` |
+| SMB | `smb.txt`，通过 | `finished`，`8/8 B`，SHA-256 `bc18d24ba27d60df18ebee3e50398330a976782fa5f3713bc1a6cebf560764b1` |
+| HLS / m3u8 | 合法 H.264 播放列表，输出 MP4 | `finished`，`16,035 B`，SHA-256 `7433678e5021cd89e2ca51d1a4d24fa46d1ee15302c76dc558da69cac55ab7ac`，文件头含 `ftyp` |
+| Torrent | 多文件种子，仅选择 `payload.bin` | `finished`，`8,388,608/8,388,608 B`，SHA-256 `2daeb1f36095b44b318410b3f4e8b5d989dcc7bb023d1426c492dab0a3053e74` |
+| Magnet | 同一多文件资源，仅选择 `payload.bin` | `finished`，`8,388,608/8,388,608 B`，SHA-256 `2daeb1f36095b44b318410b3f4e8b5d989dcc7bb023d1426c492dab0a3053e74`；与 Torrent 使用独立输出目录 |
+| ed2k | 无外部 handler，预期边界 | `failed`，错误包含 `No installed app can handle this ed2k link` |
+
+结论：`1.0.25` Release APK 在该真机上 12 项矩阵全部达到预期，11 项真实落盘，
+ed2k 按未安装外部客户端的预期边界失败。Release 自检首轮曾因旧 HTTP/FTP/HLS/Torrent
+夹具目录不一致出现资源不存在，核对服务目录后改用当前夹具重跑并通过；首轮不计入结论。
+
 ## 2026-09-26 `1.0.24` Release 完整协议验收
 
 本轮在 Redmi Note 8 Pro 真机上使用 Release 编译模式执行完整协议矩阵。协议自检

@@ -9,7 +9,7 @@
 - Rust workspace `Cargo.toml`
 - Flutter `apps/mobile/pubspec.yaml`
 
-当前版本号为 `1.0.25`，统一桌面、Android、iOS 和 Web 预览图标，并保留 Android Torrent/Magnet 协议验收与磁力 tracker 超时修复，见 [发行说明](releases/1.0.25.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
+当前版本号为 `1.0.26`，补强 Android Release 协议验收取证、Torrent/Magnet SHA-256 校验和 macOS GUI 回归文档，见 [发行说明](releases/1.0.26.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
 
 ## 本地依赖
 

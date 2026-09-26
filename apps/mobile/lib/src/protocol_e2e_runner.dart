@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:pointycastle/digests/sha256.dart';
 
 import 'download_controller.dart';
 import 'download_task.dart';
@@ -71,13 +73,20 @@ Future<ProtocolE2eRunResult> runProtocolE2e({
   final results = <Map<String, Object?>>[];
   final failures = <String>[];
   try {
-    for (final testCase in cases) {
+    for (var index = 0; index < cases.length; index++) {
+      final testCase = cases[index];
       activeCaseId = testCase.id;
       final source = testCase.source;
       final fileName = testCase.fileName;
+      // 作者: long
+      // 每个协议用例独占落盘目录，避免 Magnet 复用前一个 Torrent 用例的已下载文件。
+      final caseOutputDir = Directory(
+        p.join(outputDir.path, 'case_${index + 1}'),
+      );
+      await caseOutputDir.create(recursive: true);
       final task = await controller.add(
         source: source,
-        outputFolder: outputDir.path,
+        outputFolder: caseOutputDir.path,
         fileName: fileName,
         selectedTorrentFileIndexes: testCase.selectedTorrentFileIndexes,
       );
@@ -99,7 +108,7 @@ Future<ProtocolE2eRunResult> runProtocolE2e({
       final finished = DateTime.now().toUtc();
       final actual = controller.tasks.firstWhere((item) => item.id == task.id);
       final outputFile = await _resolveOutputFile(
-        outputDir: outputDir,
+        outputDir: caseOutputDir,
         fileName: actual.fileName,
         outputRelativePath: testCase.outputRelativePath,
         scanForLargest:
@@ -110,6 +119,7 @@ Future<ProtocolE2eRunResult> runProtocolE2e({
           ? await outputFile.length()
           : 0;
       final outputHeadHex = await _readHeadHex(outputFile);
+      final outputSha256 = await _readSha256(outputFile);
 
       final result = <String, Object?>{
         'id': testCase.id,
@@ -121,6 +131,7 @@ Future<ProtocolE2eRunResult> runProtocolE2e({
         'totalBytes': actual.totalBytes,
         'outputBytes': outputBytes,
         'outputHeadHex': outputHeadHex,
+        'outputSha256': outputSha256,
         'outputPath': outputFile.path,
         'error': timeoutError == null
             ? actual.error
@@ -138,6 +149,7 @@ Future<ProtocolE2eRunResult> runProtocolE2e({
         outputFile: outputFile,
         outputBytes: outputBytes,
         outputHeadHex: outputHeadHex,
+        outputSha256: outputSha256,
         timeoutError: timeoutError,
         failures: failures,
       );
@@ -196,6 +208,7 @@ void _collectCaseFailures({
   required File outputFile,
   required int outputBytes,
   required String outputHeadHex,
+  required String outputSha256,
   required Object? timeoutError,
   required List<String> failures,
 }) {
@@ -245,6 +258,13 @@ void _collectCaseFailures({
     );
     return;
   }
+  if (testCase.expectedSha256 != null &&
+      outputSha256 != testCase.expectedSha256!.toLowerCase()) {
+    failures.add(
+      '${testCase.id}: SHA-256 $outputSha256 != ${testCase.expectedSha256}',
+    );
+    return;
+  }
   if (testCase.expectedText != null) {
     final text = outputFile.readAsStringSync();
     if (text != testCase.expectedText) {
@@ -263,6 +283,18 @@ Future<String> _readHeadHex(File file) async {
     chunks.addAll(chunk);
   }
   return chunks.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+}
+
+Future<String> _readSha256(File file) async {
+  if (!await file.exists()) return '';
+  final digest = SHA256Digest();
+  await for (final chunk in file.openRead()) {
+    final bytes = chunk is Uint8List ? chunk : Uint8List.fromList(chunk);
+    digest.update(bytes, 0, bytes.length);
+  }
+  final output = Uint8List(digest.digestSize);
+  digest.doFinal(output, 0);
+  return output.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
 }
 
 Future<File> _resolveOutputFile({
@@ -338,6 +370,7 @@ class ProtocolE2eCase {
     this.expectedState,
     this.expectedErrorContains,
     this.expectedHeadHexContains,
+    this.expectedSha256,
     this.timeoutSeconds,
     this.selectedTorrentFileIndexes,
   });
@@ -354,6 +387,7 @@ class ProtocolE2eCase {
       expectedState: json['expectedState'] as String?,
       expectedErrorContains: json['expectedErrorContains'] as String?,
       expectedHeadHexContains: json['expectedHeadHexContains'] as String?,
+      expectedSha256: json['expectedSha256'] as String?,
       timeoutSeconds: json['timeoutSeconds'] as int?,
       selectedTorrentFileIndexes:
           (json['selectedTorrentFileIndexes'] as List<Object?>?)
@@ -373,6 +407,7 @@ class ProtocolE2eCase {
   final String? expectedState;
   final String? expectedErrorContains;
   final String? expectedHeadHexContains;
+  final String? expectedSha256;
   final int? timeoutSeconds;
   final List<int>? selectedTorrentFileIndexes;
 }

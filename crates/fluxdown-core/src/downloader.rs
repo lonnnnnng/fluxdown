@@ -2371,7 +2371,9 @@ pub async fn hls_variants(source: &str) -> Result<Vec<HlsVariantInfo>, DownloadE
         .map(|(index, variant)| HlsVariantInfo {
             index,
             uri: variant.uri.clone(),
-            bandwidth: variant.bandwidth.max(0),
+            // 作者: long
+            // m3u8_rs 已将带宽解析为无符号整数，直接保留源值即可，避免无意义的下限裁剪触发 Clippy。
+            bandwidth: variant.bandwidth,
             average_bandwidth: variant.average_bandwidth,
             codecs: variant.codecs.clone(),
             resolution: variant
