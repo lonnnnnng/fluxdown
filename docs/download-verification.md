@@ -1,5 +1,14 @@
 # 下载验证状态
 
+## 2026-09-26 P1 收口复验（工作树，未发布）
+
+- 当前源码基线为 `main` / `5ea3913`，产品版本为 `1.0.24`。本轮没有触发发布流水线，也没有把工作树验证写成已发布资产结论。
+- Android Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）已安装并启动重新构建的 `1.0.24` Release APK（`104,347,924` bytes，SHA-256 `f61a1e4d111684eaf995ac4455195ed9c77c56fcca5c2abff0d3c439434269bc`），进程正常，未发现 `FATAL EXCEPTION`。本轮 Debug integration E2E 真实通过 HTTP（`1,048,713` bytes）和 HLS（`72,873` bytes，输出头含 MP4 `ftyp`）；Release APK 本身本轮只确认启动，不将 Debug 下载结果冒充 Release 协议全量验收。设备文件导出受 Release 沙箱限制，未记录无法复核的 hash。
+- iOS simulator（iPhone 16 Pro，UDID `EADF8DFC-ED26-4C03-8735-C0889ECB2DA5`）执行 `FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration` 通过：HTTP 输出 `29` bytes，fMP4 HLS 和 BYTERANGE HLS 输出 `4,814` bytes，均含 MP4 `ftyp`。这证明当前 simulator 运行态下载 smoke 可用，不等同于 iPhone 真机或手工 UI 全量验收；物理 iPhone `LMY` 仍为 unavailable。
+- macOS 原生 GUI 设置页真实验证通过：默认保存位置、并发、线程、重试和最大下载网速 `1.25 MiB/s` 均可保存并重新打开回显；保存位置指向普通文件时，新建任务给出“下载保存位置无效，请重新选择一个可写目录。”。12 协议 GUI 证据保留在 `/private/tmp/fluxdown-macos-gui-p1-20260926-v3.json` 和同名 PNG，脚本现已等待异步控件重绘并按字段名定位 Torrent/Magnet 选择与确认按钮。
+- 本轮自动回归通过：`cargo test --workspace`（core 85、CLI 集成 36、桌面非忽略 35、FFI 1）、`npm --workspace apps/desktop run build`、`flutter analyze`、`flutter test`（74 项通过，4 项真实 FFI host 用例按环境跳过）。移动协议 E2E 的默认临时目录已改为应用可写目录，避免 Android `/tmp` 权限导致的假失败；桌面限速保存已修复 blur 与保存按钮竞态。
+- P1 代码与可用环境验证已收口；剩余外部阻塞明确保留：Linux GUI 没有可用运行环境，iPhone 真机 unavailable，Android Release 的 FFI 沙箱 hash/扫码/目录权限和 HLS variant/TS 配置仍需目标设备条件补验。它们不影响本轮代码回归通过，但不能宣称跨平台全量真机完成。
+
 ## 2026-09-25 Android `1.0.22` 源码工作树真实前台复验
 
 - 设备 `wsvwypiz7xwslvl7`（Redmi Note 8 Pro，Android 16）安装本地重新构建的 `dev.fluxdown.mobile` `1.0.22 (23)` Release APK；官方已发布的 `v1.0.22` 资产未因本轮工作树修复而改写。

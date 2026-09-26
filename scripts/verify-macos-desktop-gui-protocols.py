@@ -169,23 +169,70 @@ class MacAccessibilityDriver:
             f"{role} 1 of group {group_index} of UI element 1 of scroll area 1 "
             "of group 1 of group 1 of window 1"
         )
-        output = self._osascript(
-            [
-                'tell application "System Events"',
-                f'tell process "{self.process_name}" to return {{position of {reference}, size of {reference}}}',
-                "end tell",
-            ]
-        )
-        values = [int(value.strip()) for value in output.split(",")]
-        if len(values) != 4:
-            raise VerifyError(f"unexpected accessibility rect for {role} group {group_index}: {output}")
-        return values[0], values[1], values[2], values[3]
+        deadline = time.monotonic() + 5.0
+        last_error: Exception | None = None
+        while time.monotonic() < deadline:
+            try:
+                output = self._osascript(
+                    [
+                        'tell application "System Events"',
+                        f'tell process "{self.process_name}" to return {{position of {reference}, size of {reference}}}',
+                        "end tell",
+                    ]
+                )
+                values = [int(value.strip()) for value in output.split(",")]
+                if len(values) != 4:
+                    raise VerifyError(
+                        f"unexpected accessibility rect for {role} group {group_index}: {output}"
+                    )
+                return values[0], values[1], values[2], values[3]
+            except (VerifyError, ValueError) as error:
+                last_error = error
+                # 作者: long
+                # Tauri 弹框在识别协议后会短暂重建控件树，轮询可避免把合法重绘误判为桌面功能失败。
+                time.sleep(0.1)
+        if last_error is not None:
+            raise last_error
+        raise VerifyError(f"dialog control not available: {role} group {group_index}")
 
     def _paste_control(self, role: str, group_index: int, value: str) -> None:
         x, y, width, height = self._dialog_control_rect(role, group_index)
         point_x = x + min(max(width // 3, 20), width - 4)
         point_y = y + max(height // 2, 4)
         self._paste_at(point_x, point_y, value)
+
+    def _dialog_field_group(self, label: str) -> int:
+        deadline = time.monotonic() + 5.0
+        last_error: Exception | None = None
+        while time.monotonic() < deadline:
+            for group_index in range(1, 20):
+                reference = (
+                    f"text field 1 of group {group_index} of UI element 1 of scroll area 1 "
+                    "of group 1 of group 1 of window 1"
+                )
+                try:
+                    actual = self._osascript(
+                        [
+                            'tell application "System Events"',
+                            f'tell process "{self.process_name}" to return name of {reference}',
+                            "end tell",
+                        ]
+                    )
+                except VerifyError as error:
+                    last_error = error
+                    continue
+                if actual == label:
+                    return group_index
+            time.sleep(0.1)
+        if last_error is not None:
+            raise last_error
+        raise VerifyError(f"dialog field not found: {label}")
+
+    def _paste_named_control(self, label: str, value: str) -> None:
+        self._paste_control("text field", self._dialog_field_group(label), value)
+
+    def _dialog_named_control_value(self, label: str) -> str:
+        return self._dialog_control_value("text field", self._dialog_field_group(label))
 
     def _paste_at(self, point_x: int, point_y: int, value: str) -> None:
         self.activate()
@@ -204,17 +251,82 @@ class MacAccessibilityDriver:
             f"{role} 1 of group {group_index} of UI element 1 of scroll area 1 "
             "of group 1 of group 1 of window 1"
         )
-        return self._osascript(
-            [
-                'tell application "System Events"',
-                f'tell process "{self.process_name}" to return value of {reference}',
-                "end tell",
-            ]
-        )
+        deadline = time.monotonic() + 5.0
+        last_error: Exception | None = None
+        while time.monotonic() < deadline:
+            try:
+                return self._osascript(
+                    [
+                        'tell application "System Events"',
+                        f'tell process "{self.process_name}" to return value of {reference}',
+                        "end tell",
+                    ]
+                )
+            except VerifyError as error:
+                last_error = error
+                time.sleep(0.1)
+        if last_error is not None:
+            raise last_error
+        raise VerifyError(f"dialog control value not available: {role} group {group_index}")
 
-    def _click_dialog_button(self, name: str, torrent_like: bool) -> None:
-        group_index = 7 if torrent_like else 6
+    def _dialog_button_group(self, name: str, *, timeout: float = 5.0) -> int:
+        deadline = time.monotonic() + timeout
+        group_index: int | None = None
+        while time.monotonic() < deadline and group_index is None:
+            direct_reference = (
+                f"button {json.dumps(name, ensure_ascii=False)} of UI element 1 of scroll area 1 "
+                "of group 1 of group 1 of window 1"
+            )
+            try:
+                self._osascript(
+                    [
+                        'tell application "System Events"',
+                        f'tell process "{self.process_name}" to return name of {direct_reference}',
+                        "end tell",
+                    ]
+                )
+                return 0
+            except VerifyError:
+                pass
+            for candidate in range(1, 20):
+                reference = (
+                    f"button {json.dumps(name, ensure_ascii=False)} of group {candidate} "
+                    "of UI element 1 of scroll area 1 of group 1 of group 1 of window 1"
+                )
+                try:
+                    self._osascript(
+                        [
+                            'tell application "System Events"',
+                            f'tell process "{self.process_name}" to return name of {reference}',
+                            "end tell",
+                        ]
+                    )
+                except VerifyError:
+                    continue
+                group_index = candidate
+                break
+            if group_index is None:
+                time.sleep(0.1)
+        if group_index is None:
+            raise VerifyError(f"dialog button not found: {name}")
+        return group_index
+
+    def _click_dialog_button(self, name: str, torrent_like: bool, *, timeout: float = 5.0) -> None:
+        group_index = self._dialog_button_group(name, timeout=timeout)
         self.activate()
+        if group_index == 0:
+            reference = (
+                f"button {json.dumps(name, ensure_ascii=False)} of UI element 1 of scroll area 1 "
+                "of group 1 of group 1 of window 1"
+            )
+            self._osascript(
+                [
+                    'tell application "System Events"',
+                    f'tell process "{self.process_name}" to click {reference}',
+                    "end tell",
+                ]
+            )
+            return
         self._osascript(
             [
                 'tell application "System Events"',
@@ -234,27 +346,34 @@ class MacAccessibilityDriver:
         # 作者: long
         # 链接输入后桌面端会异步识别协议并重绘弹框；等待重绘完成后再逐项读取新的辅助功能矩形，避免使用旧坐标。
         time.sleep(0.8)
-        self._paste_control("text field", 3, case.output_name)
-        self._paste_control("text field", 4, str(output_dir))
+        self._paste_named_control("另存为文件名", case.output_name)
+        self._paste_named_control("保存路径", str(output_dir))
         if case.expected_sha256:
-            self._paste_control("text field", 5, case.expected_sha256)
+            self._paste_named_control("SHA-256 校验", case.expected_sha256)
         torrent_like = case.protocol in {"torrent", "magnet"}
         if torrent_like and case.torrent_indices:
-            self._paste_control("text field", 6, case.torrent_indices)
-        expected_values = [
-            ("text area", 2, case.source),
-            ("text field", 3, case.output_name),
-            ("text field", 4, str(output_dir)),
-        ]
+            self._paste_named_control("文件编号（可选）", case.torrent_indices)
+        expected_values = [("text area", 2, case.source)]
         if case.expected_sha256:
-            expected_values.append(("text field", 5, case.expected_sha256))
+            expected_values.append(("text field", self._dialog_field_group("SHA-256 校验"), case.expected_sha256))
         for role, group_index, expected in expected_values:
             actual = self._dialog_control_value(role, group_index)
             if actual != expected:
                 raise VerifyError(
                     f"dialog field mismatch {role} group={group_index}: expected={expected!r} actual={actual!r}"
                 )
-        self._click_dialog_button("创建任务", torrent_like)
+        for label, expected in (("另存为文件名", case.output_name), ("保存路径", str(output_dir))):
+            actual = self._dialog_named_control_value(label)
+            if actual != expected:
+                raise VerifyError(f"dialog field mismatch {label}: expected={expected!r} actual={actual!r}")
+        if torrent_like:
+            # 作者: long
+            # Torrent/Magnet 的 metadata 是异步获取的，必须等文件选择入口出现后再提交，随后确认选择弹框才会真正入队。
+            self._dialog_button_group("选择文件", timeout=30.0)
+            self._click_dialog_button("创建任务", torrent_like, timeout=10.0)
+            self._click_dialog_button("确认并加入队列", torrent_like, timeout=30.0)
+        else:
+            self._click_dialog_button("创建任务", torrent_like, timeout=10.0)
 
     def start_queue(self) -> None:
         self.click_main_button("开始队列")

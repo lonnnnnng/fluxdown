@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import 'download_controller.dart';
 import 'download_task.dart';
@@ -169,7 +170,18 @@ List<ProtocolE2eCase> loadProtocolE2eCases(String casesJson) {
 
 Future<Directory> _resolveBaseDir(String override) async {
   if (override.trim().isEmpty) {
-    return Directory.systemTemp.createTemp('fluxdown_mobile_protocol_e2e_');
+    // 作者: long
+    // Android 沙盒中的 systemTemp 可能解析到不可写的 `/tmp`，导致真实设备自检在开始下载前就失败。
+    // 使用应用临时目录既能保持测试产物隔离，也能让 Android/iOS 与桌面共享同一套夹具逻辑。
+    final temporaryDirectory = await getTemporaryDirectory();
+    final directory = Directory(
+      p.join(
+        temporaryDirectory.path,
+        'fluxdown_mobile_protocol_e2e_${DateTime.now().microsecondsSinceEpoch}',
+      ),
+    );
+    await directory.create(recursive: true);
+    return directory;
   }
 
   final directory = Directory(override);

@@ -52,8 +52,8 @@
 
 | 平台 | `1.0.24` 已有证据 | 历史运行证据 | 仍待补验 |
 | --- | --- | --- | --- |
-| Android | `1.0.24` 源码已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）完成 Release 前台复验：局域网 HTTP 64 MB 真实下载、暂停、继续、进程重启恢复、完成和删除后不复活均已验证；Torrent/Magnet 真实 metadata、多文件选择、取消不建任务、`payload.bin` 8.0 MB 下载完成、详情页和重启恢复均已验证；任务状态、进度、速度、开始/结束时间和耗时在 UI 中正确显示。`v1.0.24` 将重新执行全平台构建门禁。 | APK/AAB 构建、APK 元数据、三 ABI 和签名检查；历史真机正常 App 下载、队列与 UI 报告。 | 当前包的 FFI 实际加载、完整协议回归、扫码、目录权限；Release 沙箱文件 hash 导出仍未验证。Debug 包仍会触发 Android 16KB 对齐警告，不能用 Debug 卡屏替代 Release 结论。 |
-| iOS simulator | 构建及最终 FFI 导出符号检查。 | App 内 HTTP、fMP4/BYTERANGE/TS HLS smoke。 | 当前包的 HTTP/HLS、队列、基础 UI、设置保存与 FFI 加载。 |
+| Android | 当前 `1.0.24` Release APK 已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）安装并正常启动；本轮 Debug integration E2E 真实通过 HTTP 和 HLS，历史同设备已通过暂停、继续、重启恢复、Torrent/Magnet metadata 多文件选择和任务详情。 | APK/AAB 构建、APK 元数据、三 ABI 和签名检查；`1.0.22` 工作树 Release 前台已完成 64 MB HTTP、Torrent/Magnet 和生命周期闭环。 | 当前 Release 的协议全量重跑、FFI 实际加载、扫码、目录权限、HLS variant/TS 和 Release 沙箱文件 hash 导出；Debug 包的 16KB 对齐警告不能替代 Release 结论。 |
+| iOS simulator | `FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration` 已通过当前工作树：HTTP、fMP4 HLS、BYTERANGE HLS 均完成并输出 MP4 头；构建与 FFI 导出检查通过。 | App 内 HTTP、fMP4/BYTERANGE/TS HLS smoke。 | 队列和设置页手工交互、当前包 FFI 实际加载的完整证据；TS/variant 配置和 iPhone 真机流程仍待目标环境。 |
 | iPhone 真机 | unsigned device app 构建及 FFI 导出检查；没有签名 IPA。 | 尚无完整真机验收。 | 签名安装后扫码、目录选择、打开/分享、HTTP/HLS/Torrent/Magnet 和恢复流程。 |
 | macOS 桌面 | App/DMG 构建、DMG checksum 与资产回验。 | 2026-08-05 原生 GUI 12 类协议流程，前 11 类落盘，ed2k 系统移交。 | 当前版托盘、更新、Torrent 详情/选择、暂停继续和协议回归。 |
 | Windows 桌面 | 构建、正式安装器内 EXE 为 GUI `Subsystem=2`。 | 原生 GUI 12 类协议流程，以及后续公网资源、队列、更新/托盘测试。 | 正式安装后快捷方式启动、探测不闪窗、托盘驻留/退出及当前版下载回归。 |
@@ -66,11 +66,11 @@
 
 | 编号 | 要做的功能/验证 | 当前缺口 | 完成标准 |
 | --- | --- | --- | --- |
-| P1-01 | 当前发行版跨端验收 | 构建覆盖已齐，但 iPhone/Linux GUI 和新版原生交互仍有空白。 | 完成上表待补验项；复用小文件资源，记录版本、系统/设备、真实链接、大小/hash、失败原因。ed2k 单独记移交及外部客户端下载结果。 |
+| P1-01 | 当前发行版跨端验收 | 代码、可用 macOS/Android/iOS simulator 证据已收口；iPhone 真机和 Linux GUI 受环境阻塞。 | 已完成可用环境的构建、启动、下载 smoke 和回归记录；剩余环境恢复后按同一资源和字段补验，不提前宣称全平台完成。 |
 | P1-02 | Torrent 文件夹体验补齐 | 桌面新建弹框文件树多选、真实文件名回写、运行中逐文件进度/采样速度、完成文件打开和路径安全校验已完成，并通过隔离 UI、Rust 测试和本地 tracker/seeder P2P 回归；仍缺原生 GUI 前台交互复验、移动端真实逐文件速度和选择重启恢复。 | 桌面与移动端选择结果可持久化、重启可恢复；按后端实际数据展示文件进度/速度，未知时明确显示未知；已落盘文件可打开；补齐原生 GUI、Android/iOS 运行证据。 |
-| P1-03 | HLS 配置跨端对齐 | 本轮已补齐移动新建任务和 CLI 入口，并覆盖 core/移动 HLS variant、TS 输出及分片缓存恢复测试。 | 已达到代码和自动化测试标准；仍需在 Android/iOS 真机分别补跑可配置 variant/TS 的 App 内下载，不能用 FFI 识别测试替代。 |
-| P1-04 | 设置与保存位置一致性 | 原生目录选择、跨端默认值和限速单位已统一；仍缺当前版本桌面前台目录选择、权限失效和并发任务限速的手工复验。 | 保持旧配置兼容；桌面设置与新建任务均可选择并回显目录；并发 1-30、线程 1-32、重试 0-10、限速留空/小数均按同一口径执行，并补齐真实运行证据。 |
-| P1-05 | 错误处理与异常恢复 | 已完成错误分类、可操作提示、不可恢复错误不重试、HLS 非瞬态错误不重试、已知总大小的截断传输保护；桌面启动和移动端加载会立即把异常残留 `running` 恢复为可继续的 `paused`。核心、CLI、桌面和 Flutter 回归已覆盖认证失败、临时服务端错误、HLS 404、FTP 截断、存储/权限提示与中断恢复。 | 外部 FTPS/SFTP/SMB/Torrent fixture 仍按环境脚本执行；真实磁盘满、系统撤销目录权限、iOS/Android 后台被杀和无 peer 长时间运行需在目标设备/实验室环境补验。 |
+| P1-03 | HLS 配置跨端对齐 | 代码、core/移动自动化测试、iOS simulator 基础 HLS smoke 已完成；可配置 variant/TS 的 Android/iPhone App 内运行证据仍缺。 | 已达到代码和自动化测试标准；目标设备可用后补跑 variant/TS，不能用 FFI 识别测试替代。 |
+| P1-04 | 设置与保存位置一致性 | macOS 桌面前台已验证目录、并发、线程、重试、限速保存/回显和无效目录提示；移动临时目录权限问题已修复并通过自动化回归。 | 代码和可用环境验证完成；Windows/Linux/iPhone 的原生目录权限和并发限速仍按各自环境补验。 |
+| P1-05 | 错误处理与异常恢复 | 错误分类、可操作提示、不可恢复错误不重试、HLS 非瞬态错误不重试、截断保护、启动恢复和移动加载恢复均已由 core/CLI/桌面/Flutter 回归覆盖；本轮全 workspace 回归再次通过。 | 真实磁盘满、系统撤销目录权限、iOS/Android 后台被杀和无 peer 长时间运行仍需目标设备/实验室环境，属于外部验收而非代码缺口。 |
 
 ## 中期建设
 

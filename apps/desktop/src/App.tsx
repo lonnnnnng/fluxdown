@@ -3101,7 +3101,21 @@ function SettingsPage({
   }
 
   function saveCurrentSettings() {
-    saveSettings(settings);
+    // 作者: long
+    // 限速输入采用失焦提交以允许小数；保存按钮可能与 blur 同一事件循环触发，
+    // 这里直接读取输入框并合并待保存配置，避免界面显示的新值丢在旧状态之后。
+    let nextSettings = settings;
+    const input = speedLimitInputRef.current;
+    if (input) {
+      const parsed = parseDecimalSetting(input.value, 0, 10000);
+      if (parsed !== null) {
+        nextSettings = { ...settings, speedLimitMbps: parsed };
+        if (parsed !== settings.speedLimitMbps) {
+          onChange({ speedLimitMbps: parsed });
+        }
+      }
+    }
+    saveSettings(nextSettings);
     setNotice("设置已保存到本机");
   }
 
