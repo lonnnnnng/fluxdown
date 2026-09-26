@@ -153,7 +153,7 @@ Runner 构建阶段自动编译并静态链接 Rust FFI，最低部署版本为 
 
 Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.26.md)。
 
-发布 manifest 继续在流水线内部生成和校验，但不再作为公开附件；每个公开文件的大小与 SHA-256 直接写入 Release Notes。三个 ZIP/TAR.GZ 是独立 CLI 版本，不是桌面安装包的重复副本。
+发布 manifest 继续在流水线内部生成和校验，但不再作为公开附件或展示在 Release 页面；三个 ZIP/TAR.GZ 是独立 CLI 版本，不是桌面安装包的重复副本。
 
 CLI 解压后运行 `fluxdown` / `fluxdown.exe`，Unix 可执行权限已保留。Android APK 仍包含 arm64-v8a、armeabi-v7a、x86_64；Release 启用 R8，Dart 符号和 R8 mapping 单独保存在 Actions Artifacts，不是从 App 删除功能。
 

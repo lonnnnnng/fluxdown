@@ -103,17 +103,13 @@ function writeInternalManifest() {
   const manifest = { product: 'FluxDown', version, generatedAt: new Date().toISOString(), assets: [...preparedAssets].sort((a, b) => a.name.localeCompare(b.name)) }
   const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)
   // 作者: long
-  // 清单只服务于上传前完整性校验，放在 assets 外即可避免成为用户下载项；公开校验值写入 Release Notes。
+  // 清单只服务于上传前完整性校验，放在 assets 外即可避免成为用户下载项；公开页面不展示校验表格。
   writeFileSync(resolve(dirname(assetsDir), 'release-manifest.json'), bytes)
 }
 
 function writeReleaseNotes() {
   const changelog = readFileSync(resolve(root, `docs/releases/${version}.md`), 'utf8').trim()
   const download = (name) => `https://github.com/lonnnnnng/fluxdown/releases/download/v${version}/${name}`
-  const checksumRows = [...preparedAssets]
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((asset) => `| \`${asset.name}\` | ${asset.bytes} | \`${asset.sha256}\` |`)
-    .join('\n')
   const notes = `# FluxDown ${version}
 
 ${changelog}
@@ -140,12 +136,6 @@ CLI 解压后运行其中的 fluxdown/fluxdown.exe；压缩包包含许可证，
 Debug APK、AAB、iOS simulator/unsigned app、MSI、裸桌面程序和 macOS app 构建目录仅保留在对应 Actions Artifacts，不再混入用户下载区。iOS 目前没有面向普通用户的可安装发行包。
 
 [项目许可证](${download(`FluxDown-${version}-LICENSE.txt`)}) · [第三方许可证](${download(`FluxDown-${version}-THIRD-PARTY-LICENSES.md`)})
-
-## 文件校验
-
-| 文件 | 字节数 | SHA-256 |
-| --- | ---: | --- |
-${checksumRows}
 `
   writeFileSync(resolve(dirname(assetsDir), 'RELEASE_NOTES.md'), notes)
 }

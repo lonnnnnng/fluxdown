@@ -42,7 +42,7 @@ FluxDown 是一个跨平台下载器工作区：
 - 共享核心：Rust core crate 提供协议检测、任务模型、任务存储、队列运行器和桌面下载执行能力。
 - 移动 FFI：协议识别优先复用 Rust；Flutter 下载队列仍由 Dart/移动原生适配器执行，不是完整的跨端统一引擎。
 
-当前版本号为 `1.0.26`，补强 Android Release 协议验收取证、Torrent/Magnet 校验和 macOS GUI 回归记录。公开 Assets 精简为 12 项（10 个上传文件与 2 个自动源码包），内部 manifest 继续做上传前校验，大小和 SHA-256 写入 Release Notes。内部调试、商店和 iOS 验证产物仍保留在 Actions Artifacts。发布流水线只允许手动选择 `run_mode=package` 或 `run_mode=release`，普通代码推送和 `v*` 标签推送都不会自动执行。各次构建与运行证据见 [下载验证状态](download-verification.md)。
+当前版本号为 `1.0.26`，补强 Android Release 协议验收取证、Torrent/Magnet 校验和 macOS GUI 回归记录。公开 Assets 精简为 12 项（10 个上传文件与 2 个自动源码包），内部 manifest 继续做上传前校验，但不再在 Release Notes 展示文件校验表格。内部调试、商店和 iOS 验证产物仍保留在 Actions Artifacts。发布流水线只允许手动选择 `run_mode=package` 或 `run_mode=release`，普通代码推送和 `v*` 标签推送都不会自动执行。各次构建与运行证据见 [下载验证状态](download-verification.md)。
 
 ## 当前版本重点
 

@@ -32,7 +32,7 @@ export function verifyPublicReleaseAssets(directory, version) {
   }
 
   // 作者: long
-  // manifest 留在公开 assets 的同级目录供 CI 使用，不上传到 Release；用户校验值由 Release Notes 展示。
+  // manifest 留在公开 assets 的同级目录供 CI 使用，不上传到 Release；校验值只用于流水线内部核验。
   const manifest = JSON.parse(readFileSync(resolve(directory, '../release-manifest.json'), 'utf8'))
   if (manifest.product !== 'FluxDown' || manifest.version !== version || !Array.isArray(manifest.assets)) {
     throw new Error('发布清单的产品、版本或 assets 格式不正确')

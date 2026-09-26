@@ -143,7 +143,7 @@ Releases `v1.0.16` and `v1.0.17` contain 11 uploaded files. Starting with `v1.0.
 | Command line | Windows x64 CLI ZIP; macOS ARM64 / Linux x64 CLI TAR.GZ |
 | License notices | LICENSE, third-party license notices |
 
-Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.26.md) for signing and verification limits. The manifest remains an internal CI check, while file sizes and SHA-256 values are written directly into the release notes.
+Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.26.md) for signing and verification limits. The manifest remains an internal CI check and is not shown as a checksum table on the release page.
 
 Extract the CLI archive and run `fluxdown` / `fluxdown.exe`; Unix executable permissions are retained. Android still includes arm64-v8a, armeabi-v7a, and x86_64. Release uses R8; Dart symbols and R8 mapping are retained separately in Actions Artifacts.
 

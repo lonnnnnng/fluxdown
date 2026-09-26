@@ -62,11 +62,14 @@ test('publishes exactly 10 files and leaves development artifacts out', (t) => {
   assert.equal(publicReleaseAssetNames(version).filter((name) => /debug|ios-|\.aab$|\.msi$|\.app\.tar\.gz$|fluxdown-desktop-/.test(name)).length, 0)
   const notes = readFileSync(resolve(data.assets, '../RELEASE_NOTES.md'), 'utf8')
   assert.match(notes, /Assets 共 12 项/)
-  assert.match(notes, /SHA-256/)
+  assert.doesNotMatch(notes, /## 文件校验/)
+  assert.doesNotMatch(notes, /\| 文件 \| 字节数 \| SHA-256 \|/)
   assert.equal(readdirSync(data.assets).some((name) => name.endsWith('release-manifest.json')), false)
   const manifest = JSON.parse(readFileSync(resolve(data.assets, '../release-manifest.json'), 'utf8'))
+  assert.equal(manifest.assets.length, 10)
   for (const asset of manifest.assets) {
-    assert.match(notes, new RegExp(asset.sha256))
+    assert.equal(typeof asset.bytes, 'number')
+    assert.match(asset.sha256, /^[0-9a-f]{64}$/)
   }
   assert.match(notes, new RegExp(`releases/download/v${version}/FluxDown-${version}-windows-x86_64-setup.exe`))
 })

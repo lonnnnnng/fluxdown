@@ -309,7 +309,7 @@ Debug APK、AAB、iOS simulator/unsigned app、可选签名 IPA/framework、Wind
 
 桌面在线更新当前依赖 Windows `-setup.exe`、macOS `.dmg` 和 Linux `.deb` 的命名，调整公开资产时必须同时检查 `matches_platform_asset` 的匹配规则。
 
-`scripts/prepare-github-release-assets.mjs` 只提取公开文件，要求输出目录为空，拒绝缺失或多个候选文件；发行正文读取 `docs/releases/<version>.md`，避免重复使用旧版本说明。`scripts/verify-github-release-assets.mjs` 校验精确的 10 项白名单和内部 manifest 中全部 10 项的大小/SHA-256。内部 manifest 位于公开 assets 目录的上一级，只参与流水线校验；相同的大小与 SHA-256 会写入 Release Notes，manifest 本身不再上传。
+`scripts/prepare-github-release-assets.mjs` 只提取公开文件，要求输出目录为空，拒绝缺失或多个候选文件；发行正文读取 `docs/releases/<version>.md`，避免重复使用旧版本说明。`scripts/verify-github-release-assets.mjs` 校验精确的 10 项白名单和内部 manifest 中全部 10 项的大小/SHA-256。内部 manifest 位于公开 assets 目录的上一级，只参与流水线校验；manifest 本身不上传，Release Notes 也不再生成文件校验表格。
 
 ```sh
 npm run verify:ci-config
