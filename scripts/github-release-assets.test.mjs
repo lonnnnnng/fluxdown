@@ -63,7 +63,7 @@ test('publishes exactly 10 files and leaves development artifacts out', (t) => {
   const notes = readFileSync(resolve(data.assets, '../RELEASE_NOTES.md'), 'utf8')
   assert.match(notes, /Assets 共 12 项/)
   assert.doesNotMatch(notes, /## 文件校验/)
-  assert.doesNotMatch(notes, /\| 文件 \| 字节数 \| SHA-256 \|/)
+  assert.doesNotMatch(notes, /^\|.*(?:SHA-?256|checksum|哈希|校验值).*\|$/im)
   assert.equal(readdirSync(data.assets).some((name) => name.endsWith('release-manifest.json')), false)
   const manifest = JSON.parse(readFileSync(resolve(data.assets, '../release-manifest.json'), 'utf8'))
   assert.equal(manifest.assets.length, 10)

@@ -7,8 +7,8 @@
 //    - iOS: Runner 构建阶段执行 scripts/build-ios-ffi.sh，按目标架构链接静态库。
 // 2. 加载：Android 上 DynamicLibrary.open('libfluxdown_ffi.so')；iOS 上
 //    DynamicLibrary.process()（静态链接）。[FluxDownCoreFfi.open] 已按平台处理。
-// 3. 协议识别接入默认产品调用链；异步队列接口由 RustQueueBackend 显式注入控制器时使用，
-//    默认移动下载仍由 Dart/原生适配器执行。queueRun 保留同步兼容入口，其他接口负责迁移验证。
+// 3. 协议识别接入默认产品调用链；native 库可用时 HTTP/HTTPS/WebDAV(S) 由 RustQueueBackend
+//    优先执行，HLS、Torrent/Magnet、ed2k 仍由 Dart/原生适配器执行。queueRun 保留同步兼容入口。
 //
 // 协议与队列调用返回统一信封 {ok, data, error}；ABI/版本是独立标量。
 // 任务 JSON 与桌面端 serde schema 对齐（见 docs/task-schema.md）。

@@ -78,7 +78,35 @@ class DownloadController {
       recoveredInterruptedTask = true;
     }
     _tasks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    if (recoveredInterruptedTask) {
+    var reconciledRustQueue = false;
+    final backend = _rustBackend;
+    if (backend != null) {
+      try {
+        // 作者: long
+        // App 重新启动后，Rust 的 running 任务已没有可接管的 Flutter 运行句柄；
+        // 先转为暂停，再按相同任务 ID 恢复终态，避免旧 native 进度覆盖用户保存的队列。
+        for (final native in backend.list()) {
+          if (native.state == 'running') {
+            backend.pause(native.id);
+          }
+        }
+        backend.ensureTasks(
+          _tasks.where(
+            (task) =>
+                task.state == DownloadState.queued &&
+                backend.supportsTask(task),
+          ),
+        );
+        final nativeTasks = backend.list();
+        reconciledRustQueue = nativeTasks.any(
+          (native) => _tasks.any((task) => task.id == native.id),
+        );
+        _applyRustTasks(nativeTasks);
+      } on Object {
+        // Rust 库或队列暂时不可用时保留 Flutter 原始记录；下一次运行仍可尝试迁移。
+      }
+    }
+    if (recoveredInterruptedTask || reconciledRustQueue) {
       await _save();
     }
     _emit();
@@ -248,7 +276,7 @@ class DownloadController {
       return;
     }
 
-    if (_rustBackend != null) {
+    if (_rustBackend?.supportsTask(task) == true) {
       await _startActiveTaskWithRust(
         task,
         maxRetries: maxRetries,
@@ -515,15 +543,12 @@ class DownloadController {
       speedLimitKbps: speedLimitKbps,
       threadCount: threadCount,
     );
-    if (rustReport != null) {
-      return rustReport;
-    }
-
     final workerCount = concurrency.clamp(1, 30).toInt();
     final seen = <String>{};
-    var started = 0;
-    var finished = 0;
-    var failed = 0;
+    var started = rustReport?.started ?? 0;
+    var finished = rustReport?.finished ?? 0;
+    var failed = rustReport?.failed ?? 0;
+    var totalQueued = rustReport?.totalQueued ?? 0;
 
     Future<void> worker() async {
       while (true) {
@@ -550,7 +575,7 @@ class DownloadController {
 
     await Future.wait(List.generate(workerCount, (_) => worker()));
     return MobileQueueRunReport(
-      totalQueued: seen.length,
+      totalQueued: totalQueued + seen.length,
       started: started,
       finished: finished,
       failed: failed,
@@ -577,15 +602,13 @@ class DownloadController {
       return null;
     }
     final queued = _tasks
-        .where((task) => task.state == DownloadState.queued)
+        .where(
+          (task) =>
+              task.state == DownloadState.queued && backend.supportsTask(task),
+        )
         .toList(growable: false);
     if (queued.isEmpty) {
-      return const MobileQueueRunReport(
-        totalQueued: 0,
-        started: 0,
-        finished: 0,
-        failed: 0,
-      );
+      return null;
     }
 
     // 作者: long
@@ -596,18 +619,67 @@ class DownloadController {
       return null;
     }
 
-    final result = await backend.runQueued(
-      concurrency: concurrency,
-      threadCount: threadCount,
-      retryAttempts: maxRetries,
-      speedLimitKbps: speedLimitKbps,
-      onProgress: (nativeTasks) async {
-        _applyRustTasks(nativeTasks);
-        await _save();
-        _emit();
-      },
-    );
+    late final RustQueueRunResult result;
+    try {
+      result = await backend.runQueued(
+        concurrency: concurrency,
+        threadCount: threadCount,
+        retryAttempts: maxRetries,
+        speedLimitKbps: speedLimitKbps,
+        onProgress: (nativeTasks) async {
+          _applyRustTasks(nativeTasks);
+          await _save();
+          _emit();
+        },
+      );
+    } on Object catch (error) {
+      final message = 'Rust 队列运行失败：$error';
+      for (final queuedTask in queued) {
+        _replace(
+          queuedTask.id,
+          (task) => task.copyWith(
+            state: DownloadState.failed,
+            error: message,
+            finishedAt: DateTime.now().toUtc(),
+            currentSpeedBytesPerSecond: 0,
+          ),
+        );
+      }
+      await _save();
+      _emit();
+      return MobileQueueRunReport(
+        totalQueued: queued.length,
+        started: 0,
+        finished: 0,
+        failed: queued.length,
+      );
+    }
     _applyRustTasks(backend.list());
+    if (result.failed) {
+      final message = result.error?.trim().isNotEmpty == true
+          ? result.error!.trim()
+          : 'Rust 队列执行失败';
+      for (final queuedTask in queued) {
+        final current = _maybeTaskById(queuedTask.id);
+        if (current == null ||
+            (current.state != DownloadState.queued &&
+                current.state != DownloadState.running)) {
+          continue;
+        }
+        // 作者: long
+        // native 句柄失败后不能回退 Dart 重复执行；把尚未进入终态的任务标为失败，
+        // 让用户在列表中看到真实原因并可手动重试。
+        _replace(
+          queuedTask.id,
+          (task) => task.copyWith(
+            state: DownloadState.failed,
+            error: message,
+            finishedAt: DateTime.now().toUtc(),
+            currentSpeedBytesPerSecond: 0,
+          ),
+        );
+      }
+    }
     await _save();
     _emit();
 
@@ -618,7 +690,15 @@ class DownloadController {
       finished: (report?['finished'] as num?)?.toInt() ?? 0,
       failed:
           (report?['failed'] as num?)?.toInt() ??
-          (result.failed ? queued.length : 0),
+          (result.failed
+              ? queued
+                    .where(
+                      (task) =>
+                          _maybeTaskById(task.id)?.state ==
+                          DownloadState.failed,
+                    )
+                    .length
+              : 0),
     );
   }
 
@@ -628,10 +708,16 @@ class DownloadController {
       final current = _tasks[index];
       final native = byId[current.id];
       if (native == null) continue;
-      if (current.state == DownloadState.paused && native.state == 'running') {
+      if (current.state == DownloadState.handedOff ||
+          (current.state == DownloadState.finished &&
+              native.state != 'finished') ||
+          (current.state == DownloadState.failed &&
+              (native.state == 'queued' || native.state == 'paused')) ||
+          (current.state == DownloadState.paused &&
+              (native.state == 'queued' || native.state == 'running'))) {
         // 作者: long
-        // 暂停先写入 Flutter 队列时，旧 Rust 轮询可能晚到一个 running 快照；
-        // 不能让这次迟到回调把用户刚点下的暂停恢复成下载中。
+        // 已移交、已完成及用户手动暂停/重试前的失败状态不能被旧 native
+        // 快照倒退覆盖；只有真正的新运行或终态才更新 Flutter 列表。
         continue;
       }
       final state = switch (native.state) {

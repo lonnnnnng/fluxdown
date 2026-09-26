@@ -6,7 +6,9 @@ Flutter Android/iOS app for FluxDown.
 
 The app keeps a local JSON queue and automatically schedules waiting tasks up to the configured concurrency. Task rows start/pause on tap; long press opens actions. New tasks support QR/clipboard input, file naming, output location, and optional SHA-256 verification.
 
-Protocol detection tries Rust FFI before falling back to Dart. The actual queue/download controller still uses Dart and native mobile adapters, not the Rust queue engine. See [FFI build and test instructions](../../docs/build-release.md#移动端-rust-ffi) and [current verification boundaries](../../docs/bugfix-verification-20260908.md).
+Protocol detection tries Rust FFI before falling back to Dart. When the native library is available, the production entry routes
+HTTP/HTTPS/WebDAV(S) through the Rust queue; HLS, Torrent/Magnet, and ed2k remain on the Dart/native adapters. See [FFI build
+and test instructions](../../docs/build-release.md#移动端-rust-ffi) and [current verification boundaries](../../docs/bugfix-verification-20260908.md).
 
 ## Commands
 

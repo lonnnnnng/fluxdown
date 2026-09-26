@@ -25,6 +25,16 @@ class RustQueueBackend {
   final FluxDownCoreFfi core;
   final String storePath;
 
+  bool supportsTask(DownloadTask task) {
+    // 作者: long
+    // 先迁移已在 Android 真机和 iOS 模拟器验证过的 HTTP/WebDAV 家族；
+    // HLS 转封装、Torrent/Magnet 文件选择和 ed2k 外部移交仍由移动适配器负责。
+    return switch (task.protocol) {
+      'http' || 'https' || 'webdav' || 'webdavs' => true,
+      _ => false,
+    };
+  }
+
   FluxDownCoreTask enqueue(DownloadTask task) {
     return core.queueAdd(storePath, _requestFor(task));
   }
@@ -32,7 +42,7 @@ class RustQueueBackend {
   void ensureTasks(Iterable<DownloadTask> tasks) {
     final existing = list().map((task) => task.id).toSet();
     for (final task in tasks) {
-      if (!existing.contains(task.id)) {
+      if (supportsTask(task) && !existing.contains(task.id)) {
         enqueue(task);
       }
     }

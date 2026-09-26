@@ -1,6 +1,8 @@
 use crate::{DownloadRequest, DownloadState, DownloadTask};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
+#[cfg(target_os = "android")]
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -200,7 +202,7 @@ impl TaskStore {
                 .create(true)
                 .truncate(false)
                 .open(lock_path)?;
-            file.lock()?;
+            lock_store_file(&file)?;
             Ok(file)
         })
         .await
@@ -235,6 +237,24 @@ impl TaskStore {
             })??;
         Ok(())
     }
+}
+
+#[cfg(target_os = "android")]
+fn lock_store_file(file: &std::fs::File) -> std::io::Result<()> {
+    // 作者: long
+    // Android 的标准库文件锁会返回 Unsupported；用同一个旁路锁文件调用系统 flock，
+    // 保留多进程队列写入互斥，文件关闭时由内核自动释放锁。
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn lock_store_file(file: &std::fs::File) -> std::io::Result<()> {
+    file.lock()
 }
 
 fn persist_atomically(path: &Path, bytes: &[u8]) -> Result<(), std::io::Error> {

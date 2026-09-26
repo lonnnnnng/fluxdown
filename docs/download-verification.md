@@ -1,5 +1,12 @@
 # 下载验证状态
 
+## 2026-09-27 P2-01 Rust 移动队列首批协议切换（未发布）
+
+- Android 真机 Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）使用 arm64 Rust FFI 库真实执行队列下载和单任务下载；设备内回环 HTTP 文件 `131,072 B` 两次均落盘，`ffiVersion=1.0.26`，任务状态均为 `finished`。
+- iOS simulator iPhone 16 Pro（`EADF8DFC-ED26-4C03-8735-C0889ECB2DA5`）执行同一 Rust FFI 用例通过，队列与单任务均真实落盘 `131,072 B`，状态均为 `finished`。
+- 修复 Android 文件锁兼容：Android 使用系统 `flock` 保护旁路锁文件，解决 `lock() not supported`；Rust core store 测试、Flutter analyze、host FFI 测试均通过。
+- 正式移动入口已接入混合调度：native 库可用时 HTTP/HTTPS/WebDAV(S) 优先走 Rust，HLS、Torrent/Magnet、ed2k 继续走 Dart/移动原生适配器；没有 native 库时自动回退 Dart。本轮未触发发布流水线，也未宣称整队列 schema 或全部协议已迁移。
+
 ## 2026-09-26 Android `1.0.25` Release 完整协议验收
 
 - Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）安装 `1.0.25 (26)` Release APK，

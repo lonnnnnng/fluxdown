@@ -34,4 +34,7 @@ url.workspace = true
 uuid.workspace = true
 webpki-roots.workspace = true
 
+[target.'cfg(target_os = "android")'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]

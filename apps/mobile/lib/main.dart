@@ -21,6 +21,8 @@ import 'src/mobile_torrent.dart';
 import 'src/mobile_update.dart';
 import 'src/protocol_e2e_runner.dart';
 import 'src/protocol.dart';
+import 'src/ffi/fluxdown_ffi.dart';
+import 'src/rust_queue_backend.dart';
 
 const _protocolE2eAutoRun = bool.fromEnvironment('FLUXDOWN_E2E_AUTO_RUN');
 
@@ -668,7 +670,6 @@ class _DownloadHomeState extends State<DownloadHome> {
   @override
   void initState() {
     super.initState();
-    controller = DownloadController(onChanged: _refresh);
     _load();
   }
 
@@ -680,6 +681,23 @@ class _DownloadHomeState extends State<DownloadHome> {
 
   Future<void> _load() async {
     final documents = await getApplicationDocumentsDirectory();
+    RustQueueBackend? rustBackend;
+    try {
+      // 作者: long
+      // 正式入口优先使用可用的 Rust 队列；动态库未随本地构建打包时保留 Dart 回退，
+      // 让 Debug 开发和未配置 FFI 的设备仍能正常下载。
+      final core = FluxDownCoreFfi.open();
+      rustBackend = RustQueueBackend(
+        core: core,
+        storePath: p.join(documents.path, 'fluxdown', 'rust-queue.json'),
+      );
+    } on Object {
+      rustBackend = null;
+    }
+    controller = DownloadController(
+      onChanged: _refresh,
+      rustBackend: rustBackend,
+    );
     final preferences = await SharedPreferences.getInstance();
     outputController.text =
         preferences.getString(_outputFolderPreferenceKey) ??

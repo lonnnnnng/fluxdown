@@ -162,7 +162,7 @@ Tauri commands 包括：
 
 ## 移动端
 
-Flutter 当前部分复用 Rust core：协议识别走 `protocol.dart` → `FluxDownCoreBridge` → `FluxDownCoreFfi`；加载失败或调用异常回退 Dart。移动队列已提供显式注入的 Rust 迁移路径，默认生产入口仍保留 Dart/移动原生适配器：
+Flutter 当前部分复用 Rust core：协议识别走 `protocol.dart` → `FluxDownCoreBridge` → `FluxDownCoreFfi`；加载失败或调用异常回退 Dart。native 库可用时，移动正式入口优先让 HTTP/HTTPS/WebDAV(S) 走 Rust 队列，其余协议保留 Dart/移动原生适配器：
 
 - `protocol.dart`：协议识别和移动端支持说明。
 - `core_bridge.dart` / `ffi/fluxdown_ffi.dart`：加载 ABI 1、UTF-8 JSON 信封解码与结果释放。Android 打包 `.so`；iOS Runner 构建时静态链接，使用 `DynamicLibrary.process()`。
@@ -180,7 +180,7 @@ Flutter 当前部分复用 Rust core：协议识别走 `protocol.dart` → `Flux
 - 移动端 torrent 依赖 `libtorrent_flutter` 原生组件。
 - 移动端已接入新建弹框扫码/剪切板与可选 SHA-256 文件校验；这些 UI 能力不依赖 Rust 下载控制器。
 
-FFI 保留同步 `queueRun` 兼容旧测试，同时新增非阻塞单任务/队列运行、状态轮询、暂停、继续、重置、删除、句柄回收和队列设置透传接口；实时进度、速度、错误、真实文件名和 Rust 时间戳通过 `queueList` 读取任务快照。Flutter 已提供独立 `RustQueueBackend` 适配层，可由 `DownloadController` 显式注入并在初始化/入队失败时回退 Dart；默认生产入口仍由 Dart/原生适配器执行，后续还需完成整队列 schema 迁移、默认切换和 Android/iOS 真机回归。构建细节见 [移动端 Rust FFI](build-release.md#移动端-rust-ffi)。
+FFI 保留同步 `queueRun` 兼容旧测试，同时新增非阻塞单任务/队列运行、状态轮询、暂停、继续、重置、删除、句柄回收和队列设置透传接口；实时进度、速度、错误、真实文件名和 Rust 时间戳通过 `queueList` 读取任务快照。Flutter 的 `RustQueueBackend` 适配层在初始化/入队失败时回退 Dart；后续还需完成整队列 schema 迁移、HLS/Torrent/Magnet/ed2k 的能力对齐和更多真机回归。构建细节见 [移动端 Rust FFI](build-release.md#移动端-rust-ffi)。
 
 ## 数据流
 

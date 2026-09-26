@@ -212,7 +212,7 @@ Linux 库为 `target/debug/libfluxdown_ffi.so`，Windows 为 `target/debug/fluxd
 
 `test/core_ffi_test.dart` 覆盖信封解析、ABI/版本、12 类协议识别、Unicode 队列、错误透传、非阻塞运行句柄、真实本地 HTTP 下载，以及 RustQueueBackend 的单任务/队列运行、时间戳回写和暂停/继续/重置/删除同步。不传该参数时原生库相关用例会跳过，仅跑 Dart 信封测试；不能把这一结果写成 FFI 验证通过。
 
-`queueRun` 仍是同步兼容调用；迁移验证可使用 `queueRunAsync`、带设置透传的 `queueRunWithOptionsAsync` 或 `queueRunQueuedAsync` 获取运行句柄，再用 `queueRunStatus` 查询结束结果、`queueList` 读取实时任务进度，并用 `queuePause`/`queueResume`/`queueReset`/`queueRemove` 控制任务。句柄完成后调用 `queueRunForget` 回收。当前 Flutter 默认产品仍未切换到 Rust 下载控制器，测试把 HTTP 服务放在独立 isolate，避免服务端与同步兼容调用互相阻塞。
+`queueRun` 仍是同步兼容调用；迁移验证可使用 `queueRunAsync`、带设置透传的 `queueRunWithOptionsAsync` 或 `queueRunQueuedAsync` 获取运行句柄，再用 `queueRunStatus` 查询结束结果、`queueList` 读取实时任务进度，并用 `queuePause`/`queueResume`/`queueReset`/`queueRemove` 控制任务。句柄完成后调用 `queueRunForget` 回收。移动正式入口目前仅将 HTTP/HTTPS/WebDAV(S) 优先交给 Rust，其他协议保留 Dart/原生适配器；测试把 HTTP 服务放在独立 isolate，避免服务端与同步兼容调用互相阻塞。
 
 ## iOS 构建
 

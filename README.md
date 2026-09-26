@@ -23,7 +23,7 @@ FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版�
 - HLS 支持 master 清晰度编号、分片缓存恢复和可选保留 TS；桌面、CLI 与移动端新建任务均可配置，默认按平台能力转封装为 `.mp4`，失败时安全回退为 `.ts`。
 - 移动端限速、暂停取消、FTP/SFTP/SMB/HLS 分块取消和 Torrent 速度配置已接入统一下载控制器；ed2k 外部移交成功后使用 `handedOff` 状态，不冒充 FluxDown 内建下载完成。
 - CLI 和桌面端会脱敏 URL 中的用户名和密码，并把另存文件名规范化为单文件名。
-- 移动端协议识别优先通过 FFI 调用 Rust，库不可用时回退 Dart；队列与实际下载仍由 Dart/移动原生适配器执行，尚未统一到 Rust 下载引擎。
+- 移动端协议识别优先通过 FFI 调用 Rust，库不可用时回退 Dart；native 库可用时 HTTP/HTTPS/WebDAV(S) 优先走 Rust 队列，HLS、Torrent/Magnet、ed2k 仍由 Dart/移动原生适配器执行。
 - 普通提交和 tag 推送不会触发 GitHub Actions；只有明确打包或发版时才手动运行流水线。
 
 ### 1.0.20 更新（2026-09-12）

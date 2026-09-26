@@ -6,7 +6,9 @@ FluxDown 的 Flutter Android/iOS App。
 
 App 保存本地 JSON 队列，按设置的并发数自动调度排队任务。点击任务开始/暂停，长按打开操作菜单；新建任务支持扫码/剪切板、文件命名、保存位置与可选 SHA-256 校验。
 
-协议识别优先调用 Rust FFI，不可用时回退 Dart；实际队列与下载控制器仍由 Dart/移动原生适配器执行，尚未切换到 Rust 队列引擎。见 [FFI 构建与测试](../../docs/build-release.md#移动端-rust-ffi) 和 [当前验证边界](../../docs/bugfix-verification-20260908.md)。
+协议识别优先调用 Rust FFI，不可用时回退 Dart；正式入口在 native 库可用时优先把 HTTP/HTTPS/WebDAV(S)
+交给 Rust 队列，HLS、Torrent/Magnet、ed2k 仍由 Dart/移动原生适配器执行。见 [FFI 构建与测试](../../docs/build-release.md#移动端-rust-ffi)
+和 [当前验证边界](../../docs/bugfix-verification-20260908.md)。
 
 ## 命令
 

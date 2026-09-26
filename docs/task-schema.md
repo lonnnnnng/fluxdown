@@ -56,7 +56,7 @@ Rust 请求包含 `source`、`output_dir`、可选 `file_name`、`expected_sha25
 | `hlsVariantIndex` | 否 | HLS master playlist 的 zero-based variant 编号；缺省使用第一个 |
 | `hlsKeepTransportStream` | 否 | 为 true 时保留 HLS TS 原始流，不尝试转封装为 MP4 |
 
-当前 FFI 队列接口会读取并映射 Torrent metadata、`hlsVariantIndex` 与 `hlsKeepTransportStream`；移动端下载器同时通过自己的 camelCase 队列字段执行这些选项。显式注入 `RustQueueBackend` 时，队列并发、线程数、重试和限速会按 Rust 边界透传；默认移动生产入口仍保留 Dart/原生适配器。
+当前 FFI 队列接口会读取并映射 Torrent metadata、`hlsVariantIndex` 与 `hlsKeepTransportStream`；移动端下载器同时通过自己的 camelCase 队列字段执行这些选项。移动正式入口在 native 库可用时优先将 HTTP/HTTPS/WebDAV(S) 交给 Rust 队列，其他协议仍由 Dart/原生适配器执行；库缺失或初始化失败时自动回退 Dart。
 
 ### 返回值与执行边界
 
@@ -68,7 +68,7 @@ Rust 请求包含 `source`、`output_dir`、可选 `file_name`、`expected_sha25
 - `options_json` 支持 `concurrency`（1-30）、`threadCount`（1-32）、`retryAttempts`（0-10）和 `speedLimitKbps`（KiB/s 字节限速，0/缺省不限速），边界由 Rust 核心统一收敛。
 - `fluxdown_queue_pause` / `fluxdown_queue_resume` 通过任务状态控制运行器，`fluxdown_queue_reset` 清理断点并重新进入 `queued`，`fluxdown_queue_remove` 删除 native 任务，`fluxdown_queue_run_forget` 回收完成句柄。异步运行不持有 FFI 全局锁，暂停请求可以在下载期间落盘。
 - 同一个 Rust 队列文件同时只允许一个 `fluxdown_queue_run_queued_async` 调度句柄，避免两个调用方重复启动同一批 queued 任务；单任务句柄仍由核心状态机防止 running 任务重复执行。
-- Flutter 产品默认仍使用 Dart/原生适配器；`RustQueueBackend` 可独立注入 `DownloadController` 做队列迁移验证，已覆盖单任务 start/pause/resume/reset/remove、队列运行、任务 ID、进度、状态、真实文件名和 Rust 毫秒时间戳回写，初始化/入队失败时回退 Dart。完整 schema 迁移、默认生产切换和真机切换仍未完成。
+- `RustQueueBackend` 已接入移动正式入口的首批协议，按任务 ID、进度、速度、错误、真实文件名和 Rust 毫秒时间戳回写 Flutter；已覆盖单任务 start/pause/resume/reset/remove、队列运行和初始化/入队失败回退 Dart。完整整队列 schema 合并仍未完成，HLS、Torrent/Magnet、ed2k 的 Rust 默认切换也未开启。
 
 ## 移动端（Flutter）映射
 

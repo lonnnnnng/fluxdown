@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -114,6 +115,26 @@ void main() {
         expect(tasks.single.id, task.id);
         expect(tasks.single.outputDir, directory.path);
       });
+
+      test(
+        'limits the first Rust migration slice to HTTP and WebDAV tasks',
+        () {
+          final backend = RustQueueBackend(core: core, storePath: storePath);
+          final httpTask = DownloadTask.create(
+            source: 'https://example.com/file.zip',
+            outputFolder: directory.path,
+          );
+          final torrentTask = DownloadTask.create(
+            source:
+                'magnet:?xt=urn:btih:0123456789012345678901234567890123456789',
+            outputFolder: directory.path,
+          );
+          expect(backend.supportsTask(httpTask), isTrue);
+          expect(backend.supportsTask(torrentTask), isFalse);
+          backend.ensureTasks([torrentTask]);
+          expect(backend.list(), isEmpty);
+        },
+      );
 
       test('propagates a failed native queue operation', () {
         expect(
@@ -232,57 +253,86 @@ void main() {
         },
       );
 
-      test(
-        'controller can opt into Rust queue execution without changing Dart default',
-        () async {
-          final ready = ReceivePort();
-          final server = await Isolate.spawn(_serveDownload, ready.sendPort);
-          try {
-            final port = await ready.first as int;
-            final controller = DownloadController(
-              store: TaskStore(baseDirectory: directory),
-              rustBackend: RustQueueBackend(core: core, storePath: storePath),
-            );
-            await controller.load();
-            final task = await controller.add(
-              source: 'http://127.0.0.1:$port/ffi-download.txt',
-              outputFolder: directory.path,
-            );
-            final report = await controller.runQueued(
-              concurrency: 1,
-              maxRetries: 1,
-              threadCount: 2,
-            );
-            expect(report.finished, 1);
-            expect(controller.tasks.single.id, task.id);
-            expect(controller.tasks.single.state, DownloadState.finished);
-            expect(controller.tasks.single.startedAt, isNotNull);
-            expect(controller.tasks.single.finishedAt, isNotNull);
+      test('controller executes an HTTP task through the Rust queue', () async {
+        final ready = ReceivePort();
+        final server = await Isolate.spawn(_serveDownload, ready.sendPort);
+        try {
+          final port = await ready.first as int;
+          final controller = DownloadController(
+            store: TaskStore(baseDirectory: directory),
+            rustBackend: RustQueueBackend(core: core, storePath: storePath),
+          );
+          await controller.load();
+          final task = await controller.add(
+            source: 'http://127.0.0.1:$port/ffi-download.txt',
+            outputFolder: directory.path,
+          );
+          final report = await controller.runQueued(
+            concurrency: 1,
+            maxRetries: 1,
+            threadCount: 2,
+          );
+          expect(report.finished, 1);
+          expect(controller.tasks.single.id, task.id);
+          expect(controller.tasks.single.state, DownloadState.finished);
+          expect(controller.tasks.single.startedAt, isNotNull);
+          expect(controller.tasks.single.finishedAt, isNotNull);
 
-            // 作者: long
-            // 模拟 App 在 Rust 完成后、Flutter 状态落库前退出；下一轮队列运行应从
-            // native 终态修复旧 queued 记录，而不是再次下载同一文件。
-            final flutterStore = TaskStore(baseDirectory: directory);
-            await flutterStore.save([task]);
-            final restored = DownloadController(
-              store: flutterStore,
-              rustBackend: RustQueueBackend(core: core, storePath: storePath),
-            );
-            await restored.load();
-            expect(restored.tasks.single.state, DownloadState.queued);
-            final recoveredReport = await restored.runQueued();
-            expect(recoveredReport.totalQueued, 0);
-            expect(restored.tasks.single.state, DownloadState.finished);
-            expect(restored.tasks.single.startedAt, isNotNull);
-            expect(restored.tasks.single.finishedAt, isNotNull);
-            expect(
-              (await flutterStore.load()).single.state,
-              DownloadState.finished,
-            );
-          } finally {
-            ready.close();
-            server.kill(priority: Isolate.immediate);
-          }
+          // 作者: long
+          // 模拟 App 在 Rust 完成后、Flutter 状态落库前退出；下一轮队列运行应从
+          // native 终态修复旧 queued 记录，而不是再次下载同一文件。
+          final flutterStore = TaskStore(baseDirectory: directory);
+          await flutterStore.save([task]);
+          final restored = DownloadController(
+            store: flutterStore,
+            rustBackend: RustQueueBackend(core: core, storePath: storePath),
+          );
+          await restored.load();
+          expect(restored.tasks.single.state, DownloadState.finished);
+          expect(restored.tasks.single.startedAt, isNotNull);
+          expect(restored.tasks.single.finishedAt, isNotNull);
+          final recoveredReport = await restored.runQueued();
+          expect(recoveredReport.totalQueued, 0);
+          expect(restored.tasks.single.state, DownloadState.finished);
+          expect(restored.tasks.single.startedAt, isNotNull);
+          expect(restored.tasks.single.finishedAt, isNotNull);
+          expect(
+            (await flutterStore.load()).single.state,
+            DownloadState.finished,
+          );
+        } finally {
+          ready.close();
+          server.kill(priority: Isolate.immediate);
+        }
+      });
+
+      test(
+        'load does not regress a completed Flutter task to native queued',
+        () async {
+          final backend = RustQueueBackend(core: core, storePath: storePath);
+          final task = DownloadTask.create(
+            source: 'http://127.0.0.1:1/stale.bin',
+            outputFolder: directory.path,
+          );
+          backend.enqueue(task);
+          final flutterStore = TaskStore(baseDirectory: directory);
+          await flutterStore.save([
+            task.copyWith(
+              state: DownloadState.finished,
+              finishedAt: DateTime.now().toUtc(),
+            ),
+          ]);
+
+          final controller = DownloadController(
+            store: flutterStore,
+            rustBackend: backend,
+          );
+          await controller.load();
+          expect(controller.tasks.single.state, DownloadState.finished);
+          expect(
+            (await flutterStore.load()).single.state,
+            DownloadState.finished,
+          );
         },
       );
 
@@ -327,11 +377,97 @@ void main() {
           }
         },
       );
+
+      test('shows a failed Rust queue handle on the Flutter task', () async {
+        final controller = DownloadController(
+          store: TaskStore(baseDirectory: directory),
+          rustBackend: _FailedRustQueueBackend(core, storePath),
+        );
+        await controller.load();
+        final task = await controller.add(
+          source: 'http://127.0.0.1:1/unreachable.bin',
+          outputFolder: directory.path,
+        );
+
+        final report = await controller.runQueued();
+        expect(report.finished, 0);
+        expect(report.failed, 1);
+        expect(controller.tasks.single.id, task.id);
+        expect(controller.tasks.single.state, DownloadState.failed);
+        expect(controller.tasks.single.error, 'native store unavailable');
+        expect(controller.tasks.single.finishedAt, isNotNull);
+      });
+
+      test(
+        'records an exception from Rust queue execution instead of falling back',
+        () async {
+          final controller = DownloadController(
+            store: TaskStore(baseDirectory: directory),
+            rustBackend: _ThrowingRustQueueBackend(core, storePath),
+          );
+          await controller.load();
+          final task = await controller.add(
+            source: 'http://127.0.0.1:1/unreachable.bin',
+            outputFolder: directory.path,
+          );
+
+          final report = await controller.runQueued();
+          expect(report.finished, 0);
+          expect(report.failed, 1);
+          expect(controller.tasks.single.id, task.id);
+          expect(controller.tasks.single.state, DownloadState.failed);
+          expect(
+            controller.tasks.single.error,
+            contains('queue handle unavailable'),
+          );
+        },
+      );
     },
     skip: _libraryPath.isEmpty
         ? 'Pass FLUXDOWN_FFI_TEST_LIBRARY for native tests'
         : false,
   );
+}
+
+class _FailedRustQueueBackend extends RustQueueBackend {
+  _FailedRustQueueBackend(FluxDownCoreFfi core, String storePath)
+    : super(core: core, storePath: storePath);
+
+  @override
+  void ensureTasks(Iterable<DownloadTask> tasks) {}
+
+  @override
+  Future<RustQueueRunResult> runQueued({
+    int concurrency = 5,
+    int threadCount = 16,
+    int retryAttempts = 3,
+    int speedLimitKbps = 0,
+    Duration pollInterval = const Duration(milliseconds: 200),
+    FutureOr<void> Function(List<FluxDownCoreTask> tasks)? onProgress,
+  }) async => const RustQueueRunResult(
+    state: 'failed',
+    error: 'native store unavailable',
+  );
+}
+
+class _ThrowingRustQueueBackend extends RustQueueBackend {
+  _ThrowingRustQueueBackend(FluxDownCoreFfi core, String storePath)
+    : super(core: core, storePath: storePath);
+
+  @override
+  void ensureTasks(Iterable<DownloadTask> tasks) {}
+
+  @override
+  Future<RustQueueRunResult> runQueued({
+    int concurrency = 5,
+    int threadCount = 16,
+    int retryAttempts = 3,
+    int speedLimitKbps = 0,
+    Duration pollInterval = const Duration(milliseconds: 200),
+    FutureOr<void> Function(List<FluxDownCoreTask> tasks)? onProgress,
+  }) async {
+    throw StateError('queue handle unavailable');
+  }
 }
 
 Future<void> _serveDownload(SendPort ready) async {

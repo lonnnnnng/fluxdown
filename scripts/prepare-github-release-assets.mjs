@@ -109,6 +109,11 @@ function writeInternalManifest() {
 
 function writeReleaseNotes() {
   const changelog = readFileSync(resolve(root, `docs/releases/${version}.md`), 'utf8').trim()
+  // 作者: long
+  // 公开发行说明只保留下载入口；文件哈希留在内部 manifest，避免把校验明细表带回 Release 页面。
+  if (/^\|.*(?:SHA-?256|checksum|哈希|校验值).*\|$/im.test(changelog)) {
+    throw new Error('发行说明不能包含文件校验表格；请保留内部 manifest 校验')
+  }
   const download = (name) => `https://github.com/lonnnnnng/fluxdown/releases/download/v${version}/${name}`
   const notes = `# FluxDown ${version}
 
