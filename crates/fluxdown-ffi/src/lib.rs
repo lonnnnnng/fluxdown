@@ -8,7 +8,7 @@
 //! - 异步能力通过常驻 tokio 多线程运行时驱动，FFI 调用本身保持同步签名。
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ffi::{CStr, CString},
     os::raw::{c_char, c_int},
     sync::{
@@ -19,7 +19,8 @@ use std::{
 };
 
 use fluxdown_core::{
-    DownloadRequest, DownloadState, QueueRunner, QueueRunnerOptions, TaskStore,
+    DEFAULT_DOWNLOAD_THREAD_COUNT, DEFAULT_QUEUE_CONCURRENCY, DEFAULT_RETRY_ATTEMPTS,
+    DownloadOptions, DownloadRequest, DownloadState, QueueRunner, QueueRunnerOptions, TaskStore,
     TorrentFileMetadata, default_store_path, detect_protocol, runtime_support_status,
 };
 use serde_json::json;
@@ -29,6 +30,7 @@ static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static QUEUE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static ASYNC_RUNS: OnceLock<StdMutex<HashMap<String, Arc<StdMutex<AsyncRunState>>>>> =
     OnceLock::new();
+static ACTIVE_QUEUED_STORES: OnceLock<StdMutex<HashSet<String>>> = OnceLock::new();
 static NEXT_ASYNC_RUN_ID: AtomicU64 = AtomicU64::new(1);
 
 enum AsyncRunState {
@@ -52,6 +54,10 @@ fn queue_lock() -> &'static Mutex<()> {
 
 fn async_runs() -> &'static StdMutex<HashMap<String, Arc<StdMutex<AsyncRunState>>>> {
     ASYNC_RUNS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+fn active_queued_stores() -> &'static StdMutex<HashSet<String>> {
+    ACTIVE_QUEUED_STORES.get_or_init(|| StdMutex::new(HashSet::new()))
 }
 
 fn next_async_run_id() -> String {
@@ -310,6 +316,60 @@ pub extern "C" fn fluxdown_queue_run_async(
     )))
 }
 
+/// 按移动端设置异步运行队列。`options_json` 支持 concurrency/threadCount/retryAttempts，
+/// 以及 speedLimitKbps（KiB/s 字节限速，0/缺省表示不限速）。
+#[unsafe(no_mangle)]
+pub extern "C" fn fluxdown_queue_run_queued_async(
+    store_path: *const c_char,
+    options_json: *const c_char,
+) -> *mut c_char {
+    let store_path = cstr_to_string(store_path);
+    let options_json = cstr_to_string(options_json);
+    let (concurrency, options) = match queue_options_from_json(&options_json) {
+        Ok(options) => options,
+        Err(error) => return string_to_cstr(envelope::<serde_json::Value>(Err(error))),
+    };
+    {
+        let mut active = active_queued_stores()
+            .lock()
+            .expect("active queue registry poisoned");
+        if !active.insert(store_path.clone()) {
+            return string_to_cstr(envelope::<serde_json::Value>(Err(
+                "该队列已有异步运行任务".to_string()
+            )));
+        }
+    }
+    let run_id = next_async_run_id();
+    let state = Arc::new(StdMutex::new(AsyncRunState::Running));
+    {
+        let mut runs = async_runs().lock().expect("async run registry poisoned");
+        runs.insert(run_id.clone(), Arc::clone(&state));
+    }
+
+    runtime().spawn(async move {
+        // 作者: long
+        // 队列运行使用核心的并发调度器，设置参数只在任务启动时读取一次，避免运行中途改变槽位造成状态漂移。
+        let result = QueueRunner::new(open_store(&store_path))
+            .run_queued_with_options(concurrency, options)
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|report| serde_json::to_value(report).map_err(|error| error.to_string()));
+        let mut current = state.lock().expect("async run state poisoned");
+        *current = match result {
+            Ok(report) => AsyncRunState::Finished(report),
+            Err(error) => AsyncRunState::Failed(error),
+        };
+        active_queued_stores()
+            .lock()
+            .expect("active queue registry poisoned")
+            .remove(&store_path);
+    });
+
+    string_to_cstr(envelope::<serde_json::Value>(Ok(
+        json!({ "runId": run_id }),
+    )))
+}
+
 /// 查询非阻塞任务：running / finished / failed。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxdown_queue_run_status(run_id: *const c_char) -> *mut c_char {
@@ -402,6 +462,45 @@ fn open_store(store_path: &str) -> TaskStore {
     } else {
         TaskStore::new(std::path::PathBuf::from(trimmed))
     }
+}
+
+fn queue_options_from_json(raw: &str) -> Result<(usize, QueueRunnerOptions), String> {
+    let payload = if raw.trim().is_empty() {
+        serde_json::Value::Object(serde_json::Map::new())
+    } else {
+        serde_json::from_str(raw).map_err(|error| format!("队列设置 JSON 无法解析: {error}"))?
+    };
+    let object = payload
+        .as_object()
+        .ok_or_else(|| "队列设置必须是 JSON 对象".to_string())?;
+    let concurrency = object
+        .get("concurrency")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(DEFAULT_QUEUE_CONCURRENCY as u64)
+        .clamp(1, 30) as usize;
+    let thread_count = object
+        .get("threadCount")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(DEFAULT_DOWNLOAD_THREAD_COUNT as u64)
+        .clamp(1, 32) as usize;
+    let retry_attempts = object
+        .get("retryAttempts")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(DEFAULT_RETRY_ATTEMPTS as u64)
+        .min(10) as usize;
+    let speed_limit_bps = object
+        .get("speedLimitKbps")
+        .and_then(serde_json::Value::as_f64)
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .map(|value| (value * 1024.0).round().max(1.0) as u64);
+    Ok((
+        concurrency,
+        QueueRunnerOptions {
+            retry_attempts,
+            download: DownloadOptions::new(thread_count, speed_limit_bps),
+            restart_existing: false,
+        },
+    ))
 }
 
 fn default_store_path_dir() -> std::path::PathBuf {
@@ -549,6 +648,76 @@ mod tests {
         assert_eq!(resumed_json["data"]["state"], "queued");
         fluxdown_string_free(resumed);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn queue_options_parse_mobile_settings_with_bounds() {
+        let (concurrency, options) = queue_options_from_json(
+            r#"{"concurrency":99,"threadCount":0,"retryAttempts":99,"speedLimitKbps":2.5}"#,
+        )
+        .expect("valid options JSON");
+        assert_eq!(concurrency, 30);
+        assert_eq!(options.download.thread_count, 1);
+        assert_eq!(options.retry_attempts, 10);
+        assert_eq!(options.download.speed_limit_bps, Some(2560));
+    }
+
+    #[test]
+    fn async_queue_run_queued_returns_empty_queue_report() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("fluxdown-ffi-queued-{suffix}"));
+        fs::create_dir_all(&root).expect("create temporary queue directory");
+        let store = CString::new(root.join("queue.json").to_string_lossy().as_bytes())
+            .expect("queue path contains no NUL");
+        let options = CString::new(
+            r#"{"concurrency":2,"threadCount":4,"retryAttempts":1,"speedLimitKbps":0}"#,
+        )
+        .expect("options contain no NUL");
+        let start = fluxdown_queue_run_queued_async(store.as_ptr(), options.as_ptr());
+        let start_value = unsafe { CStr::from_ptr(start) }
+            .to_str()
+            .expect("async queue response is UTF-8");
+        let start_json: serde_json::Value =
+            serde_json::from_str(start_value).expect("valid queue JSON");
+        let run_id = start_json["data"]["runId"]
+            .as_str()
+            .expect("run id is present")
+            .to_string();
+        fluxdown_string_free(start);
+
+        let duplicate = fluxdown_queue_run_queued_async(store.as_ptr(), options.as_ptr());
+        let duplicate_value = unsafe { CStr::from_ptr(duplicate) }
+            .to_str()
+            .expect("duplicate response is UTF-8");
+        let duplicate_json: serde_json::Value =
+            serde_json::from_str(duplicate_value).expect("valid duplicate JSON");
+        assert_eq!(duplicate_json["ok"], false);
+        fluxdown_string_free(duplicate);
+
+        let run_id_c = CString::new(run_id).expect("run id contains no NUL");
+        for _ in 0..100 {
+            let status = fluxdown_queue_run_status(run_id_c.as_ptr());
+            let status_value = unsafe { CStr::from_ptr(status) }
+                .to_str()
+                .expect("async status response is UTF-8");
+            let status_json: serde_json::Value =
+                serde_json::from_str(status_value).expect("valid status JSON");
+            fluxdown_string_free(status);
+            if status_json["data"]["state"] == "finished" {
+                assert_eq!(status_json["data"]["report"]["total_queued"], 0);
+                let forgotten = fluxdown_queue_run_forget(run_id_c.as_ptr());
+                fluxdown_string_free(forgotten);
+                let _ = fs::remove_dir_all(root);
+                return;
+            }
+            thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        let _ = fs::remove_dir_all(root);
+        panic!("async queued run did not reach a terminal state");
     }
 }
 

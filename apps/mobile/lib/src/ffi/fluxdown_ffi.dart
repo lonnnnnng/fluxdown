@@ -138,6 +138,10 @@ class FluxDownCoreFfi {
     _queueRunAsync = _lib.lookupFunction<_TwoStringsNative, _TwoStringsDart>(
       'fluxdown_queue_run_async',
     );
+    _queueRunQueuedAsync = _lib.lookupFunction<
+      _TwoStringsNative,
+      _TwoStringsDart
+    >('fluxdown_queue_run_queued_async');
     _queueRunStatus = _lib.lookupFunction<_StringInNative, _StringInDart>(
       'fluxdown_queue_run_status',
     );
@@ -176,6 +180,7 @@ class FluxDownCoreFfi {
   late final _TwoStringsDart _queueAdd;
   late final _TwoStringsDart _queueRun;
   late final _TwoStringsDart _queueRunAsync;
+  late final _TwoStringsDart _queueRunQueuedAsync;
   late final _StringInDart _queueRunStatus;
   late final _StringInDart _queueRunForget;
   late final _TwoStringsDart _queuePause;
@@ -217,6 +222,14 @@ class FluxDownCoreFfi {
 
   Map<String, Object?> queueRunAsync(String storePath, String taskId) =>
       _unwrapMap(_callTwo(_queueRunAsync, storePath, taskId));
+
+  Map<String, Object?> queueRunQueuedAsync(
+    String storePath,
+    Map<String, Object?> options,
+  ) =>
+      _unwrapMap(
+        _callTwo(_queueRunQueuedAsync, storePath, jsonEncode(options)),
+      );
 
   Map<String, Object?> queueRunStatus(String runId) =>
       _unwrapMap(_call(_queueRunStatus, runId));

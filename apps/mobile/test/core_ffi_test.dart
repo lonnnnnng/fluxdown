@@ -141,6 +141,28 @@ void main() {
         expect(core.queueResume(storePath, task.id).state, 'queued');
       });
 
+      test('passes queue settings through the async native runner', () async {
+        final handle = core.queueRunQueuedAsync(storePath, {
+          'concurrency': 2,
+          'threadCount': 4,
+          'retryAttempts': 1,
+          'speedLimitKbps': 0,
+        });
+        final runId = handle['runId'] as String;
+        Map<String, Object?>? terminal;
+        for (var attempt = 0; attempt < 50; attempt += 1) {
+          final status = core.queueRunStatus(runId);
+          if (status['state'] == 'finished') {
+            terminal = status;
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(terminal?['state'], 'finished');
+        expect((terminal?['report'] as Map?)?['total_queued'], 0);
+        core.queueRunForget(runId);
+      });
+
       test(
         'runs an actual HTTP task and verifies the downloaded file',
         () async {
