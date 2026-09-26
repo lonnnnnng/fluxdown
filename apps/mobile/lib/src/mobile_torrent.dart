@@ -681,7 +681,13 @@ Future<TorrentMetadata?> _inspectMagnetMetadata(
 }
 
 Future<String> _prepareMagnetSource(String source) async {
-  await TrackerManager.fetchBestTrackers();
+  // 作者: long
+  // 公共 tracker 列表属于可选增强；移动网络无法及时结束远端响应时，不能阻塞用户已经提供的本地 tracker，
+  // 否则 addMagnet 永远不会执行，磁力任务会在元数据阶段无意义地超时。
+  await TrackerManager.fetchBestTrackers().timeout(
+    const Duration(seconds: 8),
+    onTimeout: () {},
+  );
   var magnet = source;
   for (final tracker in _fallbackMagnetTrackers) {
     final encoded = Uri.encodeComponent(tracker);

@@ -1,5 +1,26 @@
 # 下载验证状态
 
+## 2026-09-26 Android `1.0.24` Release 完整协议验收
+
+- Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）使用 Release 编译模式真实跑完
+  HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、SFTP、SMB、HLS、Torrent、Magnet、ed2k
+  共 12 类协议；最终 `FLUXDOWN_E2E_STATUS` 为 `exitStatus=0` 且 `failures=[]`。
+- 通过项：前 8 类小文件均按声明大小完成；HLS 输出 MP4 `16,035 B` 且文件头含
+  `ftyp`；Torrent/Magnet 均真实拿到 metadata，仅选 `payload.bin` 后完成
+  `8,388,608 B` 多文件下载。
+- ed2k 按边界预期失败：设备未安装外部 eMule/aMule handler，错误为
+  `No installed app can handle this ed2k link`，不把外部移交缺失误记为协议下载失败。
+- 矩阵前为真机配置 `adb reverse tcp:8765 tcp:8765` 与 `9443`；FTP/FTPS/SFTP/SMB
+  使用 Mac 局域网地址 `192.168.1.8`。WebDAV/WebDAVS 仍是移动端 HTTP/HTTPS
+  transport 映射，不代表已覆盖 `PROPFIND` 等完整 WebDAV 方法。
+- 矩阵使用的自检 APK 仅增加了临时 logcat 取证通道，未开启 `debuggable`；取证后已
+  撤回并重新构建普通 Release APK。普通 APK 为 `1.0.24 (25)`、`104,347,924` bytes，
+  SHA-256 `a16961745a52b7b0dfa0697b8904b8d2add41e66236a2130915f904f75973ea4`，已在
+  同一真机启动回验，进程保持运行且无 `FATAL EXCEPTION`。
+- 本轮保留的代码修复只有磁力公共 tracker 列表 8 秒超时：远端 tracker 列表不可用时，
+  不再阻塞用户已提供的 tracker；Flutter analyze、74 项 Flutter 测试和普通 Release
+  构建均通过。
+
 ## 2026-09-26 P1 收口复验（工作树，未发布）
 
 - 当前源码基线为 `main` / `5ea3913`，产品版本为 `1.0.24`。本轮没有触发发布流水线，也没有把工作树验证写成已发布资产结论。

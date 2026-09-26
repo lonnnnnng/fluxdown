@@ -1,5 +1,47 @@
 # Android 真机协议测试报告
 
+## 2026-09-26 `1.0.24` Release 完整协议验收
+
+本轮在 Redmi Note 8 Pro 真机上使用 Release 编译模式执行完整协议矩阵。协议自检
+构建只临时增加了 logcat 取证通道，没有开启 `debuggable`，也没有改变下载逻辑；
+矩阵结束后已撤回取证代码，重新构建并安装普通 Release APK 做启动回验。
+
+### 环境与门禁
+
+- 设备：Redmi Note 8 Pro，adb serial `wsvwypiz7xwslvl7`，Android 16。
+- 包名与版本：`dev.fluxdown.mobile`，`1.0.24 (25)`。
+- 普通 Release APK：`104,347,924` bytes，SHA-256
+  `a16961745a52b7b0dfa0697b8904b8d2add41e66236a2130915f904f75973ea4`。
+- 普通 Release 启动回验：进程保持运行，`MainActivity` 处于 resumed，无
+  `FATAL EXCEPTION`；`run-as` 返回 `package not debuggable`。
+- 本地服务：HTTP/HTTPS `8765/9443`，FTP/FTPS `2021/2121`，SFTP `2222`，
+  SMB `445`，BT tracker `6969`，Transmission seeder `51413`；Mac 地址
+  `192.168.1.8`。
+- 真机访问本机 HTTP/HTTPS 资源前执行：
+  `adb -s wsvwypiz7xwslvl7 reverse tcp:8765 tcp:8765` 和
+  `adb -s wsvwypiz7xwslvl7 reverse tcp:9443 tcp:9443`。
+
+### Release 协议结果
+
+| 协议 | 资源与结果 | 证据 |
+| --- | --- | --- |
+| HTTP | `http://127.0.0.1:8765/http.txt`，通过 | `finished`，`8/8 B` |
+| HTTPS | `https://127.0.0.1:9443/https.txt`，通过 | `finished`，`13/13 B`，允许本地测试证书 |
+| WebDAV | `webdav://127.0.0.1:8765/http.txt`，通过 | `finished`，`8/8 B`；移动端复用 HTTP transport |
+| WebDAVS | `webdavs://127.0.0.1:9443/https.txt`，通过 | `finished`，`13/13 B`；移动端复用 HTTPS transport |
+| FTP | `ftp://flux:fluxpass@192.168.1.8:2021/ftp.txt`，通过 | `finished`，`8/8 B` |
+| FTPS | `ftps://flux:fluxpass@192.168.1.8:2121/ftp.txt`，通过 | `finished`，`8/8 B`，允许本地测试证书 |
+| SFTP | `sftp://flux:fluxpass@192.168.1.8:2222/upload/sftp.txt`，通过 | `finished`，`8/8 B` |
+| SMB | `smb://flux:fluxpass@192.168.1.8/flux/smb.txt`，通过 | `finished`，`8/8 B` |
+| HLS / m3u8 | `valid-playlist.m3u8`，通过 | 输出 `hls-release.mp4`，`16,035 B`，文件头包含 `ftyp` |
+| Torrent | 多文件种子，仅选择 `payload.bin`，通过 | metadata 真实解析，`finished`，`8,388,608/8,388,608 B` |
+| Magnet | 同一多文件资源，仅选择 `payload.bin`，通过 | metadata 真实解析，`finished`，`8,388,608/8,388,608 B` |
+| ed2k | 无外部 handler，预期边界 | `failed`，错误包含 `No installed app can handle this ed2k link` |
+
+最终自检状态：`FLUXDOWN_E2E_STATUS {"exitStatus":0,"failures":[]}`。
+Torrent/Magnet 均观察到 metadata、文件优先级更新、piece 完成和 finished；磁力
+链接的公共 tracker 拉取增加 8 秒上限，超时后继续使用用户提供的 tracker。
+
 ## 2026-09-25 `1.0.22` 源码工作树前台验收
 
 本节只记录当前源码工作树重新构建的本地 Release APK，不代表已经发布的

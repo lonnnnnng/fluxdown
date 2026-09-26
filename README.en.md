@@ -2,7 +2,11 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.22](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.22). Features below describe the current source; historical verification is labeled separately.
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.25](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.25). Features below describe the current source; historical verification is labeled separately.
+
+### 1.0.25 Update (2026-09-26)
+
+Unified the FluxDown desktop brand icon across desktop, Android, iOS, and the web preview; fixed the mobile update checker reporting an old app version; retained the Android `1.0.24` protocol acceptance and magnet tracker timeout fix. See the [release notes](docs/releases/1.0.25.md) (Chinese).
 
 ## Current Status
 
@@ -139,11 +143,11 @@ Releases `v1.0.16` and `v1.0.17` contain 11 uploaded files. Starting with `v1.0.
 | Command line | Windows x64 CLI ZIP; macOS ARM64 / Linux x64 CLI TAR.GZ |
 | License notices | LICENSE, third-party license notices |
 
-Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.20.md) for signing and verification limits. The manifest remains an internal CI check, while file sizes and SHA-256 values are written directly into the release notes.
+Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.25.md) for signing and verification limits. The manifest remains an internal CI check, while file sizes and SHA-256 values are written directly into the release notes.
 
 Extract the CLI archive and run `fluxdown` / `fluxdown.exe`; Unix executable permissions are retained. Android still includes arm64-v8a, armeabi-v7a, and x86_64. Release uses R8; Dart symbols and R8 mapping are retained separately in Actions Artifacts.
 
-Release page: [FluxDown 1.0.20](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.20).
+Release page: [FluxDown 1.0.25](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.25).
 
 ## Documentation
 

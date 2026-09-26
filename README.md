@@ -2,7 +2,11 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.24](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.24)。以下功能说明以当前源码为准，历史验证单独标注。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.25](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.25)。以下功能说明以当前源码为准，历史验证单独标注。
+
+### 1.0.25 更新（2026-09-26）
+
+统一桌面端、Android、iOS 和 Web 预览使用 FluxDown 桌面版品牌图标；修复移动端版本检查仍显示旧版本号的问题；保留 Android `1.0.24` Release 协议验收和磁力 tracker 超时修复。详见 [发行说明](docs/releases/1.0.25.md)。
 
 ## 当前状态
 
@@ -147,13 +151,13 @@ Runner 构建阶段自动编译并静态链接 Rust FFI，最低部署版本为 
 | 命令行 | Windows x64 CLI ZIP、macOS ARM64 / Linux x64 CLI TAR.GZ |
 | 许可说明 | LICENSE、第三方许可证清单 |
 
-Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.20.md)。
+Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.25.md)。
 
 发布 manifest 继续在流水线内部生成和校验，但不再作为公开附件；每个公开文件的大小与 SHA-256 直接写入 Release Notes。三个 ZIP/TAR.GZ 是独立 CLI 版本，不是桌面安装包的重复副本。
 
 CLI 解压后运行 `fluxdown` / `fluxdown.exe`，Unix 可执行权限已保留。Android APK 仍包含 arm64-v8a、armeabi-v7a、x86_64；Release 启用 R8，Dart 符号和 R8 mapping 单独保存在 Actions Artifacts，不是从 App 删除功能。
 
-Release 页面：[FluxDown 1.0.20](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.20)。
+Release 页面：[FluxDown 1.0.25](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.25)。
 
 ## 文档
 

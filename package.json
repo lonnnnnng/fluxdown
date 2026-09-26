@@ -1,11 +1,12 @@
 {
   "name": "fluxdown",
   "private": true,
-  "version": "1.0.24",
+  "version": "1.0.25",
   "workspaces": [
     "apps/desktop"
   ],
   "scripts": {
+    "icons:sync": "node scripts/sync-app-icons.mjs",
     "desktop:dev": "npm --workspace apps/desktop run tauri:dev",
     "desktop:clean": "node scripts/clean-tauri-temp.mjs",
     "desktop:build": "npm --workspace apps/desktop run tauri:build",
