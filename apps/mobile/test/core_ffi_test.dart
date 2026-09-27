@@ -51,6 +51,61 @@ void main() {
     }
   });
 
+  test('skips native tasks with unknown states instead of re-queuing them', () {
+    final task = FluxDownCoreTask.fromJson({
+      'id': 'future-task',
+      'source': 'https://example.com/future.bin',
+      'protocol': 'https',
+      'state': 'awaiting-metadata-v2',
+      'output_dir': '/tmp/fluxdown',
+      'file_name': 'future.bin',
+    });
+
+    expect(task.toDownloadTask(), isNull);
+  });
+
+  test('maps native handed-off tasks without treating them as finished', () {
+    final task = FluxDownCoreTask.fromJson({
+      'id': 'ed2k-task',
+      'source': 'ed2k://|file|example.iso|123|ABCDEF|/',
+      'protocol': 'ed2k',
+      'state': 'handed-off',
+      'output_dir': '/tmp/fluxdown',
+      'file_name': 'example.iso',
+      'handoff_backend': 'system-handoff',
+      'handed_off_at_ms': 1234,
+      'finished_at_ms': null,
+    }).toDownloadTask();
+
+    expect(task, isNotNull);
+    expect(task!.state, DownloadState.handedOff);
+    expect(task.handoffBackend, 'system-handoff');
+    expect(
+      task.handedOffAt,
+      DateTime.fromMillisecondsSinceEpoch(1234, isUtc: true),
+    );
+    expect(task.finishedAt, isNull);
+  });
+
+  test(
+    'maps native credential references without exposing credential contents',
+    () {
+      final task = FluxDownCoreTask.fromJson({
+        'id': 'credential-task',
+        'source': 'https://example.com/private.bin',
+        'protocol': 'https',
+        'state': 'queued',
+        'output_dir': '/tmp/fluxdown',
+        'file_name': 'private.bin',
+        'credential_ref': 'office-http',
+      }).toDownloadTask();
+
+      expect(task, isNotNull);
+      expect(task!.credentialRef, 'office-http');
+      expect(task.toJson(), isNot(contains('password')));
+    },
+  );
+
   // 作者: long
   // 原生测试必须显式提供本次构建的库，避免仅测试 JSON 类或静默回退 Dart 也被算作 FFI 通过。
   group(
@@ -117,22 +172,110 @@ void main() {
       });
 
       test(
-        'limits the first Rust migration slice to HTTP and WebDAV tasks',
+        'routes selected Torrent and Magnet tasks through the Rust queue',
         () {
           final backend = RustQueueBackend(core: core, storePath: storePath);
           final httpTask = DownloadTask.create(
             source: 'https://example.com/file.zip',
             outputFolder: directory.path,
           );
+          final hlsTask = DownloadTask.create(
+            source: 'https://example.com/playlist.m3u8',
+            outputFolder: directory.path,
+            hlsKeepTransportStream: true,
+          );
+          final credentialTask = DownloadTask.create(
+            source: 'https://example.com/private.zip',
+            outputFolder: directory.path,
+            credentialRef: 'office-http',
+          );
           final torrentTask = DownloadTask.create(
             source:
                 'magnet:?xt=urn:btih:0123456789012345678901234567890123456789',
             outputFolder: directory.path,
           );
+          final selectedTorrentTask = DownloadTask.create(
+            source: 'https://example.com/bundle.torrent',
+            outputFolder: directory.path,
+            torrentName: 'bundle',
+            torrentFiles: const [
+              TorrentFileEntry(
+                index: 0,
+                path: 'bundle/file.bin',
+                name: 'file.bin',
+                size: 42,
+                isStreamable: false,
+              ),
+            ],
+            selectedTorrentFileIndexes: const [0],
+          );
           expect(backend.supportsTask(httpTask), isTrue);
+          expect(backend.supportsTask(hlsTask), isTrue);
+          expect(backend.supportsTask(credentialTask), isTrue);
           expect(backend.supportsTask(torrentTask), isFalse);
-          backend.ensureTasks([torrentTask]);
-          expect(backend.list(), isEmpty);
+          expect(backend.supportsTask(selectedTorrentTask), isTrue);
+          backend.ensureTasks([torrentTask, selectedTorrentTask]);
+          expect(backend.list().map((task) => task.id), [
+            selectedTorrentTask.id,
+          ]);
+        },
+      );
+
+      test(
+        'round trips the complete Flutter task schema through Rust import',
+        () async {
+          final createdAt = DateTime.utc(2026, 9, 27, 1, 2, 3);
+          final startedAt = createdAt.add(const Duration(minutes: 1));
+          final task =
+              DownloadTask.create(
+                source: 'https://example.com/bundle.bin',
+                outputFolder: directory.path,
+                fileName: 'bundle.mp4',
+                torrentName: 'bundle',
+                torrentFiles: const [
+                  TorrentFileEntry(
+                    index: 0,
+                    path: 'bundle/video.mp4',
+                    name: 'video.mp4',
+                    size: 2048,
+                    isStreamable: true,
+                  ),
+                ],
+                selectedTorrentFileIndexes: const [0],
+                expectedSha256:
+                    '671e23b189bb7a2041eff1b29f077b4e59460d30db56248fdcccafa012babfc8',
+                credentialRef: 'office-http',
+                speedLimitMbps: 1.5,
+                hlsVariantIndex: 2,
+                hlsKeepTransportStream: true,
+              ).copyWith(
+                state: DownloadState.paused,
+                downloadedBytes: 512,
+                totalBytes: 2048,
+                currentSpeedBytesPerSecond: 128,
+                createdAt: createdAt,
+                updatedAt: startedAt,
+                startedAt: startedAt,
+                pausedAt: startedAt,
+              );
+          final backend = RustQueueBackend(core: core, storePath: storePath);
+          backend.ensureTasks([task]);
+
+          final native = backend.list().single;
+          expect(native.id, task.id);
+          expect(native.state, 'paused');
+          expect(native.fileName, 'bundle.mp4');
+          expect(native.torrentName, 'bundle');
+          expect(native.torrentFiles.single.name, 'video.mp4');
+          expect(native.selectedTorrentFileIndexes, [0]);
+          expect(native.credentialRef, 'office-http');
+          expect(native.speedLimitMbps, 1.5);
+          expect(native.hlsVariantIndex, 2);
+          expect(native.hlsKeepTransportStream, isTrue);
+          expect(native.downloadedBytes, 512);
+          expect(native.totalBytes, 2048);
+          expect(native.createdAt, createdAt);
+          expect(native.startedAt, startedAt);
         },
       );
 
@@ -296,15 +439,57 @@ void main() {
           expect(restored.tasks.single.state, DownloadState.finished);
           expect(restored.tasks.single.startedAt, isNotNull);
           expect(restored.tasks.single.finishedAt, isNotNull);
-          expect(
-            (await flutterStore.load()).single.state,
-            DownloadState.finished,
-          );
+          expect((await flutterStore.load()), isEmpty);
+          final canonical = await flutterStore.loadRustSnapshot(storePath);
+          expect(canonical!.tasks.single.state, DownloadState.finished);
         } finally {
           ready.close();
           server.kill(priority: Isolate.immediate);
         }
       });
+
+      test(
+        'imports a native orphan task into the mobile task projection on startup',
+        () async {
+          final native = core.queueAdd(storePath, {
+            'taskId': 'orphan-native-task',
+            'source': 'https://example.com/orphan.zip',
+            'outputDir': directory.path,
+            'fileName': '真实文件.zip',
+            'torrentName': 'metadata-root',
+            'torrentFiles': [
+              {
+                'index': 0,
+                'path': 'metadata-root/真实文件.zip',
+                'name': '真实文件.zip',
+                'size': 4096,
+                'isStreamable': false,
+              },
+            ],
+          });
+          expect(native.state, 'queued');
+
+          final flutterStore = TaskStore(baseDirectory: directory);
+          final controller = DownloadController(
+            store: flutterStore,
+            rustBackend: RustQueueBackend(core: core, storePath: storePath),
+          );
+          await controller.load();
+
+          expect(controller.tasks, hasLength(1));
+          final imported = controller.tasks.single;
+          expect(imported.id, 'orphan-native-task');
+          expect(imported.fileName, '真实文件.zip');
+          expect(imported.torrentName, 'metadata-root');
+          expect(imported.torrentFiles.single.path, 'metadata-root/真实文件.zip');
+          expect(imported.state, DownloadState.queued);
+          expect(await flutterStore.load(), isEmpty);
+          expect(
+            (await flutterStore.loadRustSnapshot(storePath))!.tasks.single.id,
+            'orphan-native-task',
+          );
+        },
+      );
 
       test(
         'load does not regress a completed Flutter task to native queued',
@@ -329,10 +514,53 @@ void main() {
           );
           await controller.load();
           expect(controller.tasks.single.state, DownloadState.finished);
-          expect(
-            (await flutterStore.load()).single.state,
-            DownloadState.finished,
+          expect((await flutterStore.load()), isEmpty);
+        },
+      );
+
+      test(
+        'load adopts a newer native progress snapshot over stale Flutter data',
+        () async {
+          final backend = RustQueueBackend(core: core, storePath: storePath);
+          final task = DownloadTask.create(
+            source: 'http://127.0.0.1:1/newer-native.bin',
+            outputFolder: directory.path,
           );
+          backend.enqueue(task);
+          final newer = task.toJson()
+            ..['state'] = 'paused'
+            ..['downloadedBytes'] = 64
+            ..['totalBytes'] = 128
+            ..['currentSpeedBytesPerSecond'] = 0
+            ..['updatedAt'] = DateTime.now()
+                .toUtc()
+                .add(const Duration(seconds: 5))
+                .toIso8601String();
+          final updatedAt = DateTime.parse(
+            newer['updatedAt'] as String,
+          ).millisecondsSinceEpoch;
+          core.queueUpsert(storePath, {
+            'taskId': task.id,
+            'source': task.source,
+            'outputDir': task.outputFolder,
+            'fileName': task.fileName,
+            'state': 'paused',
+            'downloadedBytes': 64,
+            'totalBytes': 128,
+            'updatedAtMs': updatedAt,
+          });
+
+          final flutterStore = TaskStore(baseDirectory: directory);
+          await flutterStore.save([task]);
+          final controller = DownloadController(
+            store: flutterStore,
+            rustBackend: backend,
+          );
+          await controller.load();
+
+          expect(controller.tasks.single.state, DownloadState.paused);
+          expect(controller.tasks.single.downloadedBytes, 64);
+          expect(controller.tasks.single.totalBytes, 128);
         },
       );
 
@@ -353,7 +581,6 @@ void main() {
               outputFolder: directory.path,
             );
             final backend = RustQueueBackend(core: core, storePath: storePath);
-            backend.enqueue(task);
 
             await controller.pause(task.id);
             expect(controller.tasks.single.state, DownloadState.paused);
@@ -375,6 +602,51 @@ void main() {
             ready.close();
             server.kill(priority: Isolate.immediate);
           }
+        },
+      );
+
+      test(
+        'deleted task tombstone prevents a stale native orphan from returning',
+        () async {
+          final backend = RustQueueBackend(core: core, storePath: storePath);
+          final store = TaskStore(baseDirectory: directory);
+          final controller = DownloadController(
+            store: store,
+            rustBackend: backend,
+          );
+          await controller.load();
+          final task = await controller.add(
+            source: 'https://example.com/deleted.bin',
+            outputFolder: directory.path,
+          );
+
+          await controller.remove(task.id);
+          final canonicalAfterRemove = await store.loadRustSnapshot(
+            backend.storePath,
+          );
+          expect(canonicalAfterRemove!.deletedTaskIds, contains(task.id));
+
+          // 模拟 native 运行句柄在删除后迟到写回旧快照；时间戳早于 tombstone 时不能复活任务。
+          core.queueUpsert(storePath, {
+            'taskId': task.id,
+            'source': task.source,
+            'outputDir': task.outputFolder,
+            'fileName': task.fileName,
+            'state': 'queued',
+            'updatedAtMs': task.updatedAt.millisecondsSinceEpoch,
+          });
+          final restoredBackend = RustQueueBackend(
+            core: core,
+            storePath: storePath,
+          );
+          final restored = DownloadController(
+            store: store,
+            rustBackend: restoredBackend,
+          );
+          await restored.load();
+
+          expect(restored.tasks, isEmpty);
+          expect(restoredBackend.list(), isEmpty);
         },
       );
 
@@ -442,6 +714,7 @@ class _FailedRustQueueBackend extends RustQueueBackend {
     int threadCount = 16,
     int retryAttempts = 3,
     int speedLimitKbps = 0,
+    Map<String, Map<String, String>> runtimeCredentials = const {},
     Duration pollInterval = const Duration(milliseconds: 200),
     FutureOr<void> Function(List<FluxDownCoreTask> tasks)? onProgress,
   }) async => const RustQueueRunResult(
@@ -463,6 +736,7 @@ class _ThrowingRustQueueBackend extends RustQueueBackend {
     int threadCount = 16,
     int retryAttempts = 3,
     int speedLimitKbps = 0,
+    Map<String, Map<String, String>> runtimeCredentials = const {},
     Duration pollInterval = const Duration(milliseconds: 200),
     FutureOr<void> Function(List<FluxDownCoreTask> tasks)? onProgress,
   }) async {

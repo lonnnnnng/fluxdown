@@ -1,3 +1,4 @@
+pub mod credential_store;
 mod downloader;
 mod protocol;
 mod runner;
@@ -11,9 +12,13 @@ pub const DEFAULT_QUEUE_CONCURRENCY: usize = 5;
 pub const DEFAULT_DOWNLOAD_THREAD_COUNT: usize = 16;
 pub const DEFAULT_RETRY_ATTEMPTS: usize = 3;
 
+pub use credential_store::{
+    CredentialStoreError, StoredCredential, delete_credential, get_credential,
+    normalize_credential_ref, set_credential, validate_credential_ref,
+};
 pub use downloader::{
     CancelToken, DownloadEngine, DownloadError, DownloadOptions, DownloadProgress, DownloadSummary,
-    HlsVariantInfo, hls_variants,
+    HlsVariantInfo, SftpJumpOptions, hls_variants,
 };
 pub use protocol::{
     Backend, BackendAvailability, DoctorReport, Protocol, RuntimeSupportStatus, SupportStatus,

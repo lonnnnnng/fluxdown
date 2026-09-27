@@ -8,10 +8,10 @@
 use fluxdown_core::{
     DEFAULT_DOWNLOAD_THREAD_COUNT, DEFAULT_QUEUE_CONCURRENCY, DEFAULT_RETRY_ATTEMPTS, DoctorReport,
     DownloadOptions, DownloadRequest, DownloadState, DownloadTask, Protocol, QueueRunReport,
-    QueueRunner, QueueRunnerOptions, RuntimeSupportStatus, TaskRunReport, TaskStore,
-    TorrentDetails, TorrentFileMetadata, default_store_path, detect_protocol, doctor_report,
-    hls_variants, runtime_support_status, sanitize_download_file_name, torrent_details,
-    validate_sha256_text,
+    QueueRunner, QueueRunnerOptions, RuntimeSupportStatus, SftpJumpOptions, TaskRunReport,
+    TaskStore, TorrentDetails, TorrentFileMetadata, default_store_path, delete_credential,
+    detect_protocol, doctor_report, hls_variants, runtime_support_status,
+    sanitize_download_file_name, set_credential, torrent_details, validate_sha256_text,
 };
 use serde::Deserialize;
 #[cfg(any(target_os = "macos", test))]
@@ -37,6 +37,8 @@ struct AddPayload {
     source: String,
     output_dir: String,
     file_name: Option<String>,
+    #[serde(default)]
+    credential_ref: Option<String>,
     #[serde(default)]
     expected_sha256: Option<String>,
     #[serde(default)]
@@ -85,6 +87,7 @@ fn plan_download(source: String, output_dir: String) -> DownloadTask {
 async fn enqueue_download(payload: AddPayload) -> Result<DownloadTask, String> {
     let mut request = DownloadRequest::new(payload.source, resolve_output_dir(&payload.output_dir));
     request.file_name = payload.file_name;
+    request.credential_ref = payload.credential_ref;
     request.expected_sha256 = validated_expected_sha256(payload.expected_sha256)?;
     request.torrent_file_indices = payload.torrent_file_indices;
     request.torrent_name = payload.torrent_name;
@@ -98,6 +101,20 @@ async fn enqueue_download(payload: AddPayload) -> Result<DownloadTask, String> {
         .enqueue(request)
         .await
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn set_download_credential(
+    reference: String,
+    username: String,
+    password: String,
+) -> Result<(), String> {
+    set_credential(&reference, &username, &password).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn delete_download_credential(reference: String) -> Result<(), String> {
+    delete_credential(&reference).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -180,7 +197,7 @@ fn pause_transition(state: DownloadState) -> Result<Option<DownloadState>, Strin
     match state {
         DownloadState::Queued | DownloadState::Running => Ok(Some(DownloadState::Paused)),
         DownloadState::Paused => Ok(None),
-        DownloadState::Finished | DownloadState::Failed => {
+        DownloadState::Finished | DownloadState::HandedOff | DownloadState::Failed => {
             Err("only queued or running tasks can be paused".to_string())
         }
     }
@@ -193,8 +210,9 @@ fn resume_transition(state: DownloadState) -> Result<Option<DownloadState>, Stri
         DownloadState::Paused => Ok(Some(DownloadState::Queued)),
         DownloadState::Queued => Ok(None),
         DownloadState::Running => Err("running tasks do not need resume".to_string()),
-        DownloadState::Finished | DownloadState::Failed => Err(
-            "finished or failed tasks cannot be resumed; start them again explicitly".to_string(),
+        DownloadState::Finished | DownloadState::HandedOff | DownloadState::Failed => Err(
+            "finished, handed-off or failed tasks cannot be resumed; start them again explicitly"
+                .to_string(),
         ),
     }
 }
@@ -316,17 +334,73 @@ async fn start_download(
     speed_limit_mbps: Option<f64>,
     restart_existing: Option<bool>,
 ) -> Result<TaskRunReport, String> {
+    start_download_impl(
+        id,
+        concurrency,
+        retry_attempts,
+        thread_count,
+        speed_limit_mbps,
+        restart_existing,
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
+// 作者: long
+// 桌面设置页需要把 known_hosts 作为运行时安全策略传入队列；保留旧命令作为兼容入口，避免已有自动化调用失效。
+#[tauri::command]
+async fn start_download_with_options(
+    id: String,
+    concurrency: Option<usize>,
+    retry_attempts: Option<usize>,
+    thread_count: Option<usize>,
+    speed_limit_mbps: Option<f64>,
+    restart_existing: Option<bool>,
+    sftp_known_hosts: Option<String>,
+    sftp_jump: Option<String>,
+    sftp_jump_known_hosts: Option<String>,
+) -> Result<TaskRunReport, String> {
+    start_download_impl(
+        id,
+        concurrency,
+        retry_attempts,
+        thread_count,
+        speed_limit_mbps,
+        restart_existing,
+        sftp_known_hosts,
+        sftp_jump,
+        sftp_jump_known_hosts,
+    )
+    .await
+}
+
+async fn start_download_impl(
+    id: String,
+    concurrency: Option<usize>,
+    retry_attempts: Option<usize>,
+    thread_count: Option<usize>,
+    speed_limit_mbps: Option<f64>,
+    restart_existing: Option<bool>,
+    sftp_known_hosts: Option<String>,
+    sftp_jump: Option<String>,
+    sftp_jump_known_hosts: Option<String>,
+) -> Result<TaskRunReport, String> {
     let store = TaskStore::new(default_store_path());
     migrate_download_paths(&store)
         .await
         .map_err(|error| error.to_string())?;
     let task = store.get(&id).await.map_err(|error| error.to_string())?;
-    let options = runner_options(
+    let options = runner_options_with_known_hosts(
         retry_attempts,
         thread_count,
         speed_limit_mbps,
         restart_existing,
-    );
+        sftp_known_hosts,
+        sftp_jump,
+        sftp_jump_known_hosts,
+    )?;
     if let Some(task) =
         defer_direct_start_when_capacity_full(&store, task, concurrency, options.restart_existing)
             .await
@@ -352,6 +426,55 @@ async fn run_queue(
     speed_limit_mbps: Option<f64>,
     restart_existing: Option<bool>,
 ) -> Result<QueueRunReport, String> {
+    run_queue_impl(
+        concurrency,
+        retry_attempts,
+        thread_count,
+        speed_limit_mbps,
+        restart_existing,
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
+// 作者: long
+// known_hosts 只在本次运行中生效，不写入任务 JSON，避免把主机密钥文件路径绑定到可迁移队列。
+#[tauri::command]
+async fn run_queue_with_options(
+    concurrency: usize,
+    retry_attempts: Option<usize>,
+    thread_count: Option<usize>,
+    speed_limit_mbps: Option<f64>,
+    restart_existing: Option<bool>,
+    sftp_known_hosts: Option<String>,
+    sftp_jump: Option<String>,
+    sftp_jump_known_hosts: Option<String>,
+) -> Result<QueueRunReport, String> {
+    run_queue_impl(
+        concurrency,
+        retry_attempts,
+        thread_count,
+        speed_limit_mbps,
+        restart_existing,
+        sftp_known_hosts,
+        sftp_jump,
+        sftp_jump_known_hosts,
+    )
+    .await
+}
+
+async fn run_queue_impl(
+    concurrency: usize,
+    retry_attempts: Option<usize>,
+    thread_count: Option<usize>,
+    speed_limit_mbps: Option<f64>,
+    restart_existing: Option<bool>,
+    sftp_known_hosts: Option<String>,
+    sftp_jump: Option<String>,
+    sftp_jump_known_hosts: Option<String>,
+) -> Result<QueueRunReport, String> {
     let store = TaskStore::new(default_store_path());
     migrate_download_paths(&store)
         .await
@@ -359,24 +482,50 @@ async fn run_queue(
     QueueRunner::new(store)
         .run_queued_with_options(
             clamp_concurrency(concurrency),
-            runner_options(
+            runner_options_with_known_hosts(
                 retry_attempts,
                 thread_count,
                 speed_limit_mbps,
                 restart_existing,
-            ),
+                sftp_known_hosts,
+                sftp_jump,
+                sftp_jump_known_hosts,
+            )?,
         )
         .await
         .map_err(|error| error.to_string())
 }
 
+#[cfg(test)]
 fn runner_options(
     retry_attempts: Option<usize>,
     thread_count: Option<usize>,
     speed_limit_mbps: Option<f64>,
     restart_existing: Option<bool>,
 ) -> QueueRunnerOptions {
-    QueueRunnerOptions {
+    runner_options_with_known_hosts(
+        retry_attempts,
+        thread_count,
+        speed_limit_mbps,
+        restart_existing,
+        None,
+        None,
+        None,
+    )
+    .expect("default desktop runner options")
+}
+
+fn runner_options_with_known_hosts(
+    retry_attempts: Option<usize>,
+    thread_count: Option<usize>,
+    speed_limit_mbps: Option<f64>,
+    restart_existing: Option<bool>,
+    sftp_known_hosts: Option<String>,
+    sftp_jump: Option<String>,
+    sftp_jump_known_hosts: Option<String>,
+) -> Result<QueueRunnerOptions, String> {
+    let sftp_jump = normalize_sftp_jump(sftp_jump, sftp_jump_known_hosts)?;
+    Ok(QueueRunnerOptions {
         retry_attempts: retry_attempts.unwrap_or(DEFAULT_RETRY_ATTEMPTS).min(10),
         download: DownloadOptions::new(
             // 作者: long
@@ -385,9 +534,41 @@ fn runner_options(
                 .unwrap_or(DEFAULT_DOWNLOAD_THREAD_COUNT)
                 .clamp(1, 32),
             speed_limit_mbps_to_bps(speed_limit_mbps),
-        ),
+        )
+        .with_sftp_known_hosts(normalize_sftp_known_hosts(sftp_known_hosts))
+        .with_sftp_jump(sftp_jump),
         restart_existing: restart_existing.unwrap_or(false),
+    })
+}
+
+fn normalize_sftp_known_hosts(value: Option<String>) -> Option<PathBuf> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+    })
+}
+
+fn normalize_sftp_jump(
+    value: Option<String>,
+    known_hosts: Option<String>,
+) -> Result<Option<SftpJumpOptions>, String> {
+    if value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        if normalize_sftp_known_hosts(known_hosts).is_some() {
+            return Err("SFTP 跳板 known_hosts 需要同时配置跳板地址".to_string());
+        }
+        return Ok(None);
     }
+    let value = value.unwrap_or_default();
+    let url =
+        url::Url::parse(value.trim()).map_err(|error| format!("SFTP 跳板地址无效: {error}"))?;
+    SftpJumpOptions::from_url(&url, normalize_sftp_known_hosts(known_hosts))
+        .map(Some)
+        .map_err(|error| error.user_message())
 }
 
 fn validated_expected_sha256(value: Option<String>) -> Result<Option<String>, String> {
@@ -1075,6 +1256,8 @@ fn main() {
             detect,
             support,
             doctor,
+            set_download_credential,
+            delete_download_credential,
             default_output_dir,
             plan_download,
             enqueue_download,
@@ -1087,7 +1270,9 @@ fn main() {
             open_torrent_file,
             reveal_task_output,
             start_download,
+            start_download_with_options,
             run_queue,
+            run_queue_with_options,
             check_update,
             open_download_page,
             download_and_install_update,
@@ -2534,9 +2719,19 @@ mod tests {
         .unwrap();
         assert_eq!(task.protocol, Protocol::Sftp);
 
-        let report = run_queue(1, Some(1), Some(1), None, Some(false))
-            .await
-            .unwrap();
+        let known_hosts = std::env::var("FLUXDOWN_DESKTOP_SFTP_KNOWN_HOSTS").ok();
+        let report = run_queue_with_options(
+            1,
+            Some(1),
+            Some(1),
+            None,
+            Some(false),
+            known_hosts,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(report.started, 1);
         assert_eq!(report.finished, 1);
         assert_eq!(report.failed, 0);
@@ -3050,6 +3245,7 @@ mod tests {
         );
         assert_eq!(pause_transition(DownloadState::Paused).unwrap(), None);
         assert!(pause_transition(DownloadState::Finished).is_err());
+        assert!(pause_transition(DownloadState::HandedOff).is_err());
         assert!(pause_transition(DownloadState::Failed).is_err());
 
         assert_eq!(
@@ -3059,6 +3255,7 @@ mod tests {
         assert_eq!(resume_transition(DownloadState::Queued).unwrap(), None);
         assert!(resume_transition(DownloadState::Running).is_err());
         assert!(resume_transition(DownloadState::Finished).is_err());
+        assert!(resume_transition(DownloadState::HandedOff).is_err());
         assert!(resume_transition(DownloadState::Failed).is_err());
     }
 
@@ -3085,6 +3282,82 @@ mod tests {
         assert_eq!(defaults.download.thread_count, 16);
         assert_eq!(defaults.download.speed_limit_bps, None);
         assert!(!defaults.restart_existing);
+    }
+
+    #[test]
+    fn desktop_runner_options_normalizes_known_hosts_path_without_persisting_it() {
+        let options = runner_options_with_known_hosts(
+            Some(0),
+            Some(1),
+            None,
+            Some(false),
+            Some("  /tmp/fluxdown/known_hosts  ".to_string()),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            options.download.sftp_known_hosts,
+            Some(PathBuf::from("/tmp/fluxdown/known_hosts"))
+        );
+
+        let empty = runner_options_with_known_hosts(
+            None,
+            None,
+            None,
+            None,
+            Some("   ".to_string()),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(empty.download.sftp_known_hosts, None);
+    }
+
+    #[test]
+    fn desktop_runner_options_carries_sftp_jump_only_for_runtime() {
+        let jump_known_hosts = PathBuf::from("/tmp/fluxdown/jump_known_hosts");
+        let options = runner_options_with_known_hosts(
+            Some(1),
+            Some(8),
+            None,
+            Some(false),
+            Some("/tmp/fluxdown/target_known_hosts".to_string()),
+            Some("sftp://jump-user@example.test:2222/".to_string()),
+            Some(format!("  {}  ", jump_known_hosts.display())),
+        )
+        .unwrap();
+        let jump = options.download.sftp_jump.as_ref().unwrap();
+        assert_eq!(jump.username, "jump-user");
+        assert_eq!(jump.host, "example.test");
+        assert_eq!(jump.port, 2222);
+        assert_eq!(jump.known_hosts, Some(jump_known_hosts));
+        assert_eq!(
+            options.download.sftp_known_hosts,
+            Some(PathBuf::from("/tmp/fluxdown/target_known_hosts"))
+        );
+
+        // 作者: long
+        // 跳板地址和 known_hosts 只属于这次运行，序列化任务配置时必须完全不可见。
+        let serialized = serde_json::to_string(&options.download).unwrap();
+        assert!(!serialized.contains("jump-user"));
+        assert!(!serialized.contains("example.test"));
+        assert!(!serialized.contains("jump_known_hosts"));
+    }
+
+    #[test]
+    fn desktop_runner_options_rejects_jump_known_hosts_without_jump_address() {
+        let error = runner_options_with_known_hosts(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("/tmp/fluxdown/jump_known_hosts".to_string()),
+        )
+        .unwrap_err();
+        assert_eq!(error, "SFTP 跳板 known_hosts 需要同时配置跳板地址");
     }
 
     #[test]

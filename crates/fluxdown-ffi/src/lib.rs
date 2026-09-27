@@ -20,8 +20,9 @@ use std::{
 
 use fluxdown_core::{
     DEFAULT_DOWNLOAD_THREAD_COUNT, DEFAULT_QUEUE_CONCURRENCY, DEFAULT_RETRY_ATTEMPTS,
-    DownloadOptions, DownloadRequest, DownloadState, QueueRunner, QueueRunnerOptions, TaskStore,
-    TorrentFileMetadata, default_store_path, detect_protocol, runtime_support_status,
+    DownloadOptions, DownloadRequest, DownloadState, QueueRunner, QueueRunnerOptions,
+    StoredCredential, TaskStore, TorrentFileMetadata, default_store_path, detect_protocol,
+    runtime_support_status,
 };
 use serde_json::json;
 use tokio::{runtime::Runtime, sync::Mutex};
@@ -96,6 +97,9 @@ fn envelope<T: serde::Serialize>(result: Result<T, String>) -> String {
 }
 
 /// 释放 FFI 返回的字符串。传入非本模块分配的指针是未定义行为。
+// 作者: long
+// C ABI 必须保持可由 Dart FFI 直接调用的安全函数签名；调用方通过上面的契约负责传入本模块返回的指针。
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxdown_string_free(pointer: *mut c_char) {
     if pointer.is_null() {
@@ -147,7 +151,7 @@ pub extern "C" fn fluxdown_queue_list(store_path: *const c_char) -> *mut c_char 
 }
 
 /// 入队任务：`request_json` 为统一任务请求对象
-/// `{"source":..,"outputDir":..,"fileName":..,"expectedSha256":..,"torrentFileIndices":[..],"torrentName":..,"torrentFiles":[..],"speedLimitMbps":..,"hlsVariantIndex":..,"hlsKeepTransportStream":..}`。
+/// `{"source":..,"outputDir":..,"fileName":..,"credentialRef":..,"expectedSha256":..,"torrentFileIndices":[..],"torrentName":..,"torrentFiles":[..],"speedLimitMbps":..,"hlsVariantIndex":..,"hlsKeepTransportStream":..}`。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxdown_queue_add(
     store_path: *const c_char,
@@ -159,101 +163,32 @@ pub extern "C" fn fluxdown_queue_add(
         let _guard = queue_lock().lock().await;
         let payload: serde_json::Value = serde_json::from_str(&request_json)
             .map_err(|error| format!("请求 JSON 无法解析: {error}"))?;
-        let source = payload
-            .get("source")
-            .and_then(|value| value.as_str())
-            .ok_or_else(|| "缺少 source 字段".to_string())?
-            .to_string();
-        let output_dir = payload
-            .get("outputDir")
-            .and_then(|value| value.as_str())
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(default_store_path_dir);
-        let mut request = DownloadRequest::new(source, output_dir);
-        if let Some(task_id) = payload.get("taskId").and_then(|value| value.as_str()) {
-            request.task_id = Some(task_id.to_string());
-        }
-        if let Some(name) = payload.get("fileName").and_then(|value| value.as_str()) {
-            request.file_name = Some(name.to_string());
-        }
-        if let Some(sha) = payload
-            .get("expectedSha256")
-            .and_then(|value| value.as_str())
-        {
-            request.expected_sha256 = fluxdown_core::validate_sha256_text(sha)
-                .map_err(|error| format!("SHA-256 无效: {error}"))
-                .map(Some)?;
-        }
-        if let Some(indices) = payload
-            .get("torrentFileIndices")
-            .and_then(|value| value.as_array())
-        {
-            request.torrent_file_indices = indices
-                .iter()
-                .filter_map(|value| value.as_u64().map(|value| value as usize))
-                .collect();
-        }
-        if let Some(name) = payload.get("torrentName").and_then(|value| value.as_str()) {
-            request.torrent_name = Some(name.to_string());
-        }
-        if let Some(files) = payload
-            .get("torrentFiles")
-            .and_then(|value| value.as_array())
-        {
-            // 作者: long
-            // 移动端和桌面端通过 FFI 传递同一份文件树；字段同时兼容 camelCase 与 snake_case，
-            // 这样升级后的调用方可以读取旧版本生成的队列而无需转换文件。
-            request.torrent_files = files
-                .iter()
-                .filter_map(|value| {
-                    let object = value.as_object()?;
-                    let index = object.get("index").and_then(|value| value.as_u64())? as usize;
-                    let path = object
-                        .get("path")
-                        .and_then(|value| value.as_str())?
-                        .to_string();
-                    let name = object
-                        .get("name")
-                        .and_then(|value| value.as_str())?
-                        .to_string();
-                    let size = object.get("size").and_then(|value| value.as_u64())?;
-                    let is_streamable = object
-                        .get("isStreamable")
-                        .or_else(|| object.get("is_streamable"))
-                        .and_then(|value| value.as_bool())
-                        .unwrap_or(false);
-                    Some(TorrentFileMetadata {
-                        index,
-                        path,
-                        name,
-                        size,
-                        is_streamable,
-                    })
-                })
-                .collect();
-        }
-        if let Some(limit) = payload
-            .get("speedLimitMbps")
-            .and_then(|value| value.as_f64())
-        {
-            request.speed_limit_mbps = Some(limit);
-        }
-        // 作者: long
-        // HLS 的清晰度和输出格式必须随任务保存，移动端或其他 FFI 调用方重启后才能复用同一选择。
-        if let Some(index) = payload
-            .get("hlsVariantIndex")
-            .and_then(|value| value.as_u64())
-        {
-            request.hls_variant_index = Some(index as usize);
-        }
-        if let Some(keep_ts) = payload
-            .get("hlsKeepTransportStream")
-            .and_then(|value| value.as_bool())
-        {
-            request.hls_keep_transport_stream = Some(keep_ts);
-        }
+        let request = request_from_payload(&payload)?;
         let task = open_store(&store_path)
             .enqueue(request)
+            .await
+            .map_err(|error| error.to_string())?;
+        serde_json::to_value(task).map_err(|error| error.to_string())
+    });
+    string_to_cstr(envelope::<serde_json::Value>(output))
+}
+
+/// 幂等导入 Flutter 任务：任务不存在时插入，已存在时按同一 ID 更新完整 schema。
+/// 该入口只用于跨端队列迁移，普通新建任务仍使用 `fluxdown_queue_add`。
+#[unsafe(no_mangle)]
+pub extern "C" fn fluxdown_queue_upsert(
+    store_path: *const c_char,
+    task_json: *const c_char,
+) -> *mut c_char {
+    let store_path = cstr_to_string(store_path);
+    let task_json = cstr_to_string(task_json);
+    let output = runtime().block_on(async {
+        let _guard = queue_lock().lock().await;
+        let payload: serde_json::Value = serde_json::from_str(&task_json)
+            .map_err(|error| format!("任务 JSON 无法解析: {error}"))?;
+        let task = task_from_import_payload(&payload)?;
+        let task = open_store(&store_path)
+            .upsert(task)
             .await
             .map_err(|error| error.to_string())?;
         serde_json::to_value(task).map_err(|error| error.to_string())
@@ -534,6 +469,198 @@ fn open_store(store_path: &str) -> TaskStore {
     }
 }
 
+fn request_from_payload(payload: &serde_json::Value) -> Result<DownloadRequest, String> {
+    let source = payload
+        .get("source")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "缺少 source 字段".to_string())?;
+    let output_dir = payload
+        .get("outputDir")
+        .or_else(|| payload.get("output_dir"))
+        .and_then(serde_json::Value::as_str)
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(default_store_path_dir);
+    let mut request = DownloadRequest::new(source, output_dir);
+    if let Some(task_id) = payload
+        .get("taskId")
+        .or_else(|| payload.get("task_id"))
+        .and_then(serde_json::Value::as_str)
+    {
+        request.task_id = Some(task_id.to_string());
+    }
+    if let Some(name) = payload
+        .get("fileName")
+        .or_else(|| payload.get("file_name"))
+        .and_then(serde_json::Value::as_str)
+    {
+        request.file_name = Some(name.to_string());
+    }
+    if let Some(reference) = payload
+        .get("credentialRef")
+        .or_else(|| payload.get("credential_ref"))
+        .and_then(serde_json::Value::as_str)
+    {
+        request.credential_ref =
+            fluxdown_core::normalize_credential_ref(Some(reference.to_string()));
+    }
+    if let Some(sha) = payload
+        .get("expectedSha256")
+        .or_else(|| payload.get("expected_sha256"))
+        .and_then(serde_json::Value::as_str)
+    {
+        request.expected_sha256 = fluxdown_core::validate_sha256_text(sha)
+            .map_err(|error| format!("SHA-256 无效: {error}"))
+            .map(Some)?;
+    }
+    if let Some(indices) = payload
+        .get("torrentFileIndices")
+        .or_else(|| payload.get("torrent_file_indices"))
+        .and_then(serde_json::Value::as_array)
+    {
+        request.torrent_file_indices = indices
+            .iter()
+            .filter_map(serde_json::Value::as_u64)
+            .map(|value| value as usize)
+            .collect();
+    }
+    if let Some(name) = payload
+        .get("torrentName")
+        .or_else(|| payload.get("torrent_name"))
+        .and_then(serde_json::Value::as_str)
+    {
+        request.torrent_name = Some(name.to_string());
+    }
+    if let Some(files) = payload
+        .get("torrentFiles")
+        .or_else(|| payload.get("torrent_files"))
+        .and_then(serde_json::Value::as_array)
+    {
+        request.torrent_files = files
+            .iter()
+            .filter_map(|value| {
+                let object = value.as_object()?;
+                let index = object.get("index").and_then(serde_json::Value::as_u64)? as usize;
+                let path = object.get("path").and_then(serde_json::Value::as_str)?;
+                let name = object.get("name").and_then(serde_json::Value::as_str)?;
+                let size = object.get("size").and_then(serde_json::Value::as_u64)?;
+                let is_streamable = object
+                    .get("isStreamable")
+                    .or_else(|| object.get("is_streamable"))
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+                Some(TorrentFileMetadata {
+                    index,
+                    path: path.to_string(),
+                    name: name.to_string(),
+                    size,
+                    is_streamable,
+                })
+            })
+            .collect();
+    }
+    if let Some(limit) = payload
+        .get("speedLimitMbps")
+        .or_else(|| payload.get("speed_limit_mbps"))
+        .and_then(serde_json::Value::as_f64)
+    {
+        request.speed_limit_mbps = Some(limit);
+    }
+    if let Some(index) = payload
+        .get("hlsVariantIndex")
+        .or_else(|| payload.get("hls_variant_index"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        request.hls_variant_index = Some(index as usize);
+    }
+    if let Some(keep_ts) = payload
+        .get("hlsKeepTransportStream")
+        .or_else(|| payload.get("hls_keep_transport_stream"))
+        .and_then(serde_json::Value::as_bool)
+    {
+        request.hls_keep_transport_stream = Some(keep_ts);
+    }
+    Ok(request)
+}
+
+fn task_from_import_payload(
+    payload: &serde_json::Value,
+) -> Result<fluxdown_core::DownloadTask, String> {
+    let request = request_from_payload(payload)?;
+    let mut task = fluxdown_core::DownloadTask::from_request(request);
+    if let Some(state) = payload.get("state").and_then(serde_json::Value::as_str) {
+        task.state = match state {
+            "queued" => DownloadState::Queued,
+            "running" => DownloadState::Running,
+            "paused" => DownloadState::Paused,
+            "finished" => DownloadState::Finished,
+            "failed" => DownloadState::Failed,
+            "handed-off" | "handedOff" => DownloadState::HandedOff,
+            other => return Err(format!("未知任务状态: {other}")),
+        };
+    }
+    if let Some(value) = payload
+        .get("downloadedBytes")
+        .or_else(|| payload.get("downloaded_bytes"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        task.downloaded_bytes = value;
+    }
+    if let Some(value) = payload
+        .get("totalBytes")
+        .or_else(|| payload.get("total_bytes"))
+    {
+        task.total_bytes = value.as_u64();
+    }
+    if let Some(value) = payload
+        .get("currentSpeedBytesPerSecond")
+        .or_else(|| payload.get("current_speed_bytes_per_second"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        task.current_speed_bytes_per_second = value;
+    }
+    if let Some(value) = payload.get("error").and_then(serde_json::Value::as_str) {
+        task.error = Some(value.to_string());
+    }
+    if let Some(value) = payload
+        .get("createdAtMs")
+        .or_else(|| payload.get("created_at_ms"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        task.created_at_ms = value as u128;
+    }
+    if let Some(value) = payload
+        .get("updatedAtMs")
+        .or_else(|| payload.get("updated_at_ms"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        task.updated_at_ms = value as u128;
+    }
+    task.started_at_ms = payload
+        .get("startedAtMs")
+        .or_else(|| payload.get("started_at_ms"))
+        .and_then(serde_json::Value::as_u64)
+        .map(|value| value as u128);
+    task.finished_at_ms = payload
+        .get("finishedAtMs")
+        .or_else(|| payload.get("finished_at_ms"))
+        .and_then(serde_json::Value::as_u64)
+        .map(|value| value as u128);
+    task.handed_off_at_ms = payload
+        .get("handedOffAtMs")
+        .or_else(|| payload.get("handed_off_at_ms"))
+        .and_then(serde_json::Value::as_u64)
+        .map(|value| value as u128);
+    if let Some(value) = payload
+        .get("handoffBackend")
+        .or_else(|| payload.get("handoff_backend"))
+        .and_then(serde_json::Value::as_str)
+    {
+        task.handoff_backend =
+            serde_json::from_value(serde_json::Value::String(value.to_string())).ok();
+    }
+    Ok(task)
+}
+
 fn queue_options_from_json(raw: &str) -> Result<(usize, QueueRunnerOptions), String> {
     let payload = if raw.trim().is_empty() {
         serde_json::Value::Object(serde_json::Map::new())
@@ -563,11 +690,43 @@ fn queue_options_from_json(raw: &str) -> Result<(usize, QueueRunnerOptions), Str
         .and_then(serde_json::Value::as_f64)
         .filter(|value| value.is_finite() && *value > 0.0)
         .map(|value| (value * 1024.0).round().max(1.0) as u64);
+    let sftp_known_hosts = object
+        .get("sftpKnownHosts")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from);
+    let runtime_credentials = object
+        .get("runtimeCredentials")
+        .and_then(serde_json::Value::as_object)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|(task_id, value)| {
+                    let value = value.as_object()?;
+                    let username = value.get("username")?.as_str()?.trim();
+                    let password = value.get("password")?.as_str()?;
+                    if username.is_empty() {
+                        return None;
+                    }
+                    Some((
+                        task_id.clone(),
+                        StoredCredential {
+                            username: username.to_string(),
+                            password: password.to_string(),
+                        },
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     Ok((
         concurrency,
         QueueRunnerOptions {
             retry_attempts,
-            download: DownloadOptions::new(thread_count, speed_limit_bps),
+            download: DownloadOptions::new(thread_count, speed_limit_bps)
+                .with_sftp_known_hosts(sftp_known_hosts)
+                .with_runtime_credentials(runtime_credentials),
             restart_existing: false,
         },
     ))
@@ -578,6 +737,18 @@ fn default_store_path_dir() -> std::path::PathBuf {
         .parent()
         .map(std::path::Path::to_path_buf)
         .unwrap_or_else(default_store_path)
+}
+
+/// FFI 层版本号，供绑定层做兼容性自检。
+#[unsafe(no_mangle)]
+pub extern "C" fn fluxdown_version() -> *mut c_char {
+    string_to_cstr(env!("CARGO_PKG_VERSION").to_string())
+}
+
+/// FFI 层 ABI 标记，移动端可先用它探测动态库可用性。
+#[unsafe(no_mangle)]
+pub extern "C" fn fluxdown_ffi_abi() -> c_int {
+    1
 }
 
 #[cfg(test)]
@@ -600,7 +771,7 @@ mod tests {
         let store = CString::new(root.join("queue.json").to_string_lossy().as_bytes())
             .expect("queue path contains no NUL");
         let payload = CString::new(
-            r#"{"source":"https://example.com/master.m3u8","outputDir":"/tmp/downloads","torrentName":"bundle","torrentFiles":[{"index":1,"path":"bundle/video.mp4","name":"video.mp4","size":42,"isStreamable":true}],"hlsVariantIndex":2,"hlsKeepTransportStream":true}"#,
+            r#"{"source":"https://example.com/master.m3u8","outputDir":"/tmp/downloads","credentialRef":" office-sftp ","torrentName":"bundle","torrentFiles":[{"index":1,"path":"bundle/video.mp4","name":"video.mp4","size":42,"isStreamable":true}],"hlsVariantIndex":2,"hlsKeepTransportStream":true}"#,
         )
         .expect("payload contains no NUL");
 
@@ -615,8 +786,89 @@ mod tests {
         assert_eq!(value["ok"], true);
         assert_eq!(value["data"]["hls_variant_index"], 2);
         assert_eq!(value["data"]["hls_keep_transport_stream"], true);
+        assert_eq!(value["data"]["credential_ref"], "office-sftp");
         assert_eq!(value["data"]["torrent_name"], "bundle");
         assert_eq!(value["data"]["torrent_files"][0]["name"], "video.mp4");
+        fluxdown_string_free(pointer);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn queue_upsert_imports_full_mobile_task_without_duplicates() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("fluxdown-ffi-upsert-{suffix}"));
+        fs::create_dir_all(&root).expect("create temporary queue directory");
+        let store = CString::new(root.join("queue.json").to_string_lossy().as_bytes())
+            .expect("queue path contains no NUL");
+        let payload = CString::new(
+            format!(
+                r#"{{"taskId":"mobile-task-42","source":"https://example.com/bundle.m3u8","outputDir":"{}","fileName":"bundle.mp4","state":"paused","downloadedBytes":42,"totalBytes":100,"currentSpeedBytesPerSecond":7,"createdAtMs":1000,"updatedAtMs":2000,"startedAtMs":1500,"torrentName":"bundle","torrentFiles":[{{"index":0,"path":"bundle/a.mp4","name":"a.mp4","size":100,"isStreamable":true}}],"hlsVariantIndex":2,"hlsKeepTransportStream":true}}"#,
+                root.to_string_lossy()
+            ),
+        )
+        .expect("payload contains no NUL");
+
+        // 作者: long
+        // 导入后再次写入同一 ID 只能更新原任务，不能在 native 队列中生成重复任务。
+        let first = fluxdown_queue_upsert(store.as_ptr(), payload.as_ptr());
+        fluxdown_string_free(first);
+        let second = fluxdown_queue_upsert(store.as_ptr(), payload.as_ptr());
+        let response = unsafe { CStr::from_ptr(second) }
+            .to_str()
+            .expect("FFI response is UTF-8");
+        let value: serde_json::Value = serde_json::from_str(response).expect("valid response JSON");
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["data"]["state"], "paused");
+        assert_eq!(value["data"]["downloaded_bytes"], 42);
+        assert_eq!(value["data"]["created_at_ms"], 1000);
+        assert_eq!(value["data"]["torrent_files"][0]["name"], "a.mp4");
+        fluxdown_string_free(second);
+
+        let listed = fluxdown_queue_list(store.as_ptr());
+        let listed_value = unsafe { CStr::from_ptr(listed) }
+            .to_str()
+            .expect("list response is UTF-8");
+        let listed_json: serde_json::Value =
+            serde_json::from_str(listed_value).expect("valid list JSON");
+        assert_eq!(
+            listed_json["data"].as_array().map(|items| items.len()),
+            Some(1)
+        );
+        fluxdown_string_free(listed);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn queue_upsert_preserves_handoff_state_and_metadata() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("fluxdown-ffi-handoff-{suffix}"));
+        fs::create_dir_all(&root).expect("create temporary queue directory");
+        let store = CString::new(root.join("queue.json").to_string_lossy().as_bytes())
+            .expect("queue path contains no NUL");
+        let payload = CString::new(
+            format!(
+                r#"{{"taskId":"ed2k-task","source":"ed2k://|file|example.iso|123|ABCDEF|/","outputDir":"{}","state":"handedOff","handoffBackend":"system-handoff","handedOffAtMs":1234}}"#,
+                root.to_string_lossy()
+            ),
+        )
+        .expect("payload contains no NUL");
+
+        let pointer = fluxdown_queue_upsert(store.as_ptr(), payload.as_ptr());
+        let response = unsafe { CStr::from_ptr(pointer) }
+            .to_str()
+            .expect("FFI response is UTF-8");
+        let value: serde_json::Value = serde_json::from_str(response).expect("valid response JSON");
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["data"]["state"], "handed-off");
+        assert_eq!(value["data"]["handoff_backend"], "system-handoff");
+        assert_eq!(value["data"]["handed_off_at_ms"], 1234);
         fluxdown_string_free(pointer);
 
         let _ = fs::remove_dir_all(root);
@@ -791,6 +1043,38 @@ mod tests {
     }
 
     #[test]
+    fn queue_options_keep_mobile_credentials_transient() {
+        let (_, options) = queue_options_from_json(
+            r#"{"runtimeCredentials":{"task-1":{"username":"alice","password":"secret-pass"}}}"#,
+        )
+        .unwrap();
+        let credential = options
+            .download
+            .runtime_credentials
+            .get("task-1")
+            .expect("runtime credential");
+        assert_eq!(credential.username, "alice");
+        assert_eq!(credential.password, "secret-pass");
+        let serialized = serde_json::to_string(&options.download).unwrap();
+        assert!(!serialized.contains("secret-pass"));
+    }
+
+    #[test]
+    fn queue_options_parse_sftp_known_hosts_path() {
+        let (_, options) =
+            queue_options_from_json(r#"{"sftpKnownHosts":"  /tmp/fluxdown/known_hosts  "}"#)
+                .expect("valid options JSON");
+        assert_eq!(
+            options.download.sftp_known_hosts,
+            Some(std::path::PathBuf::from("/tmp/fluxdown/known_hosts"))
+        );
+
+        let (_, empty) = queue_options_from_json(r#"{"sftpKnownHosts":"  "}"#)
+            .expect("empty known_hosts is valid compatibility input");
+        assert_eq!(empty.download.sftp_known_hosts, None);
+    }
+
+    #[test]
     fn async_queue_run_queued_returns_empty_queue_report() {
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -847,16 +1131,4 @@ mod tests {
         let _ = fs::remove_dir_all(root);
         panic!("async queued run did not reach a terminal state");
     }
-}
-
-/// FFI 层版本号，供绑定层做兼容性自检。
-#[unsafe(no_mangle)]
-pub extern "C" fn fluxdown_version() -> *mut c_char {
-    string_to_cstr(env!("CARGO_PKG_VERSION").to_string())
-}
-
-/// FFI 层 ABI 标记，移动端可先用它探测动态库可用性。
-#[unsafe(no_mangle)]
-pub extern "C" fn fluxdown_ffi_abi() -> c_int {
-    1
 }

@@ -12,7 +12,12 @@ Future<DownloadTask> handOffEd2kTask(
   required FutureOr<void> Function(DownloadTask task) onProgress,
   Ed2kLauncher launcher = launchEd2kUri,
 }) async {
-  final running = task.copyWith(state: DownloadState.running, clearError: true);
+  final running = task.copyWith(
+    state: DownloadState.running,
+    clearError: true,
+    clearHandoffBackend: true,
+    clearHandedOffAt: true,
+  );
   await onProgress(running);
 
   late final bool launched;
@@ -35,11 +40,12 @@ Future<DownloadTask> handOffEd2kTask(
     downloadedBytes: 0,
     clearTotalBytes: true,
     clearError: true,
+    handoffBackend: 'android-external-app',
+    handedOffAt: DateTime.now().toUtc(),
   );
 }
 
-const _noEd2kHandlerMessage =
-    'No installed app can handle this ed2k link. Install an eMule/aMule-compatible client.';
+const _noEd2kHandlerMessage = '没有已安装的应用可以处理这个 ed2k 链接，请先安装兼容 eMule/aMule 的客户端。';
 
 Future<bool> launchEd2kUri(Uri uri) {
   return launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);

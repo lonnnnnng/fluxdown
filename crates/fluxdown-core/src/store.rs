@@ -1,5 +1,6 @@
 use crate::{DownloadRequest, DownloadState, DownloadTask};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::io::Write;
 #[cfg(target_os = "android")]
 use std::os::fd::AsRawFd;
@@ -13,6 +14,9 @@ use tokio::sync::Mutex;
 
 static TASK_STORE_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
+/// 当前 Rust canonical 队列文件格式版本；v1 只缺少 tombstone 字段，仍兼容读取。
+pub const TASK_STORE_SCHEMA_VERSION: u32 = 2;
+
 #[derive(Debug, Error)]
 pub enum TaskStoreError {
     #[error("task `{0}` was not found")]
@@ -21,6 +25,8 @@ pub enum TaskStoreError {
     Io(#[from] std::io::Error),
     #[error("任务队列数据损坏，无法读取：{0}")]
     Json(#[from] serde_json::Error),
+    #[error("任务队列格式版本 {0} 高于当前支持版本 {TASK_STORE_SCHEMA_VERSION}")]
+    UnsupportedSchemaVersion(u32),
 }
 
 #[derive(Debug, Clone)]
@@ -28,9 +34,28 @@ pub struct TaskStore {
     path: PathBuf,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct TaskStoreFile {
+    #[serde(default = "default_schema_version")]
+    schema_version: u32,
     tasks: Vec<DownloadTask>,
+    /// 删除时间戳用于阻止迟到的 native 运行句柄把已删除任务重新写回队列。
+    #[serde(default)]
+    deleted_task_ids: BTreeMap<String, u128>,
+}
+
+impl Default for TaskStoreFile {
+    fn default() -> Self {
+        Self {
+            schema_version: TASK_STORE_SCHEMA_VERSION,
+            tasks: Vec::new(),
+            deleted_task_ids: BTreeMap::new(),
+        }
+    }
+}
+
+fn default_schema_version() -> u32 {
+    TASK_STORE_SCHEMA_VERSION
 }
 
 impl TaskStore {
@@ -53,6 +78,37 @@ impl TaskStore {
         let mut file = self.read_file().await?;
         let task = DownloadTask::from_request(request);
         file.tasks.insert(0, task.clone());
+        self.write_file(&file).await?;
+        Ok(task)
+    }
+
+    pub async fn upsert(&self, task: DownloadTask) -> Result<DownloadTask, TaskStoreError> {
+        let _guard = TASK_STORE_WRITE_LOCK.lock().await;
+        let _process_guard = self.lock_for_write().await?;
+        let mut file = self.read_file().await?;
+        // 作者: long
+        // 迟到的运行句柄可能携带删除前的旧快照；只有明确晚于 tombstone 的新任务才允许复用同一 ID。
+        if let Some(deleted_at) = file.deleted_task_ids.get(&task.id).copied() {
+            if task.updated_at_ms <= deleted_at {
+                return Ok(task);
+            }
+            file.deleted_task_ids.remove(&task.id);
+        }
+        if let Some(existing) = file
+            .tasks
+            .iter_mut()
+            .find(|candidate| candidate.id == task.id)
+        {
+            // 作者: long
+            // Flutter 轮询和 Rust 下载线程可能同时回写同一任务；旧快照只能被丢弃，
+            // 否则 queued/paused 会覆盖刚落盘的 running/finished，进度线程会误判为取消。
+            if task.updated_at_ms < existing.updated_at_ms {
+                return Ok(existing.clone());
+            }
+            *existing = task.clone();
+        } else {
+            file.tasks.insert(0, task.clone());
+        }
         self.write_file(&file).await?;
         Ok(task)
     }
@@ -121,12 +177,16 @@ impl TaskStore {
         let _guard = TASK_STORE_WRITE_LOCK.lock().await;
         let _process_guard = self.lock_for_write().await?;
         let mut file = self.read_file().await?;
-        let Some(index) = file.tasks.iter().position(|candidate| candidate.id == id) else {
-            return Err(TaskStoreError::NotFound(id.to_string()));
-        };
-        let removed = file.tasks.remove(index);
+        let removed = file
+            .tasks
+            .iter()
+            .position(|candidate| candidate.id == id)
+            .map(|index| file.tasks.remove(index));
+        // 作者: long
+        // 即使任务已经被迟到写回删除，也要持久化 tombstone；下一次 upsert 会先检查它，避免删除操作失效。
+        file.deleted_task_ids.insert(id.to_string(), now_ms());
         self.write_file(&file).await?;
-        Ok(removed)
+        removed.ok_or_else(|| TaskStoreError::NotFound(id.to_string()))
     }
 
     pub async fn get(&self, id: &str) -> Result<DownloadTask, TaskStoreError> {
@@ -290,7 +350,19 @@ async fn read_store_file(path: &Path) -> Result<TaskStoreFile, TaskStoreError> {
         return Ok(TaskStoreFile::default());
     }
 
-    Ok(serde_json::from_slice(&bytes)?)
+    let mut file: TaskStoreFile = serde_json::from_slice(&bytes)?;
+    // 作者: long
+    // 旧版队列没有 schema_version，serde 已按当前兼容版本补齐；显式未来版本则必须阻断读写，
+    // 避免新字段被旧程序静默丢弃后覆盖用户任务。
+    if file.schema_version > TASK_STORE_SCHEMA_VERSION {
+        return Err(TaskStoreError::UnsupportedSchemaVersion(
+            file.schema_version,
+        ));
+    }
+    if file.schema_version == 0 {
+        file.schema_version = TASK_STORE_SCHEMA_VERSION;
+    }
+    Ok(file)
 }
 
 fn default_store_path_from_env(
@@ -445,6 +517,10 @@ mod tests {
             .await
             .unwrap();
 
+        let raw = fs::read_to_string(&path).await.unwrap();
+        let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(value["schema_version"], TASK_STORE_SCHEMA_VERSION);
+
         assert_eq!(store.list().await.unwrap().len(), 1);
         let updated = store
             .set_state(&task.id, DownloadState::Paused)
@@ -458,6 +534,108 @@ mod tests {
         store.remove(&task.id).await.unwrap();
         assert!(store.list().await.unwrap().is_empty());
         let _ = fs::remove_file(path).await;
+    }
+
+    #[tokio::test]
+    async fn reads_unversioned_legacy_queue_as_current_schema() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("queue.json");
+        fs::write(&path, r#"{"tasks":[]}"#).await.unwrap();
+
+        let store = TaskStore::new(&path);
+        assert!(store.list().await.unwrap().is_empty());
+        store
+            .enqueue(DownloadRequest::new(
+                "https://example.com/legacy.bin",
+                "/tmp",
+            ))
+            .await
+            .unwrap();
+
+        let value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).await.unwrap()).unwrap();
+        assert_eq!(value["schema_version"], TASK_STORE_SCHEMA_VERSION);
+    }
+
+    #[tokio::test]
+    async fn removes_task_with_tombstone_and_rejects_stale_upsert() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("queue.json");
+        let store = TaskStore::new(&path);
+        let task = store
+            .enqueue(DownloadRequest::new("https://example.com/file.bin", "/tmp"))
+            .await
+            .unwrap();
+        let mut stale = task.clone();
+        stale.updated_at_ms = stale.updated_at_ms.saturating_sub(1);
+
+        store.remove(&task.id).await.unwrap();
+        assert!(store.list().await.unwrap().is_empty());
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).await.unwrap()).unwrap();
+        assert!(raw["deleted_task_ids"][&task.id].as_u64().is_some());
+
+        store.upsert(stale).await.unwrap();
+        assert!(store.list().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn ignores_stale_upsert_for_an_existing_newer_task() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let task = store
+            .enqueue(DownloadRequest::new("https://example.com/file.bin", "/tmp"))
+            .await
+            .unwrap();
+
+        let mut running = task.clone();
+        running.set_state(DownloadState::Running);
+        store.update(running.clone()).await.unwrap();
+
+        let mut stale = task;
+        stale.updated_at_ms = running.updated_at_ms.saturating_sub(1);
+        let returned = store.upsert(stale).await.unwrap();
+        let persisted = store.get(&running.id).await.unwrap();
+
+        assert_eq!(returned.state, DownloadState::Running);
+        assert_eq!(persisted.state, DownloadState::Running);
+        assert_eq!(persisted.updated_at_ms, running.updated_at_ms);
+    }
+
+    #[tokio::test]
+    async fn newer_upsert_clears_tombstone_for_an_explicit_recreated_task() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("queue.json");
+        let store = TaskStore::new(&path);
+        let task = store
+            .enqueue(DownloadRequest::new("https://example.com/file.bin", "/tmp"))
+            .await
+            .unwrap();
+        store.remove(&task.id).await.unwrap();
+        let mut recreated = task.clone();
+        recreated.updated_at_ms = now_ms().saturating_add(1);
+
+        store.upsert(recreated.clone()).await.unwrap();
+        assert_eq!(store.list().await.unwrap()[0].id, recreated.id);
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).await.unwrap()).unwrap();
+        assert!(raw["deleted_task_ids"].get(&task.id).is_none());
+    }
+
+    #[tokio::test]
+    async fn rejects_a_future_queue_schema_without_overwriting_it() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("queue.json");
+        let raw = r#"{"schema_version":99,"tasks":[]}"#;
+        fs::write(&path, raw).await.unwrap();
+
+        let store = TaskStore::new(&path);
+        let error = store.list().await.unwrap_err();
+        assert!(matches!(
+            error,
+            TaskStoreError::UnsupportedSchemaVersion(99)
+        ));
+        assert_eq!(fs::read_to_string(&path).await.unwrap(), raw);
     }
 
     #[tokio::test]

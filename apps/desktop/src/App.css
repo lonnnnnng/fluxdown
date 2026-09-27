@@ -1151,6 +1151,15 @@ textarea:focus-visible,
   max-width: 320px;
 }
 
+.settingsSecurityHint {
+  display: block;
+  padding: 8px 14px 10px;
+  border-top: 1px solid #e8eff3;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .settingValue {
   min-height: 32px;
   display: inline-flex;
@@ -1162,6 +1171,73 @@ textarea:focus-visible,
   background: var(--panel-soft);
   color: var(--ink-soft);
   font-size: 10px;
+}
+
+.credentialEditor {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid #e8eff3;
+  background: #fbfdfe;
+}
+
+.credentialEditor > .fieldLabelRow {
+  align-items: flex-start;
+}
+
+.credentialEditor > .fieldLabelRow strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.credentialEditor > .fieldLabelRow small,
+.credentialEditor > small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.credentialEditorGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr;
+  gap: 8px;
+}
+
+.credentialEditorGrid input {
+  min-width: 0;
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.credentialEditorActions {
+  display: flex;
+  gap: 8px;
+}
+
+.credentialEditorActions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.credentialEditorActions button:first-child {
+  border-color: #9ccde3;
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+}
+
+@media (max-width: 760px) {
+  .credentialEditorGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .toggle {

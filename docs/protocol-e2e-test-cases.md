@@ -34,6 +34,7 @@
 | `webdavs-local-small` | WebDAVS | `webdavs://<host>:9443/https.txt?allowBadCertificate=true` | <= 1 MB | 输出文本/hash 匹配 fixture | 等价于 WebDAV over HTTPS，并带实验室自签证书 opt-in。 |
 | `ftps-local-small` | FTPS | `ftps://<user>:<pass>@<host>:2121/readme.txt?allowBadCertificate=true` | <= 1 MB | 输出大小/hash 匹配 fixture | 使用和目标客户端模式匹配的 FTPS 服务，尽量包含 TLS session resumption fixture。 |
 | `sftp-local-small` | SFTP | `sftp://<user>:<pass>@<host>:2222/upload/readme.txt` | <= 1 MB | 输出文本/hash 匹配 fixture | LAN SFTP fixture，使用密码认证测试用户。 |
+| `sftp-ssh-agent-small` | SFTP | `sftp://<user>@<host>:<port>/upload/readme.txt` | <= 1 MB | 输出文本/hash 匹配 fixture | 桌面/CLI 专用；服务端关闭密码认证，客户端通过当前 `ssh-agent` 的公钥认证。 |
 | `smb-local-small` | SMB | `smb://<user>:<pass>@<host>/<share>/sample.txt` | <= 1 MB | 输出文本/hash 匹配 fixture | LAN SMB2/3 共享；不要把 SMB 暴露到公网。 |
 | `http-local-small` | HTTP | `http://<host>:<port>/seg1.ts` | <= 1 MB | 输出文本/hash 匹配 fixture | 设备网络和 App 写入路径 smoke case。 |
 | `hls-local-small` | m3u8/HLS | `http://<host>:<port>/playlist.m3u8` | <= 1 MB | 移动端输出 `.mp4` header 包含 `ftyp`；核心层 `.ts` 可比对 hash | 使用有效 MPEG-TS 分片验证移动端 remux。 |
@@ -162,6 +163,28 @@ docker run -d --name fluxdown-sftp -p 2222:22 \
 ```text
 sftp://flux:fluxpass@<lan-ip>:2222/upload/readme.txt
 ```
+
+安全校验验收使用当前服务返回的主机密钥生成独立文件，不把实验室指纹写入仓库：
+
+```sh
+ssh-keyscan -p 2222 <lan-ip> > /tmp/fluxdown-e2e-sftp/known_hosts
+fluxdown download \
+  --sftp-known-hosts /tmp/fluxdown-e2e-sftp/known_hosts \
+  'sftp://flux:fluxpass@<lan-ip>:2222/upload/readme.txt'
+```
+
+`npm run verify:macos-cli-sftp` 还会用另一把合法但不匹配的主机密钥复验失败路径；未知或变化的密钥必须在认证前失败，且不能自动重试或创建输出文件。
+
+桌面/CLI 的 SSH agent 用例不把私钥写入链接或队列：临时 OpenSSH 服务关闭密码认证后，先将测试私钥加入当前 `ssh-agent`，再使用省略密码的地址下载：
+
+```sh
+ssh-add /path/to/e2e-client-key
+fluxdown download \
+  --sftp-known-hosts /tmp/fluxdown-e2e-sftp/known_hosts \
+  'sftp://flux@<lan-ip>:2222/upload/readme.txt'
+```
+
+移动端不读取桌面 `ssh-agent`；Android/iOS 使用各自安全存储中的密码或 SFTP 私钥引用。
 
 ### SMB
 
@@ -332,6 +355,14 @@ npm run verify:ios:physical-integration
 FLUXDOWN_E2E_HOST=<mac-lan-ip> \
 npm run verify:ios:physical-integration
 ```
+
+移动端 SFTP 私钥与主机密钥回归使用一次性 OpenSSH fixture。默认选择已运行的 iOS simulator，下载成功后再用错误 `known_hosts` 指纹确认连接在认证前拒绝；物理 iPhone 恢复可部署后可通过 `FLUXDOWN_IOS_DEVICE_ID` 和 `FLUXDOWN_E2E_HOST` 复用同一入口：
+
+```sh
+npm run verify:ios:sftp
+```
+
+用例统一读取 `FLUXDOWN_MOBILE_SFTP_*` 参数，Android 既有的 `FLUXDOWN_ANDROID_SFTP_*` 参数仍兼容。该入口不会把私钥、口令或 `known_hosts` 写入任务 JSON。
 
 示例：
 

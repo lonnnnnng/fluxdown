@@ -7,6 +7,7 @@ import UIKit
   private var nativeChannelsRegistered = false
   private var storageChannel: FlutterMethodChannel?
   private var mediaChannel: FlutterMethodChannel?
+  private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
 
   override func application(
     _ application: UIApplication,
@@ -50,6 +51,43 @@ import UIKit
     mediaChannel?.setMethodCallHandler { [weak self] call, result in
       self?.handleMediaMethod(call, result: result)
     }
+
+    let backgroundChannel = FlutterMethodChannel(
+      name: "dev.fluxdown.mobile/background",
+      binaryMessenger: binaryMessenger
+    )
+    backgroundChannel.setMethodCallHandler { [weak self] call, result in
+      self?.handleBackgroundMethod(call, result: result)
+    }
+  }
+
+  private func handleBackgroundMethod(
+    _ call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) {
+    switch call.method {
+    case "beginBackgroundWindow":
+      if backgroundTask == .invalid {
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "FluxDownDownload") { [weak self] in
+          self?.endBackgroundWindow()
+        }
+      }
+      result(nil)
+    case "endBackgroundWindow":
+      endBackgroundWindow()
+      result(nil)
+    case "startForegroundDownload", "updateForegroundDownload", "stopForegroundDownload":
+      // Android 专属通知服务；iOS 只使用系统短时后台窗口。
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func endBackgroundWindow() {
+    guard backgroundTask != .invalid else { return }
+    UIApplication.shared.endBackgroundTask(backgroundTask)
+    backgroundTask = .invalid
   }
 
   private func handleStorageMethod(_ call: FlutterMethodCall, result: @escaping FlutterResult) {

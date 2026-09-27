@@ -36,6 +36,9 @@ PODS:
     - DKImagePickerController/PhotoGallery
     - Flutter
   - Flutter (1.0.0)
+  - flutter_secure_storage_darwin (10.0.0):
+    - Flutter
+    - FlutterMacOS
   - integration_test (0.0.1):
     - Flutter
   - libtorrent_flutter (1.7.0):
@@ -61,6 +64,7 @@ DEPENDENCIES:
   - dart_smb2 (from `.symlinks/plugins/dart_smb2/ios`)
   - file_picker (from `.symlinks/plugins/file_picker/ios`)
   - Flutter (from `Flutter`)
+  - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
   - integration_test (from `.symlinks/plugins/integration_test/ios`)
   - libtorrent_flutter (from `.symlinks/plugins/libtorrent_flutter/ios`)
   - mobile_scanner (from `.symlinks/plugins/mobile_scanner/darwin`)
@@ -83,6 +87,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/file_picker/ios"
   Flutter:
     :path: Flutter
+  flutter_secure_storage_darwin:
+    :path: ".symlinks/plugins/flutter_secure_storage_darwin/darwin"
   integration_test:
     :path: ".symlinks/plugins/integration_test/ios"
   libtorrent_flutter:
@@ -104,6 +110,7 @@ SPEC CHECKSUMS:
   DKPhotoGallery: b3834fecb755ee09a593d7c9e389d8b5d6deed60
   file_picker: a0560bc09d61de87f12d246fc47d2119e6ef37be
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
   libtorrent_flutter: 74ac0b3c3bd647942214cf2ba7897cfd24dc3ab8
   mobile_scanner: 9157936403f5a0644ca3779a38ff8404c5434a93

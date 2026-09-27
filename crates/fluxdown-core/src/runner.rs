@@ -35,6 +35,8 @@ pub struct QueueRunReport {
     pub total_queued: usize,
     pub started: usize,
     pub finished: usize,
+    #[serde(default)]
+    pub handed_off: usize,
     pub failed: usize,
     pub tasks: Vec<DownloadTask>,
 }
@@ -54,6 +56,7 @@ impl QueueRunReport {
             total_queued: self.total_queued,
             started: self.started,
             finished: self.finished,
+            handed_off: self.handed_off,
             failed: self.failed,
             tasks: self
                 .tasks
@@ -64,7 +67,7 @@ impl QueueRunReport {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct QueueRunnerOptions {
     pub retry_attempts: usize,
     pub download: DownloadOptions,
@@ -128,6 +131,7 @@ impl QueueRunner {
                 total_queued,
                 started: 0,
                 finished: 0,
+                handed_off: 0,
                 failed: 0,
                 tasks: Vec::new(),
             });
@@ -139,8 +143,9 @@ impl QueueRunner {
                 let store = self.store.clone();
                 let engine = self.engine.clone();
                 let write_lock = Arc::clone(&write_lock);
+                let task_options = options.clone();
                 async move {
-                    run_one_with_retry(store, engine, task, write_lock, options)
+                    run_one_with_retry(store, engine, task, write_lock, task_options)
                         .await
                         .map(|report| report.task)
                 }
@@ -151,12 +156,14 @@ impl QueueRunner {
 
         let mut tasks = Vec::with_capacity(results.len());
         let mut finished = 0;
+        let mut handed_off = 0;
         let mut failed = 0;
 
         for result in results {
             let task = result?;
             match task.state {
                 DownloadState::Finished => finished += 1,
+                DownloadState::HandedOff => handed_off += 1,
                 DownloadState::Failed => failed += 1,
                 _ => {}
             }
@@ -167,6 +174,7 @@ impl QueueRunner {
             total_queued,
             started: tasks.len(),
             finished,
+            handed_off,
             failed,
             tasks,
         })
@@ -187,7 +195,10 @@ impl QueueRunner {
             .await?;
         let task = self.store.get(id).await?;
         if !options.restart_existing
-            && matches!(task.state, DownloadState::Finished | DownloadState::Running)
+            && matches!(
+                task.state,
+                DownloadState::Finished | DownloadState::HandedOff | DownloadState::Running
+            )
         {
             return Ok(TaskRunReport {
                 task,
@@ -216,7 +227,11 @@ async fn run_one_with_retry(
     // 作者: long
     // 每任务限速优先于队列全局限速：任务自带配置是用户对单任务的显式意愿，
     // 没配置时保持全局策略不变。
-    let mut download_options = options.download;
+    let mut download_options = options.download.clone();
+    // 作者: long
+    // 移动端凭据只在本次运行参数中按任务 ID 取出，绝不回写 DownloadTask 或 queue.json。
+    download_options.runtime_credential =
+        options.download.runtime_credentials.get(&task.id).cloned();
     if let Some(limit) = task.speed_limit_mbps
         && limit.is_finite()
         && limit > 0.0
@@ -233,7 +248,7 @@ async fn run_one_with_retry(
             engine.clone(),
             task,
             Arc::clone(&write_lock),
-            download_options,
+            download_options.clone(),
         )
         .await?;
         let report = attempt_report.report;
@@ -359,7 +374,7 @@ async fn run_one(
         }) as Arc<dyn Fn(DownloadProgress) + Send + Sync>
     };
 
-    let request = request_with_hls_overrides(task.request(), download_options);
+    let request = request_with_hls_overrides(task.request(), download_options.clone());
 
     let mut retryable = false;
     let mut summary = match engine
@@ -377,8 +392,15 @@ async fn run_one(
                 // 下载完成后以核心下载器确认的真实产物名刷新任务卡片，Torrent/Magnet 不再停留在种子文件名或 magnet-download。
                 task.file_name = Some(display_name);
             }
-            task.set_state(DownloadState::Finished);
-            task.set_progress(summary.bytes_written, summary.total_bytes);
+            if summary.backend == crate::Backend::BuiltIn {
+                task.set_state(DownloadState::Finished);
+                task.set_progress(summary.bytes_written, summary.total_bytes);
+            } else {
+                // 作者: long
+                // aMule/系统 URL handler 返回成功只代表链接已交给外部客户端；外部客户端没有状态回传时不能写入 Finished 或伪造文件进度。
+                task.mark_handed_off(summary.backend);
+                task.set_progress(0, None);
+            }
             task.error = None;
             Some(summary)
         }
@@ -981,6 +1003,37 @@ mod tests {
         assert_eq!(report.task.state, DownloadState::Finished);
         assert_eq!(persisted.state, DownloadState::Finished);
         assert_eq!(persisted.downloaded_bytes, 100);
+    }
+
+    #[tokio::test]
+    async fn start_handed_off_task_without_restart_is_noop() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let task = store
+            .enqueue(DownloadRequest::new(
+                "ed2k://|file|example.iso|123|ABCDEF|/",
+                temp_dir.path().join("downloads"),
+            ))
+            .await
+            .unwrap();
+        let mut handed_off = task.clone();
+        handed_off.mark_handed_off(crate::Backend::SystemHandoff);
+        store.update(handed_off.clone()).await.unwrap();
+
+        let report = QueueRunner::new(store.clone())
+            .run_task_with_options(&task.id, QueueRunnerOptions::default())
+            .await
+            .unwrap();
+        let persisted = store.get(&task.id).await.unwrap();
+
+        assert!(report.summary.is_none());
+        assert_eq!(report.task.state, DownloadState::HandedOff);
+        assert_eq!(
+            report.task.handoff_backend,
+            Some(crate::Backend::SystemHandoff)
+        );
+        assert_eq!(persisted.state, DownloadState::HandedOff);
+        assert_eq!(persisted.finished_at_ms, None);
     }
 
     #[tokio::test]

@@ -1,6 +1,7 @@
 use crate::{
-    Backend, DEFAULT_DOWNLOAD_THREAD_COUNT, DownloadRequest, Protocol, backend_availability,
-    sanitize_download_file_name, suggested_download_file_name, validate_sha256_text,
+    Backend, CredentialStoreError, DEFAULT_DOWNLOAD_THREAD_COUNT, DownloadRequest, Protocol,
+    StoredCredential, backend_availability, get_credential, sanitize_download_file_name,
+    suggested_download_file_name, validate_credential_ref, validate_sha256_text,
 };
 use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
 use futures_util::{StreamExt, stream};
@@ -13,16 +14,18 @@ use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, RANGE};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use smb2::{ClientConfig, ErrorKind as SmbErrorKind, SmbClient};
-use ssh2::Session as SshSession;
+use ssh2::{CheckResult, KnownHostFileKind, Session as SshSession};
 use std::collections::HashMap;
-use std::io::{Read, Seek};
-use std::net::{IpAddr, TcpStream};
+use std::io::{Read, Seek, Write};
+use std::net::{IpAddr, Shutdown, TcpListener, TcpStream};
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
+    mpsc,
 };
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use suppaftp::{
     Mode,
@@ -125,6 +128,14 @@ pub enum DownloadError {
     FtpsDataTls { source: suppaftp::FtpError },
     #[error(transparent)]
     Sftp(#[from] ssh2::Error),
+    #[error("SFTP 主机身份校验失败: {message}")]
+    SftpHostKeyVerification { message: String },
+    #[error("credential reference `{reference}` is unavailable: {reason}")]
+    CredentialUnavailable { reference: String, reason: String },
+    #[error("credential reference cannot be combined with credentials in the download URL")]
+    CredentialConflict,
+    #[error("credential reference is not supported for protocol {0:?}")]
+    CredentialUnsupportedProtocol(Protocol),
     #[error(transparent)]
     Smb(#[from] smb2::Error),
     #[error(transparent)]
@@ -180,6 +191,10 @@ impl DownloadError {
             | Self::HlsVariantOutOfRange { .. }
             | Self::TorrentSourceUnreadable(_)
             | Self::InvalidSftpUrl(_)
+            | Self::SftpHostKeyVerification { .. }
+            | Self::CredentialUnavailable { .. }
+            | Self::CredentialConflict
+            | Self::CredentialUnsupportedProtocol(_)
             | Self::InvalidSmbUrl(_)
             | Self::FtpsDataTls { .. }
             | Self::InvalidSha256 { .. }
@@ -215,6 +230,19 @@ impl DownloadError {
                     .to_string()
             }
             Self::Sftp(error) => protocol_error_user_message("SFTP", error.message()),
+            Self::SftpHostKeyVerification { .. } => {
+                "SFTP 主机身份校验失败，请检查 known_hosts 中的主机指纹和端口。".to_string()
+            }
+            Self::CredentialUnavailable { .. } => {
+                "下载凭据不可用，请检查系统凭据库中的引用和权限。".to_string()
+            }
+            Self::CredentialConflict => {
+                "下载链接已经包含用户名或密码，不能同时使用凭据引用。".to_string()
+            }
+            Self::CredentialUnsupportedProtocol(protocol) => format!(
+                "{} 协议当前不能使用凭据引用，请直接使用协议支持的认证方式。",
+                protocol.as_str().to_ascii_uppercase()
+            ),
             Self::Smb(error) => smb_error_user_message(error),
             Self::TorrentStalled { .. } => {
                 "暂无可用 Peer 或 Tracker 未响应，请检查网络、Tracker 后稍后重试。".to_string()
@@ -503,7 +531,45 @@ pub struct DownloadSummary {
     pub sha256: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+/// 单次运行的 SFTP 跳板配置；不参与任务序列化，避免把跳板凭据写入队列。
+#[derive(Debug, Clone)]
+pub struct SftpJumpOptions {
+    pub address: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password: Option<String>,
+    pub known_hosts: Option<PathBuf>,
+}
+
+impl SftpJumpOptions {
+    pub fn from_url(url: &Url, known_hosts: Option<PathBuf>) -> Result<Self, DownloadError> {
+        if url.scheme() != "sftp" || url.path() != "" && url.path() != "/" {
+            return Err(DownloadError::InvalidSftpUrl(
+                "sftp jump url must contain only an authority".to_string(),
+            ));
+        }
+        let host = url
+            .host_str()
+            .ok_or_else(|| DownloadError::InvalidSftpUrl(url.to_string()))?;
+        if url.username().is_empty() {
+            return Err(DownloadError::InvalidSftpUrl(
+                "sftp jump url must include a username".to_string(),
+            ));
+        }
+        let port = url.port().unwrap_or(22);
+        Ok(Self {
+            address: format!("{host}:{port}"),
+            host: host.to_string(),
+            port,
+            username: percent_decode(url.username()),
+            password: url.password().map(percent_decode),
+            known_hosts: known_hosts.filter(|path| !path.as_os_str().is_empty()),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadOptions {
     pub thread_count: usize,
     pub speed_limit_bps: Option<u64>,
@@ -513,6 +579,18 @@ pub struct DownloadOptions {
     pub hls_variant_index: Option<usize>,
     #[serde(default)]
     pub hls_keep_transport_stream: bool,
+    /// 可选 OpenSSH known_hosts 文件；设置后 SFTP 连接必须匹配主机密钥。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sftp_known_hosts: Option<PathBuf>,
+    /// 单次运行的 SFTP 跳板配置；凭据和路径不得进入任务 JSON。
+    #[serde(skip)]
+    pub sftp_jump: Option<SftpJumpOptions>,
+    /// 移动端本次 FFI 运行注入的密码凭据；只存在当前下载 Future 的内存中。
+    #[serde(skip)]
+    pub runtime_credential: Option<StoredCredential>,
+    /// FFI 队列运行时按 task id 提供的临时凭据；不会参与任务或选项序列化。
+    #[serde(skip)]
+    pub runtime_credentials: HashMap<String, StoredCredential>,
 }
 
 impl Default for DownloadOptions {
@@ -523,6 +601,10 @@ impl Default for DownloadOptions {
             restart_existing: false,
             hls_variant_index: None,
             hls_keep_transport_stream: false,
+            sftp_known_hosts: None,
+            sftp_jump: None,
+            runtime_credential: None,
+            runtime_credentials: HashMap::new(),
         }
     }
 }
@@ -535,6 +617,10 @@ impl DownloadOptions {
             restart_existing: false,
             hls_variant_index: None,
             hls_keep_transport_stream: false,
+            sftp_known_hosts: None,
+            sftp_jump: None,
+            runtime_credential: None,
+            runtime_credentials: HashMap::new(),
         }
     }
 
@@ -550,6 +636,29 @@ impl DownloadOptions {
     ) -> Self {
         self.hls_variant_index = hls_variant_index;
         self.hls_keep_transport_stream = hls_keep_transport_stream;
+        self
+    }
+
+    pub fn with_sftp_known_hosts(mut self, path: Option<PathBuf>) -> Self {
+        self.sftp_known_hosts = path.filter(|path| !path.as_os_str().is_empty());
+        self
+    }
+
+    pub fn with_sftp_jump(mut self, jump: Option<SftpJumpOptions>) -> Self {
+        self.sftp_jump = jump;
+        self
+    }
+
+    pub fn with_runtime_credential(mut self, credential: Option<StoredCredential>) -> Self {
+        self.runtime_credential = credential;
+        self
+    }
+
+    pub fn with_runtime_credentials(
+        mut self,
+        credentials: HashMap<String, StoredCredential>,
+    ) -> Self {
+        self.runtime_credentials = credentials;
         self
     }
 }
@@ -649,9 +758,15 @@ impl DownloadEngine {
         cancel: Option<CancelToken>,
         options: DownloadOptions,
     ) -> Result<DownloadSummary, DownloadError> {
+        // 作者: long
+        // 凭据引用只在本次运行期间解析并注入 URL，队列和任务对象仍只保留引用名，避免把密码写入磁盘。
+        let request = request_with_credentials(request, options.runtime_credential.as_ref())?;
         let options = DownloadOptions::new(options.thread_count, options.speed_limit_bps)
             .with_restart_existing(options.restart_existing)
-            .with_hls_options(options.hls_variant_index, options.hls_keep_transport_stream);
+            .with_hls_options(options.hls_variant_index, options.hls_keep_transport_stream)
+            .with_sftp_known_hosts(options.sftp_known_hosts.clone())
+            .with_sftp_jump(options.sftp_jump.clone())
+            .with_runtime_credential(options.runtime_credential.clone());
         let expected_sha256 = request
             .expected_sha256
             .as_deref()
@@ -1292,6 +1407,8 @@ impl DownloadEngine {
         let cancel_for_task = cancel.clone();
         let progress_for_task = progress.clone();
         let speed_limit_bps = options.speed_limit_bps;
+        let known_hosts_path = options.sftp_known_hosts.clone();
+        let jump = options.sftp_jump.clone();
 
         tokio::task::spawn_blocking(move || {
             download_sftp_blocking(
@@ -1300,6 +1417,8 @@ impl DownloadEngine {
                 progress_for_task,
                 cancel_for_task,
                 speed_limit_bps,
+                known_hosts_path,
+                jump,
             )
         })
         .await
@@ -1371,18 +1490,22 @@ impl DownloadEngine {
         let temp_ts_path = hls_temp_transport_path(&output_path);
         let fallback_ts_path = hls_transport_output_name(&requested_output_path);
         // 作者: long
+        // `#EXT-X-MAP` 表示后续分片是 fragmented MP4；这类资源已经具备 MP4 容器结构，
+        // 不需要依赖移动端通常不存在的 ffmpeg，直接保留初始化段和媒体分片即可播放。
+        let init_section = media_playlist
+            .segments
+            .iter()
+            .find_map(|segment| segment.map.clone());
+        let is_fmp4 = init_section.is_some();
+        // 作者: long
         // 分片落盘到旁挂缓存目录：暂停/失败后任务重新入队时，已完成的分片直接复用，
         // 只补缺失分片；全部合并成功后才清掉缓存目录。
         let segment_cache_dir = hls_segment_cache_dir(&output_path);
         fs::create_dir_all(&segment_cache_dir).await?;
-        let mut output = File::create(&temp_ts_path).await?;
-        let mut bytes_written = 0;
-        let mut segments_written = 0;
-        let mut current_hls_key = None;
-        let mut next_implicit_byte_range = None;
-        emit_progress(&progress, bytes_written, None);
 
         let mut segment_specs = Vec::with_capacity(media_playlist.segments.len());
+        let mut current_hls_key = None;
+        let mut next_implicit_byte_range = None;
         for (index, segment) in media_playlist.segments.iter().enumerate() {
             let segment_url = media_playlist_url
                 .join(&segment.uri)
@@ -1406,7 +1529,34 @@ impl DownloadEngine {
         }
 
         let limiter = DownloadSpeedLimiter::new(options.speed_limit_bps);
-        let downloaded = Arc::new(AtomicU64::new(0));
+        let init_bytes = if let Some(map) = init_section {
+            let init_url = media_playlist_url
+                .join(&map.uri)
+                .map_err(|_| DownloadError::InvalidM3u8)?;
+            let init_range = hls_map_byte_range(map.byte_range.as_ref())?;
+            self.fetch_hls_segment_with_retry(
+                init_url,
+                init_range,
+                limiter.clone(),
+                cancel.clone(),
+                HLS_SEGMENT_ATTEMPTS,
+            )
+            .await?
+        } else {
+            Vec::new()
+        };
+        if is_fmp4 && init_bytes.is_empty() {
+            return Err(DownloadError::InvalidM3u8);
+        }
+        let mut output = File::create(&temp_ts_path).await?;
+        let mut bytes_written = init_bytes.len() as u64;
+        let mut segments_written = 0;
+        if !init_bytes.is_empty() {
+            output.write_all(&init_bytes).await?;
+        }
+        emit_progress(&progress, bytes_written, None);
+
+        let downloaded = Arc::new(AtomicU64::new(bytes_written));
         let segment_results = stream::iter(segment_specs)
             .map(|segment| {
                 let engine = self.clone();
@@ -1484,7 +1634,13 @@ impl DownloadEngine {
         // 因此无论哪种产物路径都可以安全清理分片缓存。
         let _ = fs::remove_dir_all(&segment_cache_dir).await;
 
-        let (output_path, output_bytes) = if request
+        let (output_path, output_bytes) = if is_fmp4 {
+            // 作者: long
+            // fMP4 已经是最终容器，即使用户保留 TS 选项也不能改成 `.ts`，否则文件内容和扩展名会误导后续打开/预览。
+            let _ = fs::remove_file(&output_path).await;
+            fs::rename(&temp_ts_path, &output_path).await?;
+            (output_path, bytes_written)
+        } else if request
             .hls_keep_transport_stream
             .unwrap_or(options.hls_keep_transport_stream)
         {
@@ -1843,6 +1999,26 @@ struct HlsSegmentSpec {
 struct HlsByteRange {
     offset: u64,
     length: u64,
+}
+
+fn hls_map_byte_range(
+    byte_range: Option<&m3u8_rs::ByteRange>,
+) -> Result<Option<HlsByteRange>, DownloadError> {
+    let Some(byte_range) = byte_range else {
+        return Ok(None);
+    };
+    if byte_range.length == 0 {
+        return Err(DownloadError::InvalidHlsByteRange(
+            "initialization section length must be greater than zero".to_string(),
+        ));
+    }
+    // 作者: long
+    // 初始化段的 BYTERANGE 未提供偏移时，HLS 规范默认从资源起始位置读取；
+    // 普通媒体分片的省略偏移则必须沿用同一 URI 的上一段，两者语义不同。
+    Ok(Some(HlsByteRange {
+        offset: byte_range.offset.unwrap_or(0),
+        length: byte_range.length,
+    }))
 }
 
 impl HlsByteRange {
@@ -2292,6 +2468,73 @@ fn url_credentials(url: &mut Url) -> Result<Option<(String, Option<String>)>, Do
     Ok(Some((username, password)))
 }
 
+fn request_with_credentials(
+    mut request: DownloadRequest,
+    runtime_credential: Option<&StoredCredential>,
+) -> Result<DownloadRequest, DownloadError> {
+    let Some(raw_reference) = request.credential_ref.clone() else {
+        return Ok(request);
+    };
+    let reference = validate_credential_ref(&raw_reference).map_err(|error| {
+        DownloadError::CredentialUnavailable {
+            reference: raw_reference,
+            reason: credential_store_error_reason(error),
+        }
+    })?;
+    let protocol = request.protocol();
+    if !matches!(
+        protocol,
+        Protocol::Http
+            | Protocol::Https
+            | Protocol::Webdav
+            | Protocol::Webdavs
+            | Protocol::Ftp
+            | Protocol::Ftps
+            | Protocol::Sftp
+            | Protocol::Smb
+    ) {
+        return Err(DownloadError::CredentialUnsupportedProtocol(protocol));
+    }
+
+    let mut url = Url::parse(&request.source)
+        .map_err(|_| DownloadError::InvalidUrl(request.source.clone()))?;
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(DownloadError::CredentialConflict);
+    }
+    let credential = match runtime_credential {
+        Some(credential) => credential.clone(),
+        None => {
+            get_credential(&reference).map_err(|error| DownloadError::CredentialUnavailable {
+                reference: reference.clone(),
+                reason: credential_store_error_reason(error),
+            })?
+        }
+    };
+    url.set_username(&credential.username)
+        .map_err(|_| DownloadError::CredentialUnavailable {
+            reference: reference.clone(),
+            reason: "用户名无法编码到下载地址".to_string(),
+        })?;
+    url.set_password(Some(&credential.password)).map_err(|_| {
+        DownloadError::CredentialUnavailable {
+            reference: reference.clone(),
+            reason: "密码无法编码到下载地址".to_string(),
+        }
+    })?;
+    request.source = url.to_string();
+    request.credential_ref = Some(reference);
+    Ok(request)
+}
+
+fn credential_store_error_reason(error: CredentialStoreError) -> String {
+    match error {
+        CredentialStoreError::InvalidReference => "凭据引用无效".to_string(),
+        CredentialStoreError::UnsupportedPlatform => "当前平台没有可用的系统凭据库".to_string(),
+        CredentialStoreError::Backend => "系统凭据库不可用或凭据不存在".to_string(),
+        CredentialStoreError::InvalidPayload => "系统凭据内容无效".to_string(),
+    }
+}
+
 async fn torrent_source(
     source: &str,
     protocol: Protocol,
@@ -2580,6 +2823,8 @@ fn download_sftp_blocking(
     progress: Option<ProgressCallback>,
     cancel: Option<CancelToken>,
     speed_limit_bps: Option<u64>,
+    known_hosts_path: Option<PathBuf>,
+    jump: Option<SftpJumpOptions>,
 ) -> Result<DownloadSummary, DownloadError> {
     std::fs::create_dir_all(&output_dir)?;
     let output_path = output_dir.join(&spec.file_name);
@@ -2589,11 +2834,36 @@ fn download_sftp_blocking(
         .map(|metadata| metadata.len())
         .unwrap_or(0);
 
-    let tcp = TcpStream::connect(&spec.address)?;
+    let mut jump_session = None;
+    let mut bridge = None;
+    let tcp = if let Some(jump) = jump.as_ref() {
+        let jump_tcp = TcpStream::connect(&jump.address)?;
+        let mut session = SshSession::new()?;
+        session.set_tcp_stream(jump_tcp);
+        session.handshake()?;
+        if let Some(path) = jump.known_hosts.as_deref() {
+            verify_sftp_host_key(&session, &jump.host, jump.port, path)?;
+        }
+        authenticate_sftp_session(&session, &jump.username, jump.password.as_deref())?;
+        let channel = session.channel_direct_tcpip(&spec.host, spec.port, None)?;
+        // 作者: long
+        // ssh2 的同一会话共享内部锁，桥接阶段改用非阻塞单线程轮询，避免读操作长期占锁后阻塞写操作。
+        session.set_blocking(false);
+        let (local_tcp, relay) = TcpRelay::start(channel)?;
+        jump_session = Some(session);
+        bridge = Some(relay);
+        local_tcp
+    } else {
+        TcpStream::connect(&spec.address)?
+    };
+
     let mut session = SshSession::new()?;
     session.set_tcp_stream(tcp);
     session.handshake()?;
-    session.userauth_password(&spec.username, &spec.password)?;
+    if let Some(path) = known_hosts_path.as_deref() {
+        verify_sftp_host_key(&session, &spec.host, spec.port, path)?;
+    }
+    authenticate_sftp_session(&session, &spec.username, spec.password.as_deref())?;
     let sftp = session.sftp()?;
     let total_bytes = sftp.stat(Path::new(&spec.remote_path))?.size;
     let mut remote = sftp.open(Path::new(&spec.remote_path))?;
@@ -2634,7 +2904,7 @@ fn download_sftp_blocking(
 
     std::io::Write::flush(&mut local)?;
     ensure_transfer_complete(Protocol::Sftp, bytes_written, total_bytes)?;
-    Ok(DownloadSummary {
+    let summary = DownloadSummary {
         protocol: Protocol::Sftp,
         backend: Backend::BuiltIn,
         display_name: display_name_from_path(&output_path),
@@ -2644,14 +2914,206 @@ fn download_sftp_blocking(
         total_bytes,
         segments_written: None,
         sha256: None,
-    })
+    };
+    drop(sftp);
+    drop(session);
+    drop(bridge);
+    drop(jump_session);
+    Ok(summary)
+}
+
+fn authenticate_sftp_session(
+    session: &SshSession,
+    username: &str,
+    password: Option<&str>,
+) -> Result<(), DownloadError> {
+    // 作者: long
+    // 省略密码时只尝试当前进程的 SSH agent；显式密码仅用于本次握手，不写入队列。
+    match password {
+        Some(password) => session.userauth_password(username, password)?,
+        None => session.userauth_agent(username)?,
+    }
+    Ok(())
+}
+
+fn verify_sftp_host_key(
+    session: &SshSession,
+    host: &str,
+    port: u16,
+    known_hosts_path: &Path,
+) -> Result<(), DownloadError> {
+    if !known_hosts_path.is_file() {
+        return Err(DownloadError::SftpHostKeyVerification {
+            message: "known_hosts 文件不存在或不可读".to_string(),
+        });
+    }
+
+    let (key, _) = session
+        .host_key()
+        .ok_or_else(|| DownloadError::SftpHostKeyVerification {
+            message: "SSH 服务端没有返回主机密钥".to_string(),
+        })?;
+    let mut known_hosts =
+        session
+            .known_hosts()
+            .map_err(|error| DownloadError::SftpHostKeyVerification {
+                message: format!("无法初始化 known_hosts: {}", error.message()),
+            })?;
+    known_hosts
+        .read_file(known_hosts_path, KnownHostFileKind::OpenSSH)
+        .map_err(|error| DownloadError::SftpHostKeyVerification {
+            message: format!("无法读取 known_hosts: {}", error.message()),
+        })?;
+
+    let result = if port == 22 {
+        known_hosts.check(host, key)
+    } else {
+        known_hosts.check_port(host, port, key)
+    };
+    match result {
+        CheckResult::Match => Ok(()),
+        CheckResult::NotFound => Err(DownloadError::SftpHostKeyVerification {
+            message: "known_hosts 中没有该主机和端口的密钥".to_string(),
+        }),
+        CheckResult::Mismatch => Err(DownloadError::SftpHostKeyVerification {
+            message: "known_hosts 中的主机密钥与服务端不一致".to_string(),
+        }),
+        CheckResult::Failure => Err(DownloadError::SftpHostKeyVerification {
+            message: "known_hosts 主机密钥检查失败".to_string(),
+        }),
+    }
+}
+
+struct TcpRelay {
+    shutdown: Option<TcpStream>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl TcpRelay {
+    fn start(channel: ssh2::Channel) -> Result<(TcpStream, Self), DownloadError> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let address = listener.local_addr()?;
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let thread = thread::spawn(move || {
+            let accepted = listener.accept();
+            let (socket, _) = match accepted {
+                Ok(value) => value,
+                Err(_) => return,
+            };
+            let _ = ready_tx.send(());
+            relay_channel(channel, socket);
+        });
+
+        let local = TcpStream::connect(address)?;
+        ready_rx
+            .recv()
+            .map_err(|_| std::io::Error::other("SFTP 跳板回环桥接启动失败"))?;
+        let shutdown = local.try_clone()?;
+        Ok((
+            local,
+            Self {
+                shutdown: Some(shutdown),
+                thread: Some(thread),
+            },
+        ))
+    }
+}
+
+fn relay_channel(mut channel: ssh2::Channel, mut socket: TcpStream) {
+    if socket.set_nonblocking(true).is_err() {
+        return;
+    }
+    let mut socket_to_channel = Vec::new();
+    let mut channel_to_socket = Vec::new();
+    let mut socket_eof = false;
+    let mut channel_eof = false;
+    let mut socket_buffer = [0_u8; 32 * 1024];
+    let mut channel_buffer = [0_u8; 32 * 1024];
+
+    while !(socket_eof
+        && channel_eof
+        && socket_to_channel.is_empty()
+        && channel_to_socket.is_empty())
+    {
+        let mut progressed = false;
+        if !socket_eof && socket_to_channel.len() < 128 * 1024 {
+            match socket.read(&mut socket_buffer) {
+                Ok(0) => socket_eof = true,
+                Ok(read) => {
+                    socket_to_channel.extend_from_slice(&socket_buffer[..read]);
+                    progressed = true;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(_) => socket_eof = true,
+            }
+        }
+
+        if !socket_to_channel.is_empty() {
+            match channel.write(&socket_to_channel) {
+                Ok(0) => channel_eof = true,
+                Ok(written) => {
+                    socket_to_channel.drain(..written);
+                    progressed = true;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(_) => channel_eof = true,
+            }
+        }
+
+        if !channel_eof && channel_to_socket.len() < 128 * 1024 {
+            match channel.read(&mut channel_buffer) {
+                Ok(0) => channel_eof = true,
+                Ok(read) => {
+                    channel_to_socket.extend_from_slice(&channel_buffer[..read]);
+                    progressed = true;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(_) => channel_eof = true,
+            }
+        }
+
+        if !channel_to_socket.is_empty() {
+            match socket.write(&channel_to_socket) {
+                Ok(0) => socket_eof = true,
+                Ok(written) => {
+                    channel_to_socket.drain(..written);
+                    progressed = true;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(_) => socket_eof = true,
+            }
+        }
+
+        if socket_eof && socket_to_channel.is_empty() {
+            let _ = channel.send_eof();
+        }
+        if !progressed {
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+    let _ = channel.close();
+    let _ = channel.wait_close();
+}
+
+impl Drop for TcpRelay {
+    fn drop(&mut self) {
+        if let Some(socket) = self.shutdown.take() {
+            let _ = socket.shutdown(Shutdown::Both);
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 struct SftpDownloadSpec {
     address: String,
+    host: String,
+    port: u16,
     username: String,
-    password: String,
+    /// 缺少密码表示请求使用当前环境的 SSH agent，而不是尝试空密码登录。
+    password: Option<String>,
     remote_path: String,
     file_name: String,
 }
@@ -2675,9 +3137,7 @@ impl SftpDownloadSpec {
                 "sftp url must include a username".to_string(),
             ));
         }
-        let password = url.password().ok_or_else(|| {
-            DownloadError::InvalidSftpUrl("sftp url must include a password".to_string())
-        })?;
+        let password = url.password().map(percent_decode);
 
         let file_name = requested_file_name
             .map(|name| sanitize_download_file_name(&name, "sftp-download.bin"))
@@ -2692,8 +3152,10 @@ impl SftpDownloadSpec {
 
         Ok(Self {
             address: format!("{host}:{port}"),
+            host: host.to_string(),
+            port,
             username: percent_decode(url.username()),
-            password: percent_decode(password),
+            password,
             remote_path: percent_decode(path),
             file_name,
         })
@@ -3174,6 +3636,7 @@ mod tests {
             source: "https://example.com/live/index.m3u8".to_string(),
             output_dir: PathBuf::from("/tmp/fluxdown"),
             file_name: Some("../movie:name.m3u8".to_string()),
+            credential_ref: None,
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
             torrent_name: None,
@@ -3255,9 +3718,60 @@ mod tests {
 
         assert_eq!(spec.address, "example.com:2222");
         assert_eq!(spec.username, "user");
-        assert_eq!(spec.password, "p@ss");
+        assert_eq!(spec.password.as_deref(), Some("p@ss"));
         assert_eq!(spec.remote_path, "pub/releases/file one.bin");
         assert_eq!(spec.file_name, "file one.bin");
+    }
+
+    #[test]
+    fn parses_sftp_download_spec_without_password_for_ssh_agent() {
+        let url = Url::parse("sftp://agent@example.com/pub/releases/file.bin").unwrap();
+        let spec = SftpDownloadSpec::from_url(&url, None).unwrap();
+
+        assert_eq!(spec.username, "agent");
+        assert_eq!(spec.password, None);
+        assert_eq!(spec.remote_path, "pub/releases/file.bin");
+    }
+
+    #[test]
+    fn sftp_known_hosts_option_keeps_non_empty_path_and_drops_empty_path() {
+        let path = PathBuf::from("/tmp/fluxdown-known-hosts");
+        let options = DownloadOptions::default().with_sftp_known_hosts(Some(path.clone()));
+        assert_eq!(options.sftp_known_hosts, Some(path));
+
+        let empty = DownloadOptions::default().with_sftp_known_hosts(Some(PathBuf::new()));
+        assert_eq!(empty.sftp_known_hosts, None);
+    }
+
+    #[test]
+    fn missing_sftp_known_hosts_is_a_non_retryable_host_key_error() {
+        let spec = SftpDownloadSpec::from_url(
+            &Url::parse("sftp://user:pass@example.com:2222/pub/file.bin").unwrap(),
+            None,
+        )
+        .unwrap();
+        let session = SshSession::new().expect("create SSH session for preflight check");
+        let missing = tempfile::tempdir()
+            .unwrap()
+            .path()
+            .join("missing-known-hosts");
+
+        let error = verify_sftp_host_key(&session, &spec.host, spec.port, &missing).unwrap_err();
+        assert!(matches!(
+            error,
+            DownloadError::SftpHostKeyVerification { .. }
+        ));
+        assert!(!error.is_retryable());
+        assert!(error.user_message().contains("known_hosts"));
+    }
+
+    #[test]
+    fn sftp_host_key_mismatch_is_not_automatically_retried() {
+        let error = DownloadError::SftpHostKeyVerification {
+            message: "known_hosts 中的主机密钥与服务端不一致".to_string(),
+        };
+        assert!(!error.is_retryable());
+        assert!(error.user_message().contains("主机身份校验失败"));
     }
 
     #[test]
@@ -3424,6 +3938,65 @@ fn main() {{
             Some(("user".to_string(), Some("p@ss".to_string())))
         );
         assert_eq!(url.as_str(), "https://example.com/file.bin");
+    }
+
+    #[test]
+    fn runtime_mobile_credential_is_injected_without_serializing_secret_options() {
+        let mut request = DownloadRequest::new("https://example.com/private.bin", "/tmp");
+        request.credential_ref = Some("office-http".to_string());
+        let credential = StoredCredential {
+            username: "alice".to_string(),
+            password: "secret-pass".to_string(),
+        };
+        let resolved = request_with_credentials(request, Some(&credential)).unwrap();
+        assert!(resolved.source.contains("alice"));
+        assert!(resolved.source.contains("secret-pass"));
+
+        let options = DownloadOptions::default().with_runtime_credential(Some(credential));
+        let serialized = serde_json::to_string(&options).unwrap();
+        assert!(!serialized.contains("secret-pass"));
+    }
+
+    #[test]
+    fn credential_reference_rejects_url_credentials_before_keyring_lookup() {
+        let mut request =
+            DownloadRequest::new("https://user:password@example.com/private.bin", "/tmp");
+        request.credential_ref = Some("office-http".to_string());
+
+        let error = request_with_credentials(request, None).unwrap_err();
+
+        assert!(matches!(error, DownloadError::CredentialConflict));
+        assert!(!error.is_retryable());
+        assert!(error.user_message().contains("不能同时使用凭据引用"));
+        assert!(!error.user_message().contains("password"));
+    }
+
+    #[test]
+    fn credential_reference_rejects_unsupported_protocol_before_keyring_lookup() {
+        let mut request = DownloadRequest::new("magnet:?xt=urn:btih:abc", "/tmp");
+        request.credential_ref = Some("office-http".to_string());
+
+        let error = request_with_credentials(request, None).unwrap_err();
+
+        assert!(matches!(
+            error,
+            DownloadError::CredentialUnsupportedProtocol(Protocol::Magnet)
+        ));
+        assert!(!error.is_retryable());
+        assert!(error.user_message().contains("MAGNET 协议"));
+    }
+
+    #[test]
+    fn invalid_credential_reference_is_non_retryable_and_redacted() {
+        let mut request = DownloadRequest::new("https://example.com/private.bin", "/tmp");
+        request.credential_ref = Some("   ".to_string());
+
+        let error = request_with_credentials(request, None).unwrap_err();
+
+        assert!(matches!(error, DownloadError::CredentialUnavailable { .. }));
+        assert!(!error.is_retryable());
+        assert!(error.user_message().contains("下载凭据不可用"));
+        assert!(!error.user_message().contains("office"));
     }
 
     #[tokio::test]
@@ -4127,6 +4700,81 @@ fn main() {{
             fs::read(temp_dir.path().join("master.ts")).await.unwrap(),
             b"high variant only"
         );
+        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn downloads_hls_fmp4_without_ffmpeg() {
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/master.m3u8", server.local_addr().unwrap());
+        let init = vec![
+            0, 0, 0, 24, b'f', b't', b'y', b'p', b'i', b's', b'o', b'm', 0, 0, 0, 0, b'i', b's',
+            b'o', b'm', b'i', b's', b'o', b'6',
+        ];
+        let first = vec![1, 2, 3, 4];
+        let second = vec![5, 6, 7];
+        let expected_len = (init.len() + first.len() + second.len()) as u64;
+        let server_init = init.clone();
+        let server_first = first.clone();
+        let server_second = second.clone();
+        let server_task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = server.accept().await else {
+                    return;
+                };
+                let mut buffer = [0; 1024];
+                let Ok(read) = stream.read(&mut buffer).await else {
+                    continue;
+                };
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let (status, content_type, body): (&str, &str, Vec<u8>) = match path {
+                    "/master.m3u8" => (
+                        "200 OK",
+                        "application/vnd.apple.mpegurl",
+                        b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=64000\nvariant.m3u8\n".to_vec(),
+                    ),
+                    "/variant.m3u8" => (
+                        "200 OK",
+                        "application/vnd.apple.mpegurl",
+                        b"#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:1,\nfirst.m4s\n#EXTINF:1,\nsecond.m4s\n#EXT-X-ENDLIST\n".to_vec(),
+                    ),
+                    "/init.mp4" => ("200 OK", "video/mp4", server_init.clone()),
+                    "/first.m4s" => ("200 OK", "video/iso.segment", server_first.clone()),
+                    "/second.m4s" => ("200 OK", "video/iso.segment", server_second.clone()),
+                    _ => ("404 Not Found", "text/plain", b"not found".to_vec()),
+                };
+                let header = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(header.as_bytes()).await;
+                let _ = stream.write_all(&body).await;
+                let _ = stream.shutdown().await;
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let summary = DownloadEngine::new()
+            .download(DownloadRequest::new(source, temp_dir.path()))
+            .await
+            .unwrap();
+
+        assert_eq!(summary.display_name.as_deref(), Some("master.mp4"));
+        assert_eq!(summary.segments_written, Some(2));
+        assert_eq!(summary.bytes_written, expected_len);
+        let mut expected = init;
+        expected.extend(first);
+        expected.extend(second);
+        assert_eq!(
+            fs::read(temp_dir.path().join("master.mp4")).await.unwrap(),
+            expected
+        );
+        assert!(!temp_dir.path().join("master.ts").exists());
         server_task.abort();
     }
 

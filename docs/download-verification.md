@@ -1,11 +1,79 @@
 # 下载验证状态
 
-## 2026-09-27 P2-01 Rust 移动队列首批协议切换（未发布）
+## 2026-09-27 P2 阶段收口说明
 
-- Android 真机 Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）使用 arm64 Rust FFI 库真实执行队列下载和单任务下载；设备内回环 HTTP 文件 `131,072 B` 两次均落盘，`ffiVersion=1.0.26`，任务状态均为 `finished`。
+P2-01 至 P2-05 已按当前产品边界完成代码收口，逐项说明见 [P2 阶段完成记录](p2-completion-20260927.md)。本轮明确区分：
+
+- 移动端 Rust 队列已覆盖 HTTP/HLS 和完成 metadata 选择的 Torrent/Magnet；metadata 获取、SFTP 私钥和 ed2k 外部移交仍由端侧适配器承担。
+- Android 前台服务和 iOS 短时后台窗口只提供平台允许的后台能力；进程被系统回收后依靠启动恢复，不承诺永久后台。
+- ed2k 的 `handed-off` 只表示外部客户端接收链接，FluxDown 不掌控第三方进度、完成回调和最终路径。
+- 移动端密码凭据只通过 Rust FFI/Dart 运行时临时使用，任务 JSON 只保存引用；私钥、ssh-agent、跳板机的支持边界保持显式。
+
+本轮构建回归补充：
+
+- `flutter build ios --simulator --no-codesign` 通过，生成 `apps/mobile/build/ios/iphonesimulator/Runner.app`。
+- `flutter build apk --release` 通过，生成 `app-release.apk`（`144,815,221` bytes，SHA-256 `0fda95829c2f5acfce3462d97b649e9d8b9511ac34cd878a023925aa6c3853fe`）；安装到 Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）后启动正常，版本 `1.0.26 (27)`，未见 `FATAL EXCEPTION`。
+- Android Release 包的前台服务权限和 `.DownloadForegroundService` 注册已由 `adb dumpsys package` 核验；服务声明为 `exported=false`，外部 shell 不能直接启动，符合仅由 App 内 MethodChannel 控制的边界。
+
+## 2026-09-27 P2-05 桌面/CLI SFTP 跳板机验收（工作树，未发布）
+
+- `npm run verify:macos-cli-sftp-jump` 启动两个隔离的本机 OpenSSH 服务：跳板和目标使用不同 host key，均关闭密码认证，仅接受当前 `ssh-agent` 中的 Ed25519 用户密钥；CLI 使用无密码 SFTP 跳板 URL 和两份独立 `known_hosts` 完成真实转发下载。
+- 测试文件真实落盘 `35` bytes，SHA-256 为 `88019898fb234760c19a6651a4b7ef7612d1a1f92787efe6d9ec61bb1676c99c`；随后替换跳板条目为合法但不匹配的公钥，命令以失败退出，返回“`SFTP 主机身份校验失败`”，且 `bad.bin` 未创建。
+- 验证覆盖 CLI 直连运行时参数边界；桌面 Tauri 使用同一 `DownloadOptions`/`SftpJumpOptions` 透传并有单测覆盖。跳板地址、密码和两份 known_hosts 均不进入任务 JSON；移动端仍不支持 ssh-agent 或跳板机。
+
+## 2026-09-27 P2-05 桌面/CLI SSH agent SFTP 验收（工作树，未发布）
+
+- 使用 macOS 本机 OpenSSH 临时服务、临时 Ed25519 主机/用户密钥和 `ssh-agent`，服务端关闭密码认证，仅允许公钥认证；FluxDown CLI 通过无密码链接 `sftp://<user>@127.0.0.1:<port>/...` 成功建立 SFTP 会话。
+- 同次运行传入临时 `known_hosts`，真实落盘 `payload.bin` 共 `35` bytes，并与服务端文件逐字节比对；输出摘要显示 `protocol=sftp`、`backend=built-in`、`resumed_from=0`。
+- 认证密钥、临时服务、端口和下载目录均在测试结束后清理。本轮只验证桌面/CLI 的 SSH agent 直连路径；移动端系统 agent 和 iOS 真机仍未完成，跳板机路径见上一节。
+
+## 2026-09-27 P2-05 iOS 模拟器凭据安全存储回归（工作树，未发布）
+
+- iPhone 16 Pro simulator（`EADF8DFC-ED26-4C03-8735-C0889ECB2DA5`）执行 `flutter test integration_test/credential_store_e2e_test.dart`，密码凭据和 SFTP 私钥/口令两项均通过。
+- 用例覆盖 Keychain 插件的写入、读取、删除，以及任务 JSON 只保留 `credentialRef`、不包含密码、私钥或私钥口令；这证明了 iOS simulator 的安全存储调用链，不等同于物理 iPhone 真机网络下载验收。
+
+## 2026-09-27 P2-05 iOS 模拟器 SFTP 私钥与主机密钥验收（工作树，未发布）
+
+- 新增统一入口 `npm run verify:ios:sftp`，可复用于 iOS simulator 和后续可部署的物理 iPhone；用例统一使用 `FLUXDOWN_MOBILE_SFTP_*` 参数，同时兼容既有 Android 参数名。
+- 本轮在 iPhone 16 Pro simulator（`EADF8DFC-ED26-4C03-8735-C0889ECB2DA5`）启动一次性本机 OpenSSH fixture，服务端关闭密码认证，仅接受加密 Ed25519 私钥；匹配 `known_hosts` 后真实下载并落盘 `32` bytes 的 `mobile sftp private key fixture` 文件。
+- 同一用例将主机条目替换为合法但不匹配的 Ed25519 公钥，连接在认证前被拒绝，既有落盘文件内容保持不变；这覆盖 iOS simulator 的私钥认证、主机密钥校验和错误指纹拒绝路径。
+- 该结果只代表 simulator 网络/Keychain 调用链通过；iOS 物理设备仍因 `LMY` 的 `xcdevice-unavailable` 未进入 Flutter 部署，不能写成真机验收。
+
+## 2026-09-27 P2-05 Android 真机 SFTP 私钥与主机密钥验收（工作树，未发布）
+
+- Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）通过 `adb reverse` 访问一次性 Docker SFTP 服务，使用加密 Ed25519 私钥和口令完成真实公钥认证，读取并落盘 `android sftp private key fixture` 文件。
+- 同一连接显式导入 `known_hosts`，服务端主机指纹匹配后下载成功；将条目替换为合法但不匹配的 Ed25519 公钥后，`MobileSftpClient.connect` 在认证前拒绝连接，已下载文件不会被覆盖。
+- 真机集成用例为 [`sftp_private_key_e2e_test.dart`](../apps/mobile/integration_test/sftp_private_key_e2e_test.dart)，同时覆盖 Android Keystore 私钥/口令引用的安全边界；`credential_store_e2e_test.dart` 两项真机用例通过，任务 JSON 不含 PEM 或口令。
+- 本次只验证移动 SFTP 连接/下载适配器和安全存储，不把它扩展成完整手工 UI 回归；ssh-agent、跳板机和 iOS 真机仍不属于移动端已支持/已验收范围，正式 Release 包验收仍未完成。临时 Docker 容器、端口转发和密钥已清理。
+
+## 2026-09-27 P2-05 移动端 known_hosts 配置与指纹校验（工作树，未发布）
+
+- 移动设置页新增 SFTP 主机密钥导入/清除入口；导入文件会复制为应用配置，任务 JSON 不新增主机密钥或私密内容。
+- `dartssh2` 连接在配置存在时通过 `onVerifyHostKey` 精确匹配主机、端口、算法和 MD5 指纹；未知主机、端口或密钥变化直接失败，沿用移动端“安全连接失败”且不自动重试的错误策略。未配置时保持兼容连接行为。
+- `mobile_sftp_host_key_test.dart` 覆盖默认端口、非默认端口、RSA 算法别名、错误指纹、通配/哈希主机条目和空文件；`flutter analyze` 通过，移动端针对性回归测试 `78` 项全部通过。
+- 本节记录 known_hosts 入口完成时的单测阶段；Android 真机连接、私钥和错误指纹验收已由文档顶部记录补齐，iOS 真机仍属于 P2-05 后续缺口，移动端不支持 ssh-agent 或跳板机。
+
+## 2026-09-27 P2-05 凭据引用回归（工作树，未发布）
+
+- Rust core、CLI 和 FFI 回归通过：core `103` 项、CLI 集成 `37` 项、FFI `9` 项。新增覆盖旧任务缺失 `credential_ref` 的兼容读取、凭据引用规范化、CLI `add --credential-ref` 输出不泄漏密码、URL 已含凭据时拒绝重复引用、Magnet 等不支持协议拒绝引用，以及凭据错误不自动重试。
+- 桌面/CLI 系统凭据库实现已确认：macOS 使用 Keychain，Windows 使用 Credential Manager，Linux 使用 Secret Service；任务只保存引用名，运行时才解析用户名和密码。移动端已接入 `flutter_secure_storage` 的 Android Keystore/iOS Keychain，设置页管理密码/私钥引用，新建任务可选择引用；带引用任务由 Dart 运行时解析，暂不进入 Rust native 队列。Android 真机私钥下载和错误指纹验收见文档顶部，iOS 真机和全量凭据下载矩阵仍未完成；移动端不支持 ssh-agent 或跳板机，桌面/CLI 跳板机验收见文档顶部。
+- 本轮未执行真实外部凭据库写入/删除，避免测试污染开发机的系统钥匙串；SFTP `known_hosts` 的 CLI/桌面 Docker 验证见下方同日记录，Android 私钥与主机密钥验收见文档顶部。
+
+## 2026-09-27 P2-05 SFTP known_hosts 真实校验（工作树，未发布）
+
+- `bash scripts/verify-macos-cli-sftp.sh` 使用临时 Docker SFTP 服务和动态非标准端口，先通过 `ssh-keyscan` 生成当前服务的 OpenSSH `known_hosts` 条目，再用 CLI 直连下载和 `add -> run` 队列下载；两条路径均完成 `25` bytes 落盘，SHA-256 为 `cacf85d1bd51f37a2495d0ab4efa648c88a33bb8b23b95d2570db2a7887ba4a2`。
+- 同一脚本将采集到的公钥改写为合法但不匹配的 host key，CLI 在认证前返回“`SFTP 主机身份校验失败`”，进程以失败退出，目标文件没有创建；这确认主机密钥错误不会进入自动重试或产生半成品输出。
+- 本轮补充桌面 Tauri command 的显式 `sftpKnownHosts` 路径：`npm run verify:macos-desktop-sftp` 从临时容器采集 known_hosts 后运行 `run_queue_with_options`，真实 SFTP 文件落盘并完成 SHA-256 校验；移动端 Android 真机已补充 known_hosts 与加密私钥认证，iOS 真机仍待验证，移动端不支持 ssh-agent 或跳板机。
+
+## 2026-09-27 P2-01 Rust 移动队列与 HLS variant/fMP4 验证（未发布）
+
+- Android 真机 Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）使用三 ABI Rust FFI 库真实执行队列下载和单任务下载，并额外执行 HLS TS 与 master playlist variant 任务；设备内回环 HTTP 文件 `131,072 B` 两次均落盘，HLS TS `6 B` 真实落盘，variant fMP4 输出 `master.mp4`、`31 B`，文件头包含 `ftyp`，`ffiVersion=1.0.26`，四个任务状态均为 `finished`。
+- variant fMP4 夹具由设备内 HTTP 服务提供 `#EXT-X-MAP` 初始化段和两个 `.m4s` 分片，最终文件字节顺序为 `init.mp4 + high-1.m4s + high-2.m4s`；Android 不依赖 ffmpeg，也不会把已是 fMP4 的内容错误改名为 `.ts`。
 - iOS simulator iPhone 16 Pro（`EADF8DFC-ED26-4C03-8735-C0889ECB2DA5`）执行同一 Rust FFI 用例通过，队列与单任务均真实落盘 `131,072 B`，状态均为 `finished`。
-- 修复 Android 文件锁兼容：Android 使用系统 `flock` 保护旁路锁文件，解决 `lock() not supported`；Rust core store 测试、Flutter analyze、host FFI 测试均通过。
-- 正式移动入口已接入混合调度：native 库可用时 HTTP/HTTPS/WebDAV(S) 优先走 Rust，HLS、Torrent/Magnet、ed2k 继续走 Dart/移动原生适配器；没有 native 库时自动回退 Dart。本轮未触发发布流水线，也未宣称整队列 schema 或全部协议已迁移。
+- 修复 Android 文件锁兼容：Android 使用系统 `flock` 保护旁路锁文件，解决 `lock() not supported`；本轮重新编译并打入 `arm64-v8a`、`armeabi-v7a`、`x86_64` 三个 Rust FFI ABI。
+- 队列格式演进为 Rust canonical schema v2：Rust 使用 `schema_version` 与 `deleted_task_ids`，Flutter `queue.json` 在 native 可用时只保存 `handedOff` 投影；旧双队列启动时按任务时间戳一次性合并，并用 Rust tombstone 阻止迟到写回复活任务。未知状态不会静默降级为 queued。Flutter/Rust 两侧原子写入均使用持久化旁路锁，新增目标路径不可用时保留旧队列且清理临时文件的回归。Rust core 94 项、FFI 8 项和严格 Clippy 通过；Flutter analyze 通过，Flutter test 本轮 `82 passed / 17 skipped`，跳过项均为未注入 host FFI 动态库的测试。
+- 修复并验证 canonical 队列的并发旧快照覆盖：`TaskStore::upsert` 现在拒绝 `updated_at_ms` 更旧的同 ID 快照，避免 Flutter 轮询把 Rust 已进入 `running/finished` 的任务退回 `queued/paused`。`flutter test integration_test/rust_queue_e2e_test.dart -d wsvwypiz7xwslvl7` 重跑通过，额外确认删除 tombstone 阻止迟到 upsert 复活，Flutter `queue.json` 中普通 Rust 任务投影为空。
+- 本节是该日早先快照，现已由本页顶部的 P2 收口记录 supersede：当前正式移动入口在 native 库可用时将 HTTP/HTTPS/WebDAV(S)/HLS 和完成 metadata 选择的 Torrent/Magnet 交给 Rust；metadata 获取、SFTP 私钥和 ed2k 外部移交仍由 Dart/原生适配器负责。
 
 ## 2026-09-26 Android `1.0.25` Release 完整协议验收
 
@@ -166,7 +234,7 @@
 
 ## 2026-09-06 `1.0.13` 中期路线图功能发版
 
-- 完成中期路线图五项：任务 ETA 与每任务限速、Torrent 详情面板（文件/tracker/peer/速率）、HLS 清晰度 variant 选择与分片断点恢复及可选 TS 直出、移动端 SHA-256 校验入口、统一任务 schema v1 与 `fluxdown-ffi` FFI 层（详见 [task-schema.md](task-schema.md) 与 [roadmap.md](roadmap.md)）。
+- 完成中期路线图五项：任务 ETA 与每任务限速、Torrent 详情面板（文件/tracker/peer/速率）、HLS 清晰度 variant 选择与分片断点恢复及可选 TS 直出、移动端 SHA-256 校验入口、统一任务 schema v2 与 `fluxdown-ffi` FFI 层（详见 [task-schema.md](task-schema.md) 与 [roadmap.md](roadmap.md)）。
 - Rust 测试 140 项全部通过（core 75 / desktop 33 / cli 31，含限速归一化、schema 向后兼容、torrent 静态解析、HLS variant 与断点恢复用例）。
 - Windows GUI E2E 11 项用例全部通过（本地 fixture 可重复）：0.5 限速实测 4.1s（理论 4s）、ETA 渲染、variant=1 + 保留 TS 实际产出 high 分片原始流、torrent 静态详情解析。
 - `fluxdown-ffi` 动态库在 Windows host 用 ctypes 冒烟验证 7 项（协议识别/队列添加/列表）。移动端 Dart 代码需要 Flutter 环境跑 analyze/test 后再打包。
@@ -291,7 +359,7 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 | --- | --- | --- |
 | HTTP/HTTPS | CLI 和核心层有本地下载验证；macOS GUI、Windows GUI 均已通过真实前台操作完成 HTTP/HTTPS 新建任务、自动下载、文件落盘和 SHA-256 校验；macOS HTTPS 使用本地自签证书及显式 opt-in。 | 证据最充分。 |
 | WebDAV/WebDAVS | 核心层和 macOS/Windows 原生 GUI 均验证了 URL 到 HTTP/HTTPS transport 的映射和真实落盘。 | 仍未覆盖完整 WebDAV 方法，例如 `PROPFIND` 和目录遍历。 |
-| m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片、master playlist variant 选择和 TS BYTERANGE 分片；Android 真机和 macOS CLI 均已验证媒体级 HLS 可生成最终 `.mp4`，CLI 直连/队列、桌面 command 和 macOS 纯 GUI 均有本地 HLS fixture 回归；macOS CLI release 与桌面 command 已验证 HLS BYTERANGE 真实落盘；纯 GUI 真实媒体 HLS 输出 `index.mp4` 并通过 `ffprobe` 识别为 MP4 容器；iOS simulator 已通过 App 内 fMP4 HLS、fMP4 BYTERANGE HLS 和 TS HLS smoke，输出文件头均包含 `ftyp`。本轮新增移动新建任务 HLS variant/TS 控件、移动 variant/TS 下载测试和 CLI HLS 参数测试。 | iOS TS HLS 当前先覆盖 H.264/AAC VOD 主流路径，Android/iPhone 真机尚未针对可配置 variant/TS 重新跑 App 内下载；仍需要更多公网、长视频、多音轨、B 帧和异常 playlist 验证。 |
+| m3u8/HLS | 核心层覆盖本地 HLS playlist、AES-128 分片、master playlist variant 选择和 TS BYTERANGE 分片；Android 真机和 macOS CLI 均已验证媒体级 HLS 可生成最终 `.mp4`，CLI 直连/队列、桌面 command 和 macOS 纯 GUI 均有本地 HLS fixture 回归；macOS CLI release 与桌面 command 已验证 HLS BYTERANGE 真实落盘；纯 GUI 真实媒体 HLS 输出 `index.mp4` 并通过 `ffprobe` 识别为 MP4 容器；iOS simulator 已通过 App 内 fMP4 HLS、fMP4 BYTERANGE HLS 和 TS HLS smoke，输出文件头均包含 `ftyp`；本轮 Android Redmi 真机工作树 FFI 队列新增通过 variant=1 fMP4（`master.mp4`）和 TS 两条路径。 | iOS TS HLS 当前先覆盖 H.264/AAC VOD 主流路径，iPhone 真机尚未针对可配置 variant/TS 重新跑 App 内下载；仍需要更多公网、长视频、多音轨、B 帧和异常 playlist 验证。 |
 | FTP/FTPS | macOS CLI 已验证公网 FTP、本地 FTP/FTPS；2026-08-05 macOS 原生 GUI 又通过前台操作完成局域网 FTP 和显式 FTPS 真实落盘及 SHA-256 校验。 | Rebex 公网 FTPS 仍失败，错误为 `InvalidContentType`；本地可控 FTPS fixture 已通过。 |
 | SFTP | macOS CLI 已验证公网 SFTP 和本地 Docker SFTP；2026-08-05 macOS 原生 GUI 已通过 Docker SFTP 完成前台真实落盘和 SHA-256 校验。 | 公网 Rebex 仍作为兼容性 smoke；可重复脚本不依赖公网源。 |
 | SMB | macOS CLI、Android 真机、Windows GUI 均已有局域网 SMB 证据；2026-08-05 macOS 原生 GUI 又通过 Docker Samba 完成前台新建任务、下载、真实落盘和 SHA-256 校验。 | 仍未覆盖 Linux 桌面真实运行。 |
@@ -423,7 +491,8 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run verify:macos-cli-release-p2p` | 通过：强制使用 `target/release/fluxdown`，验证 release CLI 二进制的 `.torrent add -> run -> list` 和 magnet `add -> start -> list`，任务名会回写为真实文件名且 SHA-256 匹配。 |
 | `npm run verify:macos-cli-release-queue-controls` | 通过：强制使用 `target/release/fluxdown`，启动本地慢速 HTTP fixture，验证 release CLI 的运行中暂停/继续、运行中删除、失败重试、`start --restart` 重新下载替换旧文件、并发 1 串行和并发 2 并行，以及所有完成文件的 SHA-256 落盘校验。 |
 | `scripts/verify-macos-cli-p2p.sh` | 通过：脚本创建临时小文件和双文件 torrent、生成 torrent/magnet、启动本地 tracker 和 Transmission seeder，验证 CLI `.torrent` 队列下载、magnet `start` 单任务下载，以及 `.torrent`/magnet 在直连 `download` 和队列 `add -> run` 路径下通过 `--torrent-file-index 0` 只下载选中文件且未选文件不写出非空内容。 |
-| `npm run verify:macos-cli-sftp` | 通过：脚本启动临时 Docker SFTP 服务，等待 SSH banner 后验证 CLI SFTP 直连下载和队列下载。 |
+| `npm run verify:macos-cli-sftp` | 通过：脚本启动临时 Docker SFTP 服务，等待 SSH banner 后用采集的 `known_hosts` 验证直连和队列下载，并用错误主机密钥确认认证前拒绝、不可自动重试且不创建输出文件。 |
+| `npm run verify:macos-cli-sftp-jump` | 通过：脚本启动双临时 OpenSSH 服务，使用 SSH agent 和跳板/目标两份独立 `known_hosts` 验证 SFTP 转发落盘；替换跳板公钥后在认证前拒绝且不创建输出。 |
 | `npm run verify:macos-cli-smb` | 通过：脚本启动临时 Docker Samba 共享，验证 CLI SMB 直连下载和队列下载。 |
 | `npm run verify:macos-desktop-ftps` | 通过：脚本启动临时显式 TLS FTPS fixture，运行桌面 command ignored 测试，验证 FTPS 队列下载、输出路径和 SHA-256。 |
 | `npm run verify:macos-desktop-command` | 通过：一键运行 `cargo test -p fluxdown-desktop`、`npm run desktop:dmg`、桌面 command FTPS/SFTP/SMB/Torrent/Magnet fixture 和 `npm run verify:macos-artifacts`，全程不启动前台 GUI。 |
@@ -469,7 +538,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | 本地 WebDAVS 自签 transport | `webdavs://127.0.0.1:9444/https.txt?allowBadCertificate=true` | 通过，输出内容和 SHA-256 同本地 HTTPS。 |
 | 本地 FTP | `npm run verify:macos-cli-ftp-ftps` 临时启动的 FTP fixture | 通过，CLI `download` 直连路径和 `add -> run -> list` 队列路径均完成，输出 `24` bytes，SHA-256 为 `8a3e04ea4d1a0fe96d6f591601719d0c95ed965ded0dfad65e8304b2aba0c946`。 |
 | 本地 FTPS 自签 | `npm run verify:macos-cli-ftp-ftps` 临时启动的显式 TLS FTPS fixture，URL 带 `allowBadCertificate=true` | 通过，CLI `download` 直连路径和 `add -> run -> list` 队列路径均完成，输出 `25` bytes，SHA-256 为 `2e67c9cda58b774fc2fcd7ad641f9b4aec2b89214689e4d604d5274985610a2b`。 |
-| 本地 SFTP | `npm run verify:macos-cli-sftp` 临时启动的 Docker SFTP 服务 | 通过，CLI `download` 直连路径和 `add -> run -> list` 队列路径均完成，输出 `25` bytes，SHA-256 为 `cacf85d1bd51f37a2495d0ab4efa648c88a33bb8b23b95d2570db2a7887ba4a2`。 |
+| 本地 SFTP | `npm run verify:macos-cli-sftp` 临时启动的 Docker SFTP 服务 | 通过，CLI `download` 直连和 `add -> run -> list` 队列路径均使用匹配 `known_hosts` 完成 `25` bytes 落盘，SHA-256 为 `cacf85d1bd51f37a2495d0ab4efa648c88a33bb8b23b95d2570db2a7887ba4a2`；错误 host key 在认证前被拒绝且不创建输出。 |
 | 本地 SMB | `npm run verify:macos-cli-smb` 临时启动的 Docker Samba 共享 | 通过，CLI `download` 直连路径和 `add -> run -> list` 队列路径均完成，输出 `24` bytes，SHA-256 为 `51cf86999e8a6da6ad6f341936ce75097ea6dd7adbddeab105b7241b88914ca4`。 |
 | 公网 FTPS 兼容性 | `ftps://demo:password@test.rebex.net/readme.txt` | 未通过，错误为 `Secure error: Secure error: received corrupt message of type InvalidContentType`；该公网源不作为通过标准，保留为兼容性观察项。 |
 
@@ -491,7 +560,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | Tauri command WebDAV 下载 | 通过，测试将 `webdav://` 映射到临时 HTTP fixture，校验实际请求路径和输出 `desktop-webdav.txt` 内容。 |
 | Tauri command FTP 下载 | 通过，测试启动最小 FTP fixture，覆盖 `USER/PASS` 登录、`SIZE`、`EPSV` 被动数据连接和 `RETR` 文件传输；队列运行输出 `desktop-ftp.txt`，单任务启动输出 `desktop-start-ftp.txt`，均完成真实落盘和内容校验。 |
 | Tauri command FTPS 下载 | 通过，`npm run verify:macos-desktop-ftps` 启动临时显式 TLS FTPS fixture，创建队列任务并运行，输出 `desktop-ftps.txt`，SHA-256 为 `d6cb380c4e7c29040d313a7ca940d613a97dab978fd019f7bf78212bb5c1e804`。 |
-| Tauri command SFTP 下载 | 通过，`npm run verify:macos-desktop-sftp` 启动临时 Docker SFTP 服务，创建队列任务并运行，输出 `desktop-sftp.txt`，SHA-256 为 `3ebbcf6008be2428d11747c8ab05b55b4518a591d96ec188d5aa9df76a5f3a0f`。 |
+| Tauri command SFTP 下载 | 通过，`npm run verify:macos-desktop-sftp` 启动临时 Docker SFTP 服务，用 `ssh-keyscan` 生成临时 `known_hosts`，通过 `run_queue_with_options` 传入并校验主机身份后完成队列下载；输出 `desktop-sftp.txt`，SHA-256 为 `3ebbcf6008be2428d11747c8ab05b55b4518a591d96ec188d5aa9df76a5f3a0f`。 |
 | Tauri command SMB 下载 | 通过，`npm run verify:macos-desktop-smb` 启动临时 Docker Samba 共享，创建队列任务并运行，输出 `desktop-smb.txt`，SHA-256 为 `9511a9c1777dcaaf7652c0b8090a9c71a8b1dbd8f11e520141afdcef244c1929`。 |
 | Tauri command Torrent/Magnet 下载 | 通过，`npm run verify:macos-desktop-p2p` 创建临时 `fluxdown-p2p-sample.txt` 和双文件 torrent/magnet，生成 tracker 为 `127.0.0.1` 的 `.torrent` 和 magnet，启动本地 tracker 与 Transmission seeder；ignored 测试确认 `.torrent` 队列下载会把任务名从 `queued-sample.torrent` 回写为真实 `fluxdown-p2p-sample.txt`，magnet 单任务启动会把任务名从 `magnet-download` 回写为真实文件名，两者输出 SHA-256 均为 `112be889b60bcb800675ca97f2dfd42a2394f80c0176c11cbd4456cacf25faa7`；多文件 torrent 和多文件 magnet 均通过文件编号 `0` 只下载 `a-selected.bin`，任务卡片名回写为真实文件名，`task_output_path` 可在保存目录下递归定位真实落盘文件。 |
 | 纯 GUI 12 类协议下载闭环 | 2026-08-05 已补齐。HTTP、HTTPS、WebDAV transport、WebDAVS transport、FTP、FTPS、SFTP、SMB、m3u8/HLS、Torrent、Magnet 均通过真实前台新建任务并完成落盘和 SHA-256 校验；ed2k 成功移交迅雷，但占位 hash 被迅雷判定为链接失效。详细证据见 [macOS 原生桌面端 12 协议验证报告](macos-desktop-protocol-e2e-report-20260805.md)。 |

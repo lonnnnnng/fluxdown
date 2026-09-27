@@ -15,7 +15,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for tool in cargo docker python3 shasum; do
+for tool in cargo docker python3 shasum ssh-keyscan; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "missing required tool: $tool" >&2
     exit 1
@@ -78,6 +78,14 @@ docker run -d --platform linux/amd64 --name "$CONTAINER_NAME" \
   flux:fluxpass:::upload >/dev/null
 # long: Docker 端口可连接不代表 SSHD 已准备好，等到 banner 后再交给 libssh2，避免偶发 Failed getting banner。
 wait_for_sftp_banner 127.0.0.1 "$SFTP_PORT"
+
+# long: 只把测试容器当前公布的主机密钥写入临时 known_hosts，验证桌面队列的显式身份校验链路；测试结束后随临时目录销毁。
+export FLUXDOWN_DESKTOP_SFTP_KNOWN_HOSTS="$TMP_DIR/known_hosts"
+ssh-keyscan -T 5 -p "$SFTP_PORT" 127.0.0.1 > "$FLUXDOWN_DESKTOP_SFTP_KNOWN_HOSTS" 2>/dev/null
+if [ ! -s "$FLUXDOWN_DESKTOP_SFTP_KNOWN_HOSTS" ]; then
+  echo "failed to collect SFTP host key" >&2
+  exit 1
+fi
 
 echo "macOS desktop SFTP fixture"
 echo "  source: $FLUXDOWN_DESKTOP_SFTP_SOURCE"

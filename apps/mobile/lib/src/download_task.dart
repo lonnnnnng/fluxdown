@@ -57,11 +57,15 @@ class DownloadTask {
     this.startedAt,
     this.pausedAt,
     this.finishedAt,
+    this.handoffBackend,
+    this.handedOffAt,
     this.currentSpeedBytesPerSecond = 0,
     this.torrentName,
     this.torrentFiles = const [],
     this.selectedTorrentFileIndexes,
     this.expectedSha256,
+    this.credentialRef,
+    this.speedLimitMbps,
     this.hlsVariantIndex,
     this.hlsKeepTransportStream = false,
   });
@@ -74,6 +78,8 @@ class DownloadTask {
     List<TorrentFileEntry> torrentFiles = const [],
     List<int>? selectedTorrentFileIndexes,
     String? expectedSha256,
+    String? credentialRef,
+    double? speedLimitMbps,
     int? hlsVariantIndex,
     bool hlsKeepTransportStream = false,
   }) {
@@ -98,6 +104,10 @@ class DownloadTask {
           ? null
           : List.unmodifiable(selectedTorrentFileIndexes),
       expectedSha256: expectedSha256,
+      credentialRef: credentialRef?.trim().isEmpty == true
+          ? null
+          : credentialRef?.trim(),
+      speedLimitMbps: speedLimitMbps,
       hlsVariantIndex: hlsVariantIndex,
       hlsKeepTransportStream: hlsKeepTransportStream,
     );
@@ -125,6 +135,8 @@ class DownloadTask {
       startedAt: _dateTimeFromJson(json['startedAt']),
       pausedAt: pausedAt,
       finishedAt: _dateTimeFromJson(json['finishedAt']),
+      handoffBackend: json['handoffBackend'] as String?,
+      handedOffAt: _dateTimeFromJson(json['handedOffAt']),
       currentSpeedBytesPerSecond:
           json['currentSpeedBytesPerSecond'] as int? ?? 0,
       torrentName: json['torrentName'] as String?,
@@ -143,6 +155,8 @@ class DownloadTask {
               .whereType<int>()
               .toList(growable: false),
       expectedSha256: json['expectedSha256'] as String?,
+      credentialRef: json['credentialRef'] as String?,
+      speedLimitMbps: _doubleFromJson(json['speedLimitMbps']),
       hlsVariantIndex: _intFromJson(json['hlsVariantIndex']),
       hlsKeepTransportStream: json['hlsKeepTransportStream'] as bool? ?? false,
     );
@@ -162,11 +176,19 @@ class DownloadTask {
   final DateTime? startedAt;
   final DateTime? pausedAt;
   final DateTime? finishedAt;
+
+  /// 外部客户端接收链接的方式；存在时只表示移交成功，不表示外部文件已完成。
+  final String? handoffBackend;
+  final DateTime? handedOffAt;
   final int currentSpeedBytesPerSecond;
   final String? torrentName;
   final List<TorrentFileEntry> torrentFiles;
   final List<int>? selectedTorrentFileIndexes;
   final String? expectedSha256;
+
+  /// 系统凭据库引用名；移动端只做 schema 透传，不在普通队列中保存密码。
+  final String? credentialRef;
+  final double? speedLimitMbps;
   final int? hlsVariantIndex;
   final bool hlsKeepTransportStream;
 
@@ -187,7 +209,7 @@ class DownloadTask {
     final end =
         finishedAt ??
         (state == DownloadState.paused ? pausedAt : null) ??
-        (state == DownloadState.handedOff ? updatedAt : null) ??
+        (state == DownloadState.handedOff ? handedOffAt ?? updatedAt : null) ??
         DateTime.now().toUtc();
     if (end.isBefore(start)) return Duration.zero;
     return end.difference(start);
@@ -266,6 +288,7 @@ class DownloadTask {
     bool clearTotalBytes = false,
     String? error,
     bool clearError = false,
+    DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? startedAt,
     bool clearStartedAt = false,
@@ -273,6 +296,10 @@ class DownloadTask {
     bool clearPausedAt = false,
     DateTime? finishedAt,
     bool clearFinishedAt = false,
+    String? handoffBackend,
+    bool clearHandoffBackend = false,
+    DateTime? handedOffAt,
+    bool clearHandedOffAt = false,
     int? currentSpeedBytesPerSecond,
     String? torrentName,
     List<TorrentFileEntry>? torrentFiles,
@@ -280,6 +307,8 @@ class DownloadTask {
     bool clearSelectedTorrentFileIndexes = false,
     bool clearTorrentMetadata = false,
     String? expectedSha256,
+    String? credentialRef,
+    double? speedLimitMbps,
     int? hlsVariantIndex,
     bool? hlsKeepTransportStream,
   }) {
@@ -293,11 +322,15 @@ class DownloadTask {
       downloadedBytes: downloadedBytes ?? this.downloadedBytes,
       totalBytes: clearTotalBytes ? null : totalBytes ?? this.totalBytes,
       error: clearError ? null : error ?? this.error,
-      createdAt: createdAt,
+      createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? DateTime.now().toUtc(),
       startedAt: clearStartedAt ? null : startedAt ?? this.startedAt,
       pausedAt: clearPausedAt ? null : pausedAt ?? this.pausedAt,
       finishedAt: clearFinishedAt ? null : finishedAt ?? this.finishedAt,
+      handoffBackend: clearHandoffBackend
+          ? null
+          : handoffBackend ?? this.handoffBackend,
+      handedOffAt: clearHandedOffAt ? null : handedOffAt ?? this.handedOffAt,
       currentSpeedBytesPerSecond:
           currentSpeedBytesPerSecond ?? this.currentSpeedBytesPerSecond,
       torrentName: clearTorrentMetadata
@@ -311,6 +344,8 @@ class DownloadTask {
           ? null
           : selectedTorrentFileIndexes ?? this.selectedTorrentFileIndexes,
       expectedSha256: expectedSha256 ?? this.expectedSha256,
+      credentialRef: credentialRef ?? this.credentialRef,
+      speedLimitMbps: speedLimitMbps ?? this.speedLimitMbps,
       hlsVariantIndex: hlsVariantIndex ?? this.hlsVariantIndex,
       hlsKeepTransportStream:
           hlsKeepTransportStream ?? this.hlsKeepTransportStream,
@@ -333,11 +368,15 @@ class DownloadTask {
       'startedAt': startedAt?.toIso8601String(),
       'pausedAt': pausedAt?.toIso8601String(),
       'finishedAt': finishedAt?.toIso8601String(),
+      'handoffBackend': handoffBackend,
+      'handedOffAt': handedOffAt?.toIso8601String(),
       'currentSpeedBytesPerSecond': currentSpeedBytesPerSecond,
       'torrentName': torrentName,
       'torrentFiles': torrentFiles.map((file) => file.toJson()).toList(),
       'selectedTorrentFileIndexes': selectedTorrentFileIndexes,
       'expectedSha256': expectedSha256,
+      'credentialRef': credentialRef,
+      'speedLimitMbps': speedLimitMbps,
       'hlsVariantIndex': hlsVariantIndex,
       'hlsKeepTransportStream': hlsKeepTransportStream,
     };
@@ -367,6 +406,11 @@ int? _intFromJson(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   return int.tryParse(value?.toString() ?? '');
+}
+
+double? _doubleFromJson(Object? value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '');
 }
 
 String? _commonTorrentTopLevelName(List<TorrentFileEntry> files) {

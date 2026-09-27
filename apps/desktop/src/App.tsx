@@ -77,7 +77,13 @@ type DoctorReport = {
   protocols: SupportStatus[];
 };
 
-type DownloadState = "queued" | "running" | "finished" | "failed" | "paused";
+type DownloadState =
+  | "queued"
+  | "running"
+  | "finished"
+  | "failed"
+  | "paused"
+  | "handed-off";
 type QueueFilter =
   | "all"
   | "unfinished"
@@ -127,6 +133,7 @@ type DownloadTask = {
   state: DownloadState;
   output_dir: string;
   file_name?: string | null;
+  credential_ref?: string | null;
   expected_sha256?: string | null;
   torrent_file_indices?: number[];
   torrent_name?: string | null;
@@ -142,6 +149,8 @@ type DownloadTask = {
   updated_at_ms?: number;
   started_at_ms?: number | null;
   finished_at_ms?: number | null;
+  handoff_backend?: Backend | null;
+  handed_off_at_ms?: number | null;
 };
 
 type TorrentFileMetadata = {
@@ -222,6 +231,7 @@ type QueueRunReport = {
   total_queued: number;
   started: number;
   finished: number;
+  handed_off: number;
   failed: number;
   tasks: DownloadTask[];
 };
@@ -233,6 +243,9 @@ type TaskRunReport = {
 
 type Settings = {
   outputDir: string;
+  sftpKnownHosts: string;
+  sftpJump: string;
+  sftpJumpKnownHosts: string;
   concurrency: number;
   threadCount: number;
   retryAttempts: number;
@@ -289,6 +302,9 @@ function saveIgnoredUpdateVersion(version: string) {
 const settingsKey = "fluxdown.desktop.settings.v2";
 const defaultSettings: Settings = {
   outputDir: "",
+  sftpKnownHosts: "",
+  sftpJump: "",
+  sftpJumpKnownHosts: "",
   concurrency: 5,
   threadCount: 16,
   retryAttempts: 3,
@@ -316,9 +332,10 @@ const filterIcons: Record<QueueFilter, IconName> = {
 const stateIcons: Record<DownloadState, IconName> = {
   queued: "clock",
   running: "download",
-  finished: "check",
-  failed: "alert",
-  paused: "pause",
+    finished: "check",
+    failed: "alert",
+    paused: "pause",
+    "handed-off": "external-link",
 };
 
 const settingsSections: Array<{
@@ -425,6 +442,18 @@ function loadSettings(): Settings {
         typeof saved.outputDir === "string" && saved.outputDir.trim()
           ? saved.outputDir
           : defaultSettings.outputDir,
+      sftpKnownHosts:
+        typeof saved.sftpKnownHosts === "string" && saved.sftpKnownHosts.trim()
+          ? saved.sftpKnownHosts.trim()
+          : defaultSettings.sftpKnownHosts,
+      sftpJump:
+        typeof saved.sftpJump === "string" && saved.sftpJump.trim()
+          ? stripSftpJumpPassword(saved.sftpJump)
+          : defaultSettings.sftpJump,
+      sftpJumpKnownHosts:
+        typeof saved.sftpJumpKnownHosts === "string" && saved.sftpJumpKnownHosts.trim()
+          ? saved.sftpJumpKnownHosts.trim()
+          : defaultSettings.sftpJumpKnownHosts,
       concurrency: clampNumber(saved.concurrency, 1, 30, defaultSettings.concurrency),
       threadCount: clampNumber(saved.threadCount, 1, 32, defaultSettings.threadCount),
       retryAttempts: clampNumber(saved.retryAttempts, 0, 10, defaultSettings.retryAttempts),
@@ -462,9 +491,25 @@ function loadSettings(): Settings {
 
 function saveSettings(settings: Settings) {
   try {
-    window.localStorage.setItem(settingsKey, JSON.stringify(settings));
+    // 作者: long
+    // 跳板地址只允许作为无密码的连接入口落盘；密码应由 SSH agent 提供，避免误把 URL 凭据写入浏览器存储。
+    const persisted = { ...settings, sftpJump: stripSftpJumpPassword(settings.sftpJump) };
+    window.localStorage.setItem(settingsKey, JSON.stringify(persisted));
   } catch {
     // Local storage can be unavailable in restricted web previews.
+  }
+}
+
+function stripSftpJumpPassword(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol.toLowerCase() !== "sftp:" || !parsed.password) return trimmed;
+    parsed.password = "";
+    return parsed.toString();
+  } catch {
+    return trimmed;
   }
 }
 
@@ -672,6 +717,7 @@ function stateLabel(state: DownloadState) {
     finished: "已完成",
     failed: "失败",
     paused: "已暂停",
+    "handed-off": "已移交",
   };
   return labels[state];
 }
@@ -695,7 +741,7 @@ function filterMatches(task: DownloadTask, filter: QueueFilter) {
       task.state === "paused"
     );
   }
-  if (filter === "ended") return task.state === "finished";
+  if (filter === "ended") return task.state === "finished" || task.state === "handed-off";
   return task.state === "failed";
 }
 
@@ -703,7 +749,7 @@ function taskCounts(tasks: DownloadTask[]) {
   return {
     all: tasks.length,
     unfinished: tasks.filter((task) => filterMatches(task, "unfinished")).length,
-    ended: tasks.filter((task) => task.state === "finished").length,
+    ended: tasks.filter((task) => task.state === "finished" || task.state === "handed-off").length,
     failed: tasks.filter((task) => task.state === "failed").length,
   } satisfies Record<QueueFilter, number>;
 }
@@ -740,7 +786,7 @@ function taskActionTitle(task: DownloadTask) {
     return "点击查看详情";
   }
   if (task.state === "running") return "点击暂停";
-  if (task.state === "finished" || task.state === "failed") return "点击重新下载";
+  if (task.state === "finished" || task.state === "handed-off" || task.state === "failed") return "点击重新下载";
   return "点击开始";
 }
 
@@ -771,6 +817,7 @@ function taskIndicatorLabel(task: DownloadTask) {
   if (task.state === "queued") return "等待启动";
   if (task.state === "paused") return "已暂停";
   if (task.state === "finished") return "已结束";
+  if (task.state === "handed-off") return task.handoff_backend ? `已移交 · ${backendLabel(task.handoff_backend)}` : "已移交";
   return "失败";
 }
 
@@ -834,6 +881,7 @@ function App() {
   const [source, setSource] = useState("");
   const [sourceSupport, setSourceSupport] = useState<SupportStatus | null>(null);
   const [fileName, setFileName] = useState("");
+  const [credentialRef, setCredentialRef] = useState("");
   const fileNameEditedRef = useRef(false);
   const [expectedSha256, setExpectedSha256] = useState("");
   const [torrentFileIndices, setTorrentFileIndices] = useState("");
@@ -911,7 +959,7 @@ function App() {
   const runQueue = useCallback(async () => {
     setQueueActive(true);
     try {
-      const report = await invoke<QueueRunReport>("run_queue", {
+      const report = await invoke<QueueRunReport>("run_queue_with_options", {
         concurrency: settings.concurrency,
         retryAttempts: settings.retryAttempts,
         threadCount: settings.threadCount,
@@ -920,10 +968,15 @@ function App() {
             ? settings.speedLimitMbps
             : null,
         restartExisting: false,
+        sftpKnownHosts: settings.sftpKnownHosts.trim() || null,
+        sftpJump: settings.sftpJump.trim() || null,
+        sftpJumpKnownHosts: settings.sftpJumpKnownHosts.trim() || null,
       });
       if (report.tasks.length > 0) {
         setTasks(await invoke<DownloadTask[]>("list_downloads"));
-        setMessage(`队列完成：${report.finished} 个完成，${report.failed} 个失败`);
+        setMessage(
+          `队列完成：${report.finished} 个完成，${report.handed_off} 个已移交，${report.failed} 个失败`,
+        );
       }
     } catch (error) {
       setMessage(
@@ -937,6 +990,9 @@ function App() {
   }, [
     settings.concurrency,
     settings.retryAttempts,
+    settings.sftpJump,
+    settings.sftpJumpKnownHosts,
+    settings.sftpKnownHosts,
     settings.speedLimitMbps,
     settings.threadCount,
   ]);
@@ -961,6 +1017,11 @@ function App() {
         events.push({
           title: "下载失败",
           body: `${title} 失败：${displayTaskError(task) || "未知错误"}`,
+        });
+      } else if (task.state === "handed-off") {
+        events.push({
+          title: "链接已移交",
+          body: `${title} 已移交给${task.handoff_backend ? ` ${backendLabel(task.handoff_backend)}` : "外部客户端"}，完成状态请在外部客户端查看`,
         });
       }
     }
@@ -1368,12 +1429,41 @@ function App() {
     }
   }
 
+  async function pickKnownHostsFile(initialPath: string) {
+    try {
+      const selected = await openNativeDialog({
+        directory: false,
+        multiple: false,
+        title: "选择 SFTP known_hosts 文件",
+        defaultPath: initialPath.trim() || undefined,
+      });
+      return typeof selected === "string" ? selected : null;
+    } catch (error) {
+      setMessage(safeErrorText(error));
+      return null;
+    }
+  }
+
   async function pickSettingsOutputDir() {
     const selected = await pickDirectory(settings.outputDir);
     if (!selected) return;
     updateSettings({ outputDir: selected });
     setOutputDir(selected);
     setMessage("默认保存位置已更新");
+  }
+
+  async function pickSettingsKnownHosts() {
+    const selected = await pickKnownHostsFile(settings.sftpKnownHosts);
+    if (!selected) return;
+    updateSettings({ sftpKnownHosts: selected });
+    setMessage("SFTP known_hosts 文件已更新");
+  }
+
+  async function pickSettingsJumpKnownHosts() {
+    const selected = await pickKnownHostsFile(settings.sftpJumpKnownHosts);
+    if (!selected) return;
+    updateSettings({ sftpJumpKnownHosts: selected });
+    setMessage("SFTP 跳板 known_hosts 文件已更新");
   }
 
   async function pickNewTaskOutputDir() {
@@ -1433,6 +1523,7 @@ function App() {
           source: normalizedSource,
           output_dir: normalizedOutput,
           file_name: fileName.trim() || null,
+          credential_ref: credentialRef.trim() || null,
           expected_sha256: normalizedSha256,
           torrent_file_indices: selectedTorrentFiles,
           torrent_name: torrentName,
@@ -1462,6 +1553,7 @@ function App() {
         state: "queued",
         output_dir: normalizedOutput,
         file_name: fileName.trim() || suggestedFileName(normalizedSource),
+        credential_ref: credentialRef.trim() || null,
         expected_sha256: normalizedSha256,
         torrent_file_indices: selectedTorrentFiles,
         torrent_name: torrentName,
@@ -1483,6 +1575,7 @@ function App() {
     setNewDialogOpen(false);
     updateNewTaskSource("");
     setFileName("");
+    setCredentialRef("");
     fileNameEditedRef.current = false;
     setExpectedSha256("");
     setTorrentFileIndices("");
@@ -1581,7 +1674,7 @@ function App() {
       ),
     );
     try {
-      const report = await invoke<TaskRunReport>("start_download", {
+      const report = await invoke<TaskRunReport>("start_download_with_options", {
         id: task.id,
         concurrency: settings.concurrency,
         retryAttempts: settings.retryAttempts,
@@ -1591,6 +1684,9 @@ function App() {
             ? settings.speedLimitMbps
             : null,
         restartExisting,
+        sftpKnownHosts: settings.sftpKnownHosts.trim() || null,
+        sftpJump: settings.sftpJump.trim() || null,
+        sftpJumpKnownHosts: settings.sftpJumpKnownHosts.trim() || null,
       });
       setTasks((current) =>
         current.map((item) => (item.id === task.id ? report.task : item)),
@@ -1650,12 +1746,16 @@ function App() {
     } else {
       // 作者: long
       // 已结束任务再次点击属于重新下载，必须清理旧输出，避免完整文件被 HTTP 续传逻辑误判。
-      startTask(task, task.state === "finished" || task.state === "failed");
+      startTask(
+        task,
+        task.state === "finished" || task.state === "handed-off" || task.state === "failed",
+      );
     }
   }
 
   function openNewDialog() {
     setOutputDir(settings.outputDir);
+    setCredentialRef("");
     setSourceSupport(source.trim() ? fallbackSupport(source.trim()) : null);
     setHlsVariants([]);
     setTorrentName(null);
@@ -1932,6 +2032,8 @@ function App() {
             doctorReport={doctorReport}
             onBack={() => setPage("queue")}
             onChange={updateSettings}
+            onPickKnownHosts={pickSettingsKnownHosts}
+            onPickJumpKnownHosts={pickSettingsJumpKnownHosts}
             onPickOutputDir={pickSettingsOutputDir}
             onRefreshDoctor={refreshDoctorReport}
             settings={settings}
@@ -1942,6 +2044,7 @@ function App() {
           <NewTaskDialog
           expectedSha256={expectedSha256}
           fileName={fileName}
+          credentialRef={credentialRef}
           hlsVariants={hlsVariants}
           hlsVariantIndex={hlsVariantIndex}
           hlsKeepTs={hlsKeepTs}
@@ -1960,6 +2063,7 @@ function App() {
             fileNameEditedRef.current = true;
             setFileName(value);
           }}
+          onCredentialRefChange={setCredentialRef}
           onHlsKeepTsChange={setHlsKeepTs}
           onHlsVariantIndexChange={setHlsVariantIndex}
           onOutputDirChange={setOutputDir}
@@ -2717,6 +2821,7 @@ function TorrentSelectionDialog({
 function NewTaskDialog({
   expectedSha256,
   fileName,
+  credentialRef,
   hlsVariants,
   hlsVariantIndex,
   hlsKeepTs,
@@ -2727,6 +2832,7 @@ function NewTaskDialog({
   torrentMetadataError,
   torrentMetadataLoading,
   onClose,
+  onCredentialRefChange,
   onCreate,
   onExpectedSha256Change,
   onFileNameChange,
@@ -2746,6 +2852,7 @@ function NewTaskDialog({
 }: {
   expectedSha256: string;
   fileName: string;
+  credentialRef: string;
   hlsVariants: HlsVariantInfo[];
   hlsVariantIndex: string;
   hlsKeepTs: boolean;
@@ -2756,6 +2863,7 @@ function NewTaskDialog({
   torrentMetadataError: string;
   torrentMetadataLoading: boolean;
   onClose: () => void;
+  onCredentialRefChange: (value: string) => void;
   onCreate: () => void;
   onExpectedSha256Change: (value: string) => void;
   onFileNameChange: (value: string) => void;
@@ -2845,6 +2953,16 @@ function NewTaskDialog({
             placeholder="可选，64 位十六进制"
             value={expectedSha256}
           />
+        </label>
+        <label className="fieldBlock">
+          <span>凭据引用（可选）</span>
+          <input
+            data-testid="new-task-credential-ref"
+            onChange={(event) => onCredentialRefChange(event.target.value)}
+            placeholder="使用设置页或 CLI 保存的系统凭据引用"
+            value={credentialRef}
+          />
+          <small>只保存引用名，用户名和密码不会写入队列文件。</small>
         </label>
         {isTorrentLike ? (
           <div className="fieldBlock torrentSelectionBlock">
@@ -3030,6 +3148,20 @@ function PropertyDialog({
           <dd>{protocolLabel(task.protocol)}</dd>
           <dt>状态</dt>
           <dd>{stateLabel(task.state)}</dd>
+          {task.state === "handed-off" ? (
+            <>
+              <dt>移交方式</dt>
+              <dd>
+                {task.handoff_backend ? backendLabel(task.handoff_backend) : "外部客户端"}
+              </dd>
+              <dt>移交时间</dt>
+              <dd>
+                {task.handed_off_at_ms
+                  ? new Date(task.handed_off_at_ms).toLocaleString()
+                  : "--"}
+              </dd>
+            </>
+          ) : null}
           <dt>大小</dt>
           <dd>
             {formatBytes(task.downloaded_bytes)} / {formatBytes(task.total_bytes)}
@@ -3038,6 +3170,12 @@ function PropertyDialog({
             <>
               <dt>SHA-256</dt>
               <dd>{task.expected_sha256}</dd>
+            </>
+          ) : null}
+          {task.credential_ref ? (
+            <>
+              <dt>凭据引用</dt>
+              <dd>{task.credential_ref}</dd>
             </>
           ) : null}
           {task.torrent_file_indices?.length ? (
@@ -3056,6 +3194,8 @@ function SettingsPage({
   doctorReport,
   onBack,
   onChange,
+  onPickKnownHosts,
+  onPickJumpKnownHosts,
   onPickOutputDir,
   onRefreshDoctor,
   settings,
@@ -3063,6 +3203,8 @@ function SettingsPage({
   doctorReport: DoctorReport | null;
   onBack: () => void;
   onChange: (patch: Partial<Settings>) => void;
+  onPickKnownHosts: () => void;
+  onPickJumpKnownHosts: () => void;
   onPickOutputDir: () => void;
   onRefreshDoctor: () => Promise<boolean>;
   settings: Settings;
@@ -3070,6 +3212,9 @@ function SettingsPage({
   const [section, setSection] = useState<SettingsSection>("general");
   const speedLimitInputRef = useRef<HTMLInputElement>(null);
   const [notice, setNotice] = useState("设置变更会自动保存到本机");
+  const [credentialReference, setCredentialReference] = useState("");
+  const [credentialUsername, setCredentialUsername] = useState("");
+  const [credentialPassword, setCredentialPassword] = useState("");
   const backends =
     doctorReport?.backends ?? [
       {
@@ -3098,6 +3243,41 @@ function SettingsPage({
     // 设置页变更会影响新建任务和队列运行参数，统一走外层状态更新，再由根组件持久化到本机存储。
     onChange(patch);
     setNotice(`${label} 已更新，设置会自动保存`);
+  }
+
+  async function saveCredential() {
+    const reference = credentialReference.trim();
+    const username = credentialUsername.trim();
+    if (!reference || !username) {
+      setNotice("凭据引用和用户名不能为空");
+      return;
+    }
+    try {
+      await invoke("set_download_credential", {
+        reference,
+        username,
+        password: credentialPassword,
+      });
+      setCredentialPassword("");
+      setNotice(`凭据引用“${reference}”已保存到系统凭据库`);
+    } catch (error) {
+      setNotice(safeErrorText(error));
+    }
+  }
+
+  async function deleteCredential() {
+    const reference = credentialReference.trim();
+    if (!reference) {
+      setNotice("请输入要删除的凭据引用");
+      return;
+    }
+    try {
+      await invoke("delete_download_credential", { reference });
+      setCredentialPassword("");
+      setNotice(`凭据引用“${reference}”已从系统凭据库删除`);
+    } catch (error) {
+      setNotice(safeErrorText(error));
+    }
   }
 
   function saveCurrentSettings() {
@@ -3586,6 +3766,119 @@ function SettingsPage({
               >
                 <span className="settingValue">按后端自检展示</span>
               </SettingRow>
+              <div className="credentialEditor" data-testid="settings-credential-editor">
+                <div className="fieldLabelRow">
+                  <strong>系统凭据库</strong>
+                  <small>密码只写入 macOS 钥匙串、Windows Credential Manager 或 Linux Secret Service。</small>
+                </div>
+                <div className="credentialEditorGrid">
+                  <input
+                    data-testid="settings-credential-reference"
+                    onChange={(event) => setCredentialReference(event.target.value)}
+                    placeholder="凭据引用，如 office-sftp"
+                    value={credentialReference}
+                  />
+                  <input
+                    data-testid="settings-credential-username"
+                    onChange={(event) => setCredentialUsername(event.target.value)}
+                    placeholder="用户名"
+                    value={credentialUsername}
+                  />
+                  <input
+                    autoComplete="new-password"
+                    data-testid="settings-credential-password"
+                    onChange={(event) => setCredentialPassword(event.target.value)}
+                    placeholder="密码（不会保存到设置）"
+                    type="password"
+                    value={credentialPassword}
+                  />
+                </div>
+                <div className="credentialEditorActions">
+                  <button data-testid="settings-credential-save" onClick={saveCredential}>
+                    保存凭据
+                  </button>
+                  <button data-testid="settings-credential-delete" onClick={deleteCredential}>
+                    删除引用
+                  </button>
+                </div>
+                <small>新建任务中填写同一个引用名即可使用；队列文件不会写入用户名和密码。</small>
+              </div>
+              <SettingRow
+                dataSetting="sftpKnownHosts"
+                title="SFTP 主机密钥"
+                subtitle="仅填写时校验服务端身份；留空保持兼容模式。"
+              >
+                <div className="pathInputGroup settingsPathInput">
+                  <input
+                    data-setting-input="sftpKnownHosts"
+                    data-testid="setting-sftp-known-hosts"
+                    onChange={(event) =>
+                      updateSetting({ sftpKnownHosts: event.target.value }, "SFTP 主机密钥")
+                    }
+                    placeholder="选择 known_hosts 文件"
+                    value={settings.sftpKnownHosts}
+                  />
+                  <button
+                    aria-label="选择 SFTP known_hosts 文件"
+                    data-testid="setting-pick-sftp-known-hosts"
+                    onClick={onPickKnownHosts}
+                    title="选择 SFTP known_hosts 文件"
+                    type="button"
+                  >
+                    <Icon name="folder" />
+                  </button>
+                </div>
+              </SettingRow>
+              <small className="settingsSecurityHint">
+                运行队列和单任务下载会使用此文件匹配 SFTP 主机密钥；文件路径不会写入任务记录。
+              </small>
+              <SettingRow
+                dataSetting="sftpJump"
+                title="SFTP 跳板地址"
+                subtitle="可选单跳转发；留空不启用，省略密码时使用当前 SSH agent。"
+              >
+                <input
+                  data-setting-input="sftpJump"
+                  data-testid="setting-sftp-jump"
+                  onChange={(event) =>
+                    updateSetting({ sftpJump: event.target.value }, "SFTP 跳板地址")
+                  }
+                  placeholder="sftp://user@bastion.example.com:22/"
+                  value={settings.sftpJump}
+                />
+              </SettingRow>
+              <SettingRow
+                dataSetting="sftpJumpKnownHosts"
+                title="SFTP 跳板 known_hosts"
+                subtitle="填写后会单独校验跳板主机身份，不复用目标主机文件。"
+              >
+                <div className="pathInputGroup settingsPathInput">
+                  <input
+                    data-setting-input="sftpJumpKnownHosts"
+                    data-testid="setting-sftp-jump-known-hosts"
+                    onChange={(event) =>
+                      updateSetting(
+                        { sftpJumpKnownHosts: event.target.value },
+                        "SFTP 跳板 known_hosts",
+                      )
+                    }
+                    placeholder="选择跳板 known_hosts 文件"
+                    value={settings.sftpJumpKnownHosts}
+                  />
+                  <button
+                    aria-label="选择 SFTP 跳板 known_hosts 文件"
+                    data-testid="setting-pick-sftp-jump-known-hosts"
+                    onClick={onPickJumpKnownHosts}
+                    title="选择 SFTP 跳板 known_hosts 文件"
+                    type="button"
+                  >
+                    <Icon name="folder" />
+                  </button>
+                </div>
+              </SettingRow>
+              <small className="settingsSecurityHint">
+                跳板和目标主机会分别校验 known_hosts；跳板配置仅本次运行透传，不写入任务 JSON。
+              </small>
             </section>
           ) : null}
 

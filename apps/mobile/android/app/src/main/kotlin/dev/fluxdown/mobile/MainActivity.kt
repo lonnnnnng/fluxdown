@@ -4,6 +4,10 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.StatFs
 import android.os.Handler
 import android.os.Looper
@@ -95,6 +99,62 @@ class MainActivity : FlutterActivity() {
 
                 else -> result.notImplemented()
             }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "dev.fluxdown.mobile/background"
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "startForegroundDownload", "updateForegroundDownload" -> {
+                    requestNotificationPermissionIfNeeded()
+                    val action = if (call.method == "startForegroundDownload") {
+                        DownloadForegroundService.ACTION_START
+                    } else {
+                        DownloadForegroundService.ACTION_UPDATE
+                    }
+                    val serviceIntent = Intent(this, DownloadForegroundService::class.java).apply {
+                        this.action = action
+                        putExtra(
+                            DownloadForegroundService.EXTRA_RUNNING_TASKS,
+                            call.argument<Int>(DownloadForegroundService.EXTRA_RUNNING_TASKS) ?: 0,
+                        )
+                        putExtra(
+                            DownloadForegroundService.EXTRA_FINISHED_TASKS,
+                            call.argument<Int>(DownloadForegroundService.EXTRA_FINISHED_TASKS) ?: 0,
+                        )
+                        putExtra(
+                            DownloadForegroundService.EXTRA_TOTAL_TASKS,
+                            call.argument<Int>(DownloadForegroundService.EXTRA_TOTAL_TASKS) ?: 0,
+                        )
+                        putExtra(
+                            DownloadForegroundService.EXTRA_PROGRESS,
+                            call.argument<Int>(DownloadForegroundService.EXTRA_PROGRESS) ?: 0,
+                        )
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(serviceIntent)
+                    } else {
+                        startService(serviceIntent)
+                    }
+                    result.success(null)
+                }
+
+                "stopForegroundDownload" -> {
+                    stopService(Intent(this, DownloadForegroundService::class.java))
+                    result.success(null)
+                }
+
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4103)
         }
     }
 

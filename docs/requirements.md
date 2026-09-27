@@ -97,7 +97,7 @@ CLI 需要支持：
 | HTTP/HTTPS | 直链下载、文件名推断、基础认证、进度、暂停、Range 续传。 |
 | WebDAV/WebDAVS | 映射为 HTTP/HTTPS 文件 GET 下载，复用 HTTP 下载能力。 |
 | FTP/FTPS | 被动模式、二进制传输、进度、暂停、REST 续传。 |
-| SFTP | 密码认证、文件大小读取、偏移续传。 |
+| SFTP | URL/凭据库密码认证，桌面/CLI 还支持省略密码后使用 SSH agent；文件大小读取、偏移续传和可选 `known_hosts` 校验。 |
 | SMB | SMB2/3 文件下载、进度、取消。 |
 | BitTorrent `.torrent` | 支持本地或远程 torrent 源，下载到指定目录；拿到 metadata 后使用真实文件列表更新任务名，多文件种子必须允许用户选择下载内容。 |
 | Magnet | 通过 torrent 引擎添加 magnet 链接；拿到 metadata 后使用真实文件列表更新任务名，多文件 magnet 必须允许用户选择下载内容。 |

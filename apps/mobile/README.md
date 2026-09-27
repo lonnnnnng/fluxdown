@@ -4,10 +4,10 @@
 
 Flutter Android/iOS app for FluxDown.
 
-The app keeps a local JSON queue and automatically schedules waiting tasks up to the configured concurrency. Task rows start/pause on tap; long press opens actions. New tasks support QR/clipboard input, file naming, output location, and optional SHA-256 verification.
+The app keeps a local JSON queue and automatically schedules waiting tasks up to the configured concurrency. Task rows start/pause on tap; long press opens actions. New tasks support QR/clipboard input, file naming, output location, and optional SHA-256 verification. Settings can import an SFTP `known_hosts` file and store password or private-key credentials in platform secure storage for host-key verification and authentication.
 
 Protocol detection tries Rust FFI before falling back to Dart. When the native library is available, the production entry routes
-HTTP/HTTPS/WebDAV(S) through the Rust queue; HLS, Torrent/Magnet, and ed2k remain on the Dart/native adapters. See [FFI build
+HTTP/HTTPS/WebDAV(S)/HLS and metadata-confirmed Torrent/Magnet tasks through the Rust queue; metadata selection, SFTP private keys and ed2k remain on the Dart/native adapters, while a missing native library falls back to Dart. See [FFI build
 and test instructions](../../docs/build-release.md#移动端-rust-ffi) and [current verification boundaries](../../docs/bugfix-verification-20260908.md).
 
 ## Commands

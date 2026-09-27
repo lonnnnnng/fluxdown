@@ -1,4 +1,4 @@
-use crate::{Protocol, SupportStatus, detect_protocol, support_status};
+use crate::{Backend, Protocol, SupportStatus, detect_protocol, support_status};
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -25,6 +25,9 @@ pub struct DownloadRequest {
     pub source: String,
     pub output_dir: PathBuf,
     pub file_name: Option<String>,
+    /// 系统凭据库中的引用名；队列只保存引用，不保存用户名或密码。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_ref: Option<String>,
     #[serde(default)]
     pub expected_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -55,6 +58,7 @@ impl DownloadRequest {
             source: source.into(),
             output_dir: output_dir.into(),
             file_name: None,
+            credential_ref: None,
             expected_sha256: None,
             torrent_file_indices: Vec::new(),
             torrent_name: None,
@@ -79,6 +83,8 @@ pub enum DownloadState {
     Finished,
     Failed,
     Paused,
+    /// 外部客户端已经接收链接；FluxDown 不掌控外部进程的下载生命周期。
+    HandedOff,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,6 +96,9 @@ pub struct DownloadTask {
     pub state: DownloadState,
     pub output_dir: PathBuf,
     pub file_name: Option<String>,
+    /// 系统凭据库中的引用名；展示任务时可以保留引用，但绝不展开凭据内容。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_ref: Option<String>,
     #[serde(default)]
     pub expected_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -117,6 +126,12 @@ pub struct DownloadTask {
     pub started_at_ms: Option<u128>,
     #[serde(default)]
     pub finished_at_ms: Option<u128>,
+    /// 外部移交使用的后端，仅在 `HandedOff` 状态下存在。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff_backend: Option<Backend>,
+    /// 外部客户端接收链接的时间；不等同于外部文件完成时间。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handed_off_at_ms: Option<u128>,
 }
 
 impl DownloadTask {
@@ -143,6 +158,7 @@ impl DownloadTask {
             state: DownloadState::Queued,
             output_dir: request.output_dir,
             file_name,
+            credential_ref: crate::normalize_credential_ref(request.credential_ref),
             expected_sha256: request
                 .expected_sha256
                 .as_deref()
@@ -161,6 +177,8 @@ impl DownloadTask {
             updated_at_ms: millis,
             started_at_ms: None,
             finished_at_ms: None,
+            handoff_backend: None,
+            handed_off_at_ms: None,
         }
     }
 
@@ -172,6 +190,7 @@ impl DownloadTask {
                 .file_name
                 .as_deref()
                 .map(|name| sanitize_download_file_name(name, "download.bin")),
+            credential_ref: crate::normalize_credential_ref(self.credential_ref.clone()),
             expected_sha256: self.expected_sha256.as_deref().map(normalize_sha256_text),
             torrent_file_indices: normalize_torrent_file_indices(self.torrent_file_indices.clone()),
             torrent_name: normalize_torrent_name(self.torrent_name.clone()),
@@ -193,10 +212,14 @@ impl DownloadTask {
                 }
                 self.finished_at_ms = None;
                 self.error = None;
+                self.handoff_backend = None;
+                self.handed_off_at_ms = None;
             }
             DownloadState::Finished | DownloadState::Failed => {
                 self.finished_at_ms = Some(millis);
                 self.current_speed_bytes_per_second = 0;
+                self.handoff_backend = None;
+                self.handed_off_at_ms = None;
                 if state == DownloadState::Finished {
                     self.error = None;
                 }
@@ -205,12 +228,34 @@ impl DownloadTask {
                 self.finished_at_ms = None;
                 self.current_speed_bytes_per_second = 0;
                 self.error = None;
+                self.handoff_backend = None;
+                self.handed_off_at_ms = None;
             }
             DownloadState::Paused => {
                 self.current_speed_bytes_per_second = 0;
+                self.handoff_backend = None;
+                self.handed_off_at_ms = None;
+            }
+            DownloadState::HandedOff => {
+                self.finished_at_ms = None;
+                self.current_speed_bytes_per_second = 0;
+                self.error = None;
+                self.handed_off_at_ms = Some(millis);
             }
         }
         self.updated_at_ms = millis;
+    }
+
+    pub fn mark_handed_off(&mut self, backend: Backend) {
+        // 作者: long
+        // 外部客户端只确认“已接收链接”，不能复用 Finished，否则任务列表会把外部结果误报成 FluxDown 已完成。
+        self.set_state(DownloadState::HandedOff);
+        // 作者: long
+        // 移交没有 FluxDown 可观测的文件产物；清掉旧的内建下载进度，避免用户把上一轮断点误认为外部客户端进度。
+        self.downloaded_bytes = 0;
+        self.total_bytes = None;
+        self.current_speed_bytes_per_second = 0;
+        self.handoff_backend = Some(backend);
     }
 
     pub fn set_progress(&mut self, downloaded_bytes: u64, total_bytes: Option<u64>) {
@@ -248,6 +293,8 @@ impl DownloadTask {
         self.error = None;
         self.started_at_ms = None;
         self.finished_at_ms = None;
+        self.handoff_backend = None;
+        self.handed_off_at_ms = None;
         self.updated_at_ms = now_ms();
     }
 
@@ -578,14 +625,33 @@ mod tests {
         object.remove("speed_limit_mbps");
         object.remove("hls_variant_index");
         object.remove("hls_keep_transport_stream");
+        object.remove("credential_ref");
 
         let restored: DownloadTask = serde_json::from_value(value).unwrap();
 
         assert_eq!(restored.speed_limit_mbps, None);
         assert_eq!(restored.hls_variant_index, None);
         assert!(!restored.hls_keep_transport_stream);
+        assert_eq!(restored.credential_ref, None);
         // 请求重建时新字段随任务字段回填，task_id 用于运行时状态关联。
         assert_eq!(restored.request().task_id, Some(restored.id.clone()));
+    }
+
+    #[test]
+    fn normalizes_credential_reference_without_persisting_secrets() {
+        let mut request = DownloadRequest::new("https://example.com/private.bin", "/tmp");
+        request.credential_ref = Some("  office-http  ".to_string());
+
+        let task = DownloadTask::from_request(request);
+        let encoded = serde_json::to_string(&task).unwrap();
+
+        assert_eq!(task.credential_ref.as_deref(), Some("office-http"));
+        assert_eq!(
+            task.request().credential_ref.as_deref(),
+            Some("office-http")
+        );
+        assert!(encoded.contains("office-http"));
+        assert!(!encoded.contains("password"));
     }
 
     #[test]
@@ -815,6 +881,30 @@ mod tests {
         assert!(task.finished_at_ms.is_some());
         assert!(task.finished_at_ms >= task.started_at_ms);
         assert_eq!(task.current_speed_bytes_per_second, 0);
+    }
+
+    #[test]
+    fn records_handoff_without_marking_external_download_finished() {
+        let mut task = DownloadTask::from_request(DownloadRequest::new(
+            "ed2k://|file|example.iso|123|ABCDEF|/",
+            "/tmp",
+        ));
+        task.set_state(DownloadState::Running);
+        task.set_progress_with_speed(64, Some(123), 32);
+
+        task.mark_handed_off(Backend::SystemHandoff);
+
+        assert_eq!(task.state, DownloadState::HandedOff);
+        assert_eq!(task.handoff_backend, Some(Backend::SystemHandoff));
+        assert!(task.handed_off_at_ms.is_some());
+        assert_eq!(task.finished_at_ms, None);
+        assert_eq!(task.downloaded_bytes, 0);
+        assert_eq!(task.total_bytes, None);
+        assert_eq!(task.current_speed_bytes_per_second, 0);
+
+        task.reset_for_restart();
+        assert_eq!(task.handoff_backend, None);
+        assert_eq!(task.handed_off_at_ms, None);
     }
 
     #[test]

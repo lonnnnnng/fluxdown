@@ -43,7 +43,7 @@ flowchart TD
 | --- | --- |
 | `crates/fluxdown-core` | Rust 核心库：协议检测、支持状态、任务模型、任务存储、队列运行器、桌面下载引擎。 |
 | `crates/fluxdown-cli` | CLI 入口，基于 `clap` 暴露检测、诊断、下载和队列命令。 |
-| `crates/fluxdown-ffi` | ABI 1：协议识别/支持、原生队列 add/list/run 和 UTF-8 结果释放；移动产品目前只接入协议识别。 |
+| `crates/fluxdown-ffi` | ABI 1：协议识别/支持、原生队列 add/list/run、运行时凭据参数和 UTF-8 结果释放；移动产品已接入混合 Rust 队列。 |
 | `apps/desktop` | Tauri + React 桌面 GUI。前端在 `src`，Rust Tauri 入口在 `src-tauri`。 |
 | `apps/mobile` | Flutter Android/iOS App。下载调度和协议适配在 `lib/src`。 |
 | `scripts` | 本地构建、Docker 交叉构建、产物校验、发布 staging 和 manifest 脚本。 |
@@ -78,7 +78,7 @@ flowchart TD
 - 错误：`error`。
 - 时间：`created_at_ms`、`updated_at_ms`、`started_at_ms`、`finished_at_ms`。
 
-这个模型被 CLI、桌面 GUI 和桌面队列运行器共享。移动端有独立 Dart `DownloadTask`，FFI 的 `FluxDownCoreTask` 只是 Rust 任务的字段子集投影，不能替代移动端任务持久化。字段和边界见 [任务模型与 FFI](task-schema.md)，当前没有跨端队列自动转换器。
+这个模型被 CLI、桌面 GUI 和桌面队列运行器共享。移动端有独立 Dart `DownloadTask`，FFI 的 `FluxDownCoreTask` 只是 Rust 任务的字段子集投影。native 可用时 Rust `rust-queue.json` 是移动活动任务的 canonical 文件，Flutter `queue.json` 只保留 `handedOff` 投影；旧双队列通过任务 ID、时间戳和迁移事务快照一次性收敛。字段和边界见 [任务模型与 FFI](task-schema.md)。
 
 ### 队列存储
 
@@ -109,7 +109,7 @@ flowchart TD
 - 为支持的协议写入输出目录和文件。
 - 报告 `DownloadProgress` 和 `DownloadSummary`。
 - 处理取消、部分文件和断点续传。
-- 桌面/core HLS 支持 master variant 选择、分片缓存恢复和可选 TS 直出；移动端 Dart 下载器也支持相同的 variant/TS 任务选项，但与 Rust FFI 队列投影独立。
+- 桌面/core HLS 支持 master variant 选择、分片缓存恢复和可选 TS 直出；移动端在 native 库可用时通过 Rust 队列执行相同的 variant/TS 选项，库不可用时回退 Dart 下载器。
 - Torrent 引擎保留活动会话，供详情接口读取分文件字节数、tracker、peer 和会话速率；静态 metadata 只有文件清单与大小，不代表已下载进度。
 
 主要依赖：
@@ -162,25 +162,26 @@ Tauri commands 包括：
 
 ## 移动端
 
-Flutter 当前部分复用 Rust core：协议识别走 `protocol.dart` → `FluxDownCoreBridge` → `FluxDownCoreFfi`；加载失败或调用异常回退 Dart。native 库可用时，移动正式入口优先让 HTTP/HTTPS/WebDAV(S) 走 Rust 队列，其余协议保留 Dart/移动原生适配器：
+Flutter 当前部分复用 Rust core：协议识别走 `protocol.dart` → `FluxDownCoreBridge` → `FluxDownCoreFfi`；加载失败或调用异常回退 Dart。native 库可用时，移动正式入口优先让 HTTP/HTTPS/WebDAV(S)/HLS 和已完成 metadata 选择的 Torrent/Magnet 走 Rust 队列，metadata 获取、私钥 SFTP、ed2k 外部移交和回退路径保留 Dart/移动原生适配器：
 
 - `protocol.dart`：协议识别和移动端支持说明。
 - `core_bridge.dart` / `ffi/fluxdown_ffi.dart`：加载 ABI 1、UTF-8 JSON 信封解码与结果释放。Android 打包 `.so`；iOS Runner 构建时静态链接，使用 `DynamicLibrary.process()`。
 - `download_task.dart`：任务模型、文件名推断、格式化。
-- `task_store.dart`：App documents 目录下的 `fluxdown/queue.json`。
+- `task_store.dart`：App documents 目录下的 `fluxdown/queue.json`，native 可用时只保存 `handedOff` 投影；Rust canonical `rust-queue.json` 通过 `deleted_task_ids` 保存删除 tombstone。两侧原子写入都使用长期保留的旁路锁，旧双队列迁移在同级 `.queue-migration/` 写入可恢复快照和事务 marker。
 - `download_controller.dart`：添加、删除、暂停、启动和有界并发队列运行。
 - `mobile_downloader.dart`：移动端协议分发。
 - `mobile_ftp.dart`、`mobile_sftp.dart`、`mobile_smb.dart`、`mobile_torrent.dart`、`mobile_ed2k.dart`：协议适配。
 
 移动端与桌面端的主要差异：
 
-- 移动端任务 JSON 是数组，桌面端队列 JSON 是 `{ "tasks": [...] }`。
+- 移动端专属投影 JSON 是 `{ "schemaVersion": 1, "tasks": [...], "deletedTaskIds": {} }`，兼容读取旧版数组；Rust canonical 队列 JSON 是
+  `{ "schema_version": 2, "tasks": [...], "deleted_task_ids": {} }`，兼容 Rust v1。读取到未来版本会保留原文件并明确报错，未知任务状态不会降级成 queued。
 - 移动端保存位置由设置提供默认值，新建任务可覆盖；Android 系统目录选择/导出受目录权限约束，不能等同于桌面任意路径写入。
 - 移动端 ed2k 只能移交给已安装兼容 App；移交成功后任务状态为 `handedOff`。
 - 移动端 torrent 依赖 `libtorrent_flutter` 原生组件。
 - 移动端已接入新建弹框扫码/剪切板与可选 SHA-256 文件校验；这些 UI 能力不依赖 Rust 下载控制器。
 
-FFI 保留同步 `queueRun` 兼容旧测试，同时新增非阻塞单任务/队列运行、状态轮询、暂停、继续、重置、删除、句柄回收和队列设置透传接口；实时进度、速度、错误、真实文件名和 Rust 时间戳通过 `queueList` 读取任务快照。Flutter 的 `RustQueueBackend` 适配层在初始化/入队失败时回退 Dart；后续还需完成整队列 schema 迁移、HLS/Torrent/Magnet/ed2k 的能力对齐和更多真机回归。构建细节见 [移动端 Rust FFI](build-release.md#移动端-rust-ffi)。
+FFI 保留同步 `queueRun` 兼容旧测试，同时新增非阻塞单任务/队列运行、状态轮询、暂停、继续、重置、删除、句柄回收和队列设置透传接口；实时进度、速度、错误、真实文件名和 Rust 时间戳通过 `queueList` 读取 canonical 快照。Flutter 的 `RustQueueBackend` 在迁移提交后停止双写，仅把 `handedOff` 保存到移动投影；初始化/入队失败时仍回退 Dart，Dart 也能直接读取 Rust canonical 文件。Torrent/Magnet 的 metadata 选择、ed2k 外部移交和 SFTP 私钥属于明确的移动适配边界，不冒充 Rust 已接管；构建细节见 [移动端 Rust FFI](build-release.md#移动端-rust-ffi)。
 
 ## 数据流
 

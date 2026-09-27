@@ -64,6 +64,14 @@ npm run verify:apple:runtime
 
 该入口默认后台启动可用 iOS simulator、启用 TS HLS 探针，并把真机/签名 readiness 的 `78` 结果归类为外部条件未就绪。
 
+移动端 SFTP 私钥和 `known_hosts` 回归可单独执行：
+
+```sh
+npm run verify:ios:sftp
+```
+
+该入口启动一次性本机 OpenSSH fixture，使用加密 Ed25519 私钥完成真实下载，再用错误主机指纹确认认证前拒绝；默认复用已连接的 iOS simulator，不会自动启动模拟器。物理 iPhone 恢复为 Flutter 可部署状态后，可通过 `FLUXDOWN_IOS_DEVICE_ID` 和 `FLUXDOWN_E2E_HOST` 复用同一入口。
+
 ## CLI 构建
 
 ```sh
@@ -170,7 +178,7 @@ CI 的 Windows CLI 与桌面产物支持 Authenticode 签名（SHA-256 摘要 + 
 
 ## 移动端 Rust FFI
 
-`crates/fluxdown-ffi` 提供 ABI 1 的协议识别、支持状态与队列 C 接口。产品当前只接入 FFI 优先的协议识别；Flutter 下载控制器仍调用 Dart/移动原生适配器。原生队列绑定可独立测试，不等于移动端已切换下载引擎。请求字段与返回值见 [任务模型与 FFI](task-schema.md)。
+`crates/fluxdown-ffi` 提供 ABI 1 的协议识别、支持状态与队列 C 接口。Flutter 下载控制器在 native 库可用时已将 HTTP/HTTPS/WebDAV(S)/HLS，以及完成 metadata 文件选择的 Torrent/Magnet 优先交给 Rust；密码凭据从 Android Keystore/iOS Keychain 取出后只通过本次 FFI 运行参数临时注入，不写入 Rust queue JSON。SFTP 私钥仍由 Dart 适配器在握手期间加载，Torrent/Magnet metadata 获取、ed2k 外部移交和 native 库不可用时仍由 Dart/移动原生适配器负责。请求字段与返回值见 [任务模型与 FFI](task-schema.md)。
 
 ### Android 原生库
 
@@ -178,10 +186,14 @@ CI 的 Windows CLI 与桌面产物支持 Authenticode 签名（SHA-256 摘要 + 
 
 ```sh
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-cargo ndk --target arm64-v8a --target armeabi-v7a --target x86_64 --platform 24 \
+PATH="$HOME/.cargo/bin:$PATH" cargo ndk --target arm64-v8a --target armeabi-v7a --target x86_64 --platform 24 \
   -o apps/mobile/android/app/src/main/jniLibs build --release \
   -p fluxdown-ffi --features fluxdown-core/vendored-openssl
 ```
+
+如果 `rustc`/`cargo` 解析到 Homebrew 或其他独立安装，而 Android target 是由 rustup 安装的，
+会出现 `can't find crate for core`；构建时必须让 `~/.cargo/bin` 排在 PATH 前面，确保 cargo、rustc
+和 target 属于同一套 rustup 工具链。
 
 产出的 `arm64-v8a` / `armeabi-v7a` / `x86_64` 三个 `libfluxdown_ffi.so` 会被 Flutter 打进 APK/AAB。Android 使用 `DynamicLibrary.open('libfluxdown_ffi.so')`；仍需在对应 ABI 设备上验证加载，host 测试不能替代这一步。
 
@@ -212,7 +224,17 @@ Linux 库为 `target/debug/libfluxdown_ffi.so`，Windows 为 `target/debug/fluxd
 
 `test/core_ffi_test.dart` 覆盖信封解析、ABI/版本、12 类协议识别、Unicode 队列、错误透传、非阻塞运行句柄、真实本地 HTTP 下载，以及 RustQueueBackend 的单任务/队列运行、时间戳回写和暂停/继续/重置/删除同步。不传该参数时原生库相关用例会跳过，仅跑 Dart 信封测试；不能把这一结果写成 FFI 验证通过。
 
-`queueRun` 仍是同步兼容调用；迁移验证可使用 `queueRunAsync`、带设置透传的 `queueRunWithOptionsAsync` 或 `queueRunQueuedAsync` 获取运行句柄，再用 `queueRunStatus` 查询结束结果、`queueList` 读取实时任务进度，并用 `queuePause`/`queueResume`/`queueReset`/`queueRemove` 控制任务。句柄完成后调用 `queueRunForget` 回收。移动正式入口目前仅将 HTTP/HTTPS/WebDAV(S) 优先交给 Rust，其他协议保留 Dart/原生适配器；测试把 HTTP 服务放在独立 isolate，避免服务端与同步兼容调用互相阻塞。
+`queueRun` 仍是同步兼容调用；迁移验证可使用 `queueRunAsync`、带设置透传的 `queueRunWithOptionsAsync` 或 `queueRunQueuedAsync` 获取运行句柄，再用 `queueRunStatus` 查询结束结果、`queueList` 读取实时任务进度，并用 `queuePause`/`queueResume`/`queueReset`/`queueRemove` 控制任务。句柄完成后调用 `queueRunForget` 回收。移动正式入口目前将 HTTP/HTTPS/WebDAV(S)/HLS 和已选 metadata 的 Torrent/Magnet 优先交给 Rust，metadata 选择、私钥 SFTP、ed2k 外部移交和其他回退路径保留 Dart/原生适配器；测试把 HTTP/HLS 服务放在独立 isolate，避免服务端与同步兼容调用互相阻塞。
+
+Android 真机还需要验证打进 APK 的目标 ABI，而不是只运行 host FFI 测试。确认设备 serial 后执行：
+
+```sh
+adb devices -l
+cd apps/mobile
+flutter test integration_test/rust_queue_e2e_test.dart -d <android-device-serial>
+```
+
+该用例会在设备内启动回环 HTTP 服务，验证 Rust canonical 队列迁移、实际 `libfluxdown_ffi.so` 加载、HTTP 队列/单任务、暂停后继续，以及 HLS TS 和 master playlist variant fMP4 输出。通过标准是输出 `FLUXDOWN_RUST_E2E_RESULT`，四个任务均为 `finished`；host 测试或 APK 构建成功不能替代这条设备证据。
 
 ## iOS 构建
 
@@ -309,7 +331,7 @@ Debug APK、AAB、iOS simulator/unsigned app、可选签名 IPA/framework、Wind
 
 桌面在线更新当前依赖 Windows `-setup.exe`、macOS `.dmg` 和 Linux `.deb` 的命名，调整公开资产时必须同时检查 `matches_platform_asset` 的匹配规则。
 
-`scripts/prepare-github-release-assets.mjs` 只提取公开文件，要求输出目录为空，拒绝缺失或多个候选文件；发行正文读取 `docs/releases/<version>.md`，避免重复使用旧版本说明。`scripts/verify-github-release-assets.mjs` 校验精确的 10 项白名单和内部 manifest 中全部 10 项的大小/SHA-256。内部 manifest 位于公开 assets 目录的上一级，只参与流水线校验；manifest 本身不上传，Release Notes 也不再生成文件校验表格。
+`scripts/prepare-github-release-assets.mjs` 只提取公开文件，要求输出目录为空，拒绝缺失或多个候选文件；发行正文读取 `docs/releases/<version>.md`，避免重复使用旧版本说明，并在生成公开正文时自动移除旧版文件校验表格。`scripts/verify-github-release-assets.mjs` 校验精确的 10 项白名单和内部 manifest 中全部 10 项的大小/SHA-256。内部 manifest 位于公开 assets 目录的上一级，只参与流水线校验；manifest 本身不上传，Release Notes 不生成文件校验表格。
 
 ```sh
 npm run verify:ci-config

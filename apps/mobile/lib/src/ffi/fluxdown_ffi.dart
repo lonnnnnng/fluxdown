@@ -7,8 +7,9 @@
 //    - iOS: Runner 构建阶段执行 scripts/build-ios-ffi.sh，按目标架构链接静态库。
 // 2. 加载：Android 上 DynamicLibrary.open('libfluxdown_ffi.so')；iOS 上
 //    DynamicLibrary.process()（静态链接）。[FluxDownCoreFfi.open] 已按平台处理。
-// 3. 协议识别接入默认产品调用链；native 库可用时 HTTP/HTTPS/WebDAV(S) 由 RustQueueBackend
-//    优先执行，HLS、Torrent/Magnet、ed2k 仍由 Dart/原生适配器执行。queueRun 保留同步兼容入口。
+// 3. 协议识别接入默认产品调用链；native 库可用时 HTTP/HTTPS/WebDAV(S)/HLS，以及已经完成
+//    metadata 文件选择的 Torrent/Magnet 由 RustQueueBackend 优先执行。Torrent/Magnet 的
+//    metadata 获取和二次确认仍由 Dart/libtorrent 负责，ed2k 仍走外部应用移交。queueRun 保留同步兼容入口。
 //
 // 协议与队列调用返回统一信封 {ok, data, error}；ABI/版本是独立标量。
 // 任务 JSON 与桌面端 serde schema 对齐（见 docs/task-schema.md）。
@@ -18,6 +19,8 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+
+import '../download_task.dart';
 
 /// FFI 原始信封。
 class FluxDownCoreEnvelope {
@@ -65,13 +68,25 @@ class FluxDownCoreTask {
     required this.state,
     this.fileName,
     this.outputDir,
+    this.credentialRef,
     this.expectedSha256,
+    this.support,
+    this.torrentName,
+    this.torrentFiles = const [],
+    this.selectedTorrentFileIndexes,
+    this.speedLimitMbps,
+    this.hlsVariantIndex,
+    this.hlsKeepTransportStream = false,
     this.totalBytes,
     this.downloadedBytes = 0,
     this.currentSpeedBytesPerSecond = 0,
     this.error,
+    this.createdAt,
+    this.updatedAt,
     this.startedAt,
     this.finishedAt,
+    this.handoffBackend,
+    this.handedOffAt,
   });
 
   factory FluxDownCoreTask.fromJson(Map<String, Object?> json) {
@@ -82,14 +97,35 @@ class FluxDownCoreTask {
       state: json['state'] as String? ?? 'queued',
       fileName: json['file_name'] as String?,
       outputDir: json['output_dir'] as String?,
+      credentialRef: json['credential_ref'] as String?,
       expectedSha256: json['expected_sha256'] as String?,
-      totalBytes: json['total_bytes'] as int?,
-      downloadedBytes: json['downloaded_bytes'] as int? ?? 0,
+      support: (json['support'] as Map?)?.cast<String, Object?>(),
+      torrentName: json['torrent_name'] as String?,
+      torrentFiles:
+          (json['torrent_files'] as List?)
+              ?.whereType<Map>()
+              .map(_torrentFileFromJson)
+              .toList(growable: false) ??
+          const [],
+      selectedTorrentFileIndexes: (json['torrent_file_indices'] as List?)
+          ?.map(_intFromJson)
+          .whereType<int>()
+          .toList(growable: false),
+      speedLimitMbps: _doubleFromJson(json['speed_limit_mbps']),
+      hlsVariantIndex: _intFromJson(json['hls_variant_index']),
+      hlsKeepTransportStream:
+          json['hls_keep_transport_stream'] as bool? ?? false,
+      totalBytes: _intFromJson(json['total_bytes']),
+      downloadedBytes: _intFromJson(json['downloaded_bytes']) ?? 0,
       currentSpeedBytesPerSecond:
-          json['current_speed_bytes_per_second'] as int? ?? 0,
+          _intFromJson(json['current_speed_bytes_per_second']) ?? 0,
       error: json['error'] as String?,
+      createdAt: _dateTimeFromMilliseconds(json['created_at_ms']),
+      updatedAt: _dateTimeFromMilliseconds(json['updated_at_ms']),
       startedAt: _dateTimeFromMilliseconds(json['started_at_ms']),
       finishedAt: _dateTimeFromMilliseconds(json['finished_at_ms']),
+      handoffBackend: json['handoff_backend'] as String?,
+      handedOffAt: _dateTimeFromMilliseconds(json['handed_off_at_ms']),
     );
   }
 
@@ -99,13 +135,87 @@ class FluxDownCoreTask {
   final String state;
   final String? fileName;
   final String? outputDir;
+  final String? credentialRef;
   final String? expectedSha256;
+  final Map<String, Object?>? support;
+  final String? torrentName;
+  final List<TorrentFileEntry> torrentFiles;
+  final List<int>? selectedTorrentFileIndexes;
+  final double? speedLimitMbps;
+  final int? hlsVariantIndex;
+  final bool hlsKeepTransportStream;
   final int? totalBytes;
   final int downloadedBytes;
   final int currentSpeedBytesPerSecond;
   final String? error;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
   final DateTime? startedAt;
   final DateTime? finishedAt;
+  final String? handoffBackend;
+  final DateTime? handedOffAt;
+
+  /// 将 native 队列中的孤儿任务恢复为 Flutter 任务；缺少关键路径时跳过，避免生成不可操作的假任务。
+  DownloadTask? toDownloadTask() {
+    final normalizedSource = source.trim();
+    final normalizedOutput = outputDir?.trim();
+    if (id.trim().isEmpty ||
+        normalizedSource.isEmpty ||
+        normalizedOutput == null ||
+        normalizedOutput.isEmpty) {
+      return null;
+    }
+    final created = createdAt ?? DateTime.now().toUtc();
+    final updated = updatedAt ?? created;
+    // 作者: long
+    // native 队列可能来自比当前 App 更新的版本；未知状态不能伪装成 queued，
+    // 否则启动迁移会把未来版本的任务重新排队并覆盖原始状态。显式跳过后由上层保留
+    // native 文件，待升级到支持该状态的版本再恢复。
+    final mappedState = switch (state) {
+      'queued' => DownloadState.queued,
+      'running' => DownloadState.running,
+      'paused' => DownloadState.paused,
+      'finished' => DownloadState.finished,
+      'failed' => DownloadState.failed,
+      'handed-off' => DownloadState.handedOff,
+      _ => null,
+    };
+    if (mappedState == null) return null;
+    final normalizedFileName = normalizeFileName(
+      fileName?.trim().isNotEmpty == true
+          ? fileName!.trim()
+          : suggestedFileName(normalizedSource),
+    );
+    return DownloadTask(
+      id: id,
+      source: normalizedSource,
+      outputFolder: normalizedOutput,
+      fileName: normalizedFileName,
+      protocol: protocol.trim().isEmpty ? 'unknown' : protocol,
+      state: mappedState,
+      createdAt: created,
+      updatedAt: updated,
+      downloadedBytes: downloadedBytes,
+      totalBytes: totalBytes,
+      error: error,
+      startedAt: startedAt,
+      pausedAt: mappedState == DownloadState.paused ? updated : null,
+      finishedAt: finishedAt,
+      handoffBackend: handoffBackend,
+      handedOffAt: handedOffAt,
+      currentSpeedBytesPerSecond: currentSpeedBytesPerSecond,
+      torrentName: torrentName,
+      torrentFiles: List.unmodifiable(torrentFiles),
+      selectedTorrentFileIndexes: selectedTorrentFileIndexes == null
+          ? null
+          : List.unmodifiable(selectedTorrentFileIndexes!),
+      expectedSha256: expectedSha256,
+      credentialRef: credentialRef,
+      speedLimitMbps: speedLimitMbps,
+      hlsVariantIndex: hlsVariantIndex,
+      hlsKeepTransportStream: hlsKeepTransportStream,
+    );
+  }
 }
 
 typedef _AbiNative = Int32 Function();
@@ -149,6 +259,9 @@ class FluxDownCoreFfi {
     );
     _queueAdd = _lib.lookupFunction<_TwoStringsNative, _TwoStringsDart>(
       'fluxdown_queue_add',
+    );
+    _queueUpsert = _lib.lookupFunction<_TwoStringsNative, _TwoStringsDart>(
+      'fluxdown_queue_upsert',
     );
     _queueRun = _lib.lookupFunction<_TwoStringsNative, _TwoStringsDart>(
       'fluxdown_queue_run',
@@ -206,6 +319,7 @@ class FluxDownCoreFfi {
   late final _StringInDart _support;
   late final _StringInDart _queueList;
   late final _TwoStringsDart _queueAdd;
+  late final _TwoStringsDart _queueUpsert;
   late final _TwoStringsDart _queueRun;
   late final _TwoStringsDart _queueRunAsync;
   late final _ThreeStringsDart _queueRunWithOptionsAsync;
@@ -244,6 +358,13 @@ class FluxDownCoreFfi {
   FluxDownCoreTask queueAdd(String storePath, Map<String, Object?> request) {
     final data = _unwrapMap(
       _callTwo(_queueAdd, storePath, jsonEncode(request)),
+    );
+    return FluxDownCoreTask.fromJson(data);
+  }
+
+  FluxDownCoreTask queueUpsert(String storePath, Map<String, Object?> task) {
+    final data = _unwrapMap(
+      _callTwo(_queueUpsert, storePath, jsonEncode(task)),
     );
     return FluxDownCoreTask.fromJson(data);
   }
@@ -360,4 +481,29 @@ DateTime? _dateTimeFromMilliseconds(Object? value) {
     return DateTime.fromMillisecondsSinceEpoch(value.toInt(), isUtc: true);
   }
   return null;
+}
+
+int? _intFromJson(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
+}
+
+double? _doubleFromJson(Object? value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '');
+}
+
+TorrentFileEntry _torrentFileFromJson(Map raw) {
+  final value = Map<String, Object?>.from(raw);
+  return TorrentFileEntry(
+    index: _intFromJson(value['index']) ?? 0,
+    path: value['path'] as String? ?? '',
+    name: value['name'] as String? ?? '',
+    size: _intFromJson(value['size']) ?? 0,
+    isStreamable:
+        value['is_streamable'] as bool? ??
+        value['isStreamable'] as bool? ??
+        false,
+  );
 }

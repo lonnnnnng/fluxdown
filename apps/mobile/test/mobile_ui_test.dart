@@ -213,6 +213,267 @@ void main() {
     expect(tester.getTopLeft(settingsTitle).dy, 10);
   });
 
+  testWidgets('settings exposes secure credential references', (tester) async {
+    var added = 0;
+    String? deleted;
+    final output = TextEditingController(text: '/downloads');
+    addTearDown(output.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SettingsView(
+            strings: AppStrings.zh,
+            language: AppLanguage.zh,
+            queueConcurrency: 1,
+            downloadThreadCount: 8,
+            retryAttempts: 1,
+            speedLimitKbps: 0,
+            outputFolderListenable: output,
+            credentialReferences: const ['office-sftp'],
+            onAddCredential: () => added += 1,
+            onDeleteCredential: (value) => deleted = value,
+            onLanguageChanged: (_) {},
+            onConcurrencyChanged: (_) {},
+            onDownloadThreadCountChanged: (_) {},
+            onRetryAttemptsChanged: (_) {},
+            onSpeedLimitChanged: (_) {},
+            onPickOutputFolder: () {},
+            storageStats: const StorageStats(totalBytes: 1000, freeBytes: 400),
+            storageLoading: false,
+            storageUnavailable: false,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('安全凭据'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('settings-credential-office-sftp')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('settings-add-credential')));
+    await tester.tap(
+      find.byKey(const ValueKey('settings-delete-credential-office-sftp')),
+    );
+    expect(added, 1);
+    expect(deleted, 'office-sftp');
+  });
+
+  testWidgets(
+    'settings exposes mobile SFTP host key import and clear actions',
+    (tester) async {
+      var picked = 0;
+      var cleared = 0;
+      final output = TextEditingController(text: '/downloads');
+      addTearDown(output.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SettingsView(
+              strings: AppStrings.zh,
+              language: AppLanguage.zh,
+              queueConcurrency: 1,
+              downloadThreadCount: 8,
+              retryAttempts: 1,
+              speedLimitKbps: 0,
+              outputFolderListenable: output,
+              sftpKnownHostsConfigured: true,
+              onPickSftpKnownHosts: () => picked += 1,
+              onClearSftpKnownHosts: () => cleared += 1,
+              onLanguageChanged: (_) {},
+              onConcurrencyChanged: (_) {},
+              onDownloadThreadCountChanged: (_) {},
+              onRetryAttemptsChanged: (_) {},
+              onSpeedLimitChanged: (_) {},
+              onPickOutputFolder: () {},
+              storageStats: const StorageStats(
+                totalBytes: 1000,
+                freeBytes: 400,
+              ),
+              storageLoading: false,
+              storageUnavailable: false,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('SFTP 主机密钥'), findsOneWidget);
+      expect(find.text('已配置主机密钥'), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey('settings-import-known-hosts')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('settings-clear-known-hosts')),
+      );
+      expect(picked, 1);
+      expect(cleared, 1);
+    },
+  );
+
+  testWidgets(
+    'new task passes selected credential reference without password',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      String? credentialReference;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: NewTaskDialog(
+              strings: AppStrings.zh,
+              defaultOutputFolder: '/downloads',
+              credentialReferences: const ['office-http'],
+              onPickOutputFolder: () async => null,
+              onReadClipboard: () async => null,
+              onScanQr: () async => null,
+              onLoadStorageStats: (_) async =>
+                  const StorageStats(totalBytes: 1000, freeBytes: 400),
+              onInspectTorrentMetadata: (_) async => null,
+              onCreate: _acceptTask,
+              onCreateWithCredential:
+                  ({
+                    required source,
+                    required outputFolder,
+                    fileName,
+                    torrentName,
+                    torrentFiles = const [],
+                    selectedTorrentFileIndexes,
+                    expectedSha256,
+                    credentialRef,
+                    hlsVariantIndex,
+                    hlsKeepTransportStream = false,
+                  }) async {
+                    credentialReference = credentialRef;
+                    return true;
+                  },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey('new-task-source')),
+        'https://example.com/private.bin',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('new-task-credential-reference')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('office-http').last);
+      await tester.drag(
+        find.byType(SingleChildScrollView),
+        const Offset(0, -500),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('new-task-submit')));
+      await tester.pumpAndSettle();
+
+      expect(credentialReference, 'office-http');
+    },
+  );
+
+  testWidgets('credential editor validates and returns draft', (tester) async {
+    MobileCredentialDraft? draft;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => FilledButton(
+              onPressed: () async {
+                draft = await showDialog<MobileCredentialDraft>(
+                  context: context,
+                  builder: (_) =>
+                      MobileCredentialEditorDialog(strings: AppStrings.zh),
+                );
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('credential-reference')),
+      'office-http',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('credential-username')),
+      'alice',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('credential-password')),
+      'secret',
+    );
+    await tester.tap(find.byKey(const ValueKey('credential-save')));
+    await tester.pumpAndSettle();
+
+    expect(draft?.reference, 'office-http');
+    expect(draft?.username, 'alice');
+    expect(draft?.password, 'secret');
+  });
+
+  testWidgets(
+    'credential editor captures an SFTP private key without exposing it',
+    (tester) async {
+      MobileCredentialDraft? draft;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => FilledButton(
+                onPressed: () async {
+                  draft = await showDialog<MobileCredentialDraft>(
+                    context: context,
+                    builder: (_) =>
+                        MobileCredentialEditorDialog(strings: AppStrings.zh),
+                  );
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('credential-reference')),
+        'office-sftp-key',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('credential-username')),
+        'alice',
+      );
+      await tester.tap(find.byKey(const ValueKey('credential-auth-type')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('SFTP 私钥').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('credential-private-key')),
+        '-----BEGIN OPENSSH PRIVATE KEY-----\nkey\n-----END OPENSSH PRIVATE KEY-----',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('credential-passphrase')),
+        'secret-passphrase',
+      );
+      await tester.tap(find.byKey(const ValueKey('credential-save')));
+      await tester.pumpAndSettle();
+
+      expect(draft?.reference, 'office-sftp-key');
+      expect(draft?.username, 'alice');
+      expect(draft?.privateKeyPem, contains('BEGIN OPENSSH PRIVATE KEY'));
+      expect(draft?.passphrase, 'secret-passphrase');
+      expect(draft?.password, isEmpty);
+    },
+  );
+
   testWidgets('queue page title uses compact spacing', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

@@ -33,6 +33,7 @@ anyhow = "1.0.100"
 cbc = { version = "0.1.2", features = ["alloc"] }
 clap = { version = "4.5.53", features = ["derive"] }
 futures-util = "0.3.31"
+keyring = "4.2.0"
 librqbit-bencode = { version = "3.1", default-features = false, features = ["sha1-ring"] }
 librqbit = { version = "8.1.1", default-features = false, features = ["rust-tls"] }
 libc = "0.2"

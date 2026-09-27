@@ -13,6 +13,7 @@ import 'download_failure.dart';
 import 'download_task.dart';
 import 'hls_ts_remuxer.dart';
 import 'mobile_ed2k.dart';
+import 'mobile_credential_store.dart';
 import 'mobile_ftp.dart';
 import 'mobile_sftp.dart';
 import 'mobile_smb.dart';
@@ -47,6 +48,16 @@ class MobileDownloadRunner {
   final Ed2kLauncher _ed2kLauncher;
   late final MobileTorrentRunner _torrentRunner;
   final _cancelled = <String>{};
+  String? _sftpKnownHosts;
+
+  // 作者: long
+  /// 设置当前应用会话的 SFTP 主机身份策略，不写入任务本身。
+  void setSftpKnownHosts(String? content) {
+    final normalized = content?.trim();
+    _sftpKnownHosts = normalized == null || normalized.isEmpty
+        ? null
+        : normalized;
+  }
 
   void cancel(String taskId) {
     _cancelled.add(taskId);
@@ -60,6 +71,7 @@ class MobileDownloadRunner {
     DownloadTask task, {
     int speedLimitKbps = 0,
     int threadCount = defaultDownloadThreadCount,
+    MobileCredential? sftpCredential,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) {
@@ -75,6 +87,8 @@ class MobileDownloadRunner {
       return downloadSftp(
         task,
         speedLimitKbps: speedLimitKbps,
+        knownHosts: _sftpKnownHosts,
+        credential: sftpCredential,
         onProgress: onProgress,
       );
     }
@@ -788,6 +802,8 @@ class MobileDownloadRunner {
   Future<DownloadTask> downloadSftp(
     DownloadTask task, {
     int speedLimitKbps = 0,
+    String? knownHosts,
+    MobileCredential? credential,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
     _cancelled.remove(task.id);
@@ -802,7 +818,11 @@ class MobileDownloadRunner {
     final partialBytes = await outputFile.exists()
         ? await outputFile.length()
         : 0;
-    final sftp = await MobileSftpClient.connect(spec);
+    final sftp = await MobileSftpClient.connect(
+      spec,
+      knownHosts: knownHosts,
+      credential: credential,
+    );
     try {
       final totalBytes = await sftp.size(spec.remotePath);
       var current = task.copyWith(

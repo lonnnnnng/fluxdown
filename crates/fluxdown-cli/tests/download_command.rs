@@ -1719,6 +1719,42 @@ fn queue_commands_redact_url_credentials_from_json_output() {
 }
 
 #[test]
+fn queue_add_persists_only_credential_reference_in_display_output() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_path = temp_dir.path().join("queue.json");
+    let downloads_dir = temp_dir.path().join("downloads");
+
+    let add_output = Command::new(env!("CARGO_BIN_EXE_fluxdown"))
+        .args([
+            "--store",
+            store_path.to_str().unwrap(),
+            "add",
+            "https://example.com/private.bin",
+            "--output",
+            downloads_dir.to_str().unwrap(),
+            "--credential-ref",
+            " office-http ",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        add_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&add_output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&add_output.stdout);
+    let task: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(task["credential_ref"], "office-http");
+    assert!(!stdout.contains("password"));
+    assert!(!stdout.contains("username"));
+
+    let raw_store = std::fs::read_to_string(&store_path).unwrap();
+    assert!(raw_store.contains("office-http"));
+    assert!(!raw_store.contains("password"));
+}
+
+#[test]
 fn queue_commands_redact_magnet_tracker_credentials_from_json_output() {
     let temp_dir = tempfile::tempdir().unwrap();
     let store_path = temp_dir.path().join("queue.json");

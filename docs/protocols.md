@@ -1,6 +1,6 @@
 # 协议支持矩阵
 
-本文档按 `1.0.26` 源码记录协议支持状态（2026-09-26 核对），不代表各端当前版本均已实际下载通过；运行证据见 [下载验证状态](download-verification.md)，功能缺口与后续计划见 [路线图](roadmap.md)。状态分为：
+本文档按 `1.0.26` 源码记录协议支持状态（2026-09-27 核对），不代表各端当前版本均已实际下载通过；运行证据见 [下载验证状态](download-verification.md)，功能缺口与后续计划见 [路线图](roadmap.md)。状态分为：
 
 - 内建：FluxDown 自身实现下载流程。
 - 移交：提交给外部命令、系统 URL handler 或已安装 App。
@@ -16,7 +16,7 @@
 | WebDAVS | `webdavs://` | 内建 | 内建 | 映射到 HTTPS 下载。 |
 | FTP | `ftp://` | 内建 | 内建 | 被动模式、二进制传输、REST 续传。 |
 | FTPS | `ftps://` | 内建 | 内建 | 依赖 TLS 支持和服务端兼容性；本地实验室自签资源可显式使用 `allowBadCertificate=true`。 |
-| SFTP | `sftp://` | 内建 | 内建 | 当前要求密码认证；不支持密钥文件配置。 |
+| SFTP | `sftp://` | 内建 | 内建 | 桌面/CLI 支持 URL 密码、系统凭据引用或省略密码后使用 SSH agent；移动端支持密码或安全存储中的 SFTP 私钥；各端都可显式校验 OpenSSH `known_hosts`。 |
 | SMB | `smb://` | 内建 | 内建 | SMB2/3 文件下载。 |
 | `.torrent` | URL 或路径以 `.torrent` 结尾 | 内建 | 内建 | 桌面用 `librqbit`，移动端用 `libtorrent_flutter`。 |
 | Magnet | `magnet:?` | 内建 | 内建 | 依赖 torrent 后端。 |
@@ -55,9 +55,12 @@
 ### SFTP
 
 - 使用 `ssh2`。
-- URL 需要包含主机、用户名和密码。
+- URL 需要包含主机和用户名。密码可以直接写在 URL 中，也可以在桌面端/CLI 通过系统凭据库引用提供；如果省略密码，桌面端/CLI 会调用当前进程可见的 SSH agent 做公钥认证。
 - 通过远程文件 size 和本地部分文件长度实现偏移续传。
-- 当前未提供 SSH private key、known_hosts 校验策略或跳板机配置。
+- 默认保持兼容模式，不主动拒绝未配置主机密钥的服务端；CLI 的 `download`、`start`、`run`、桌面设置页
+  和 FFI 队列运行可传入 `--sftp-known-hosts`/`sftpKnownHosts`，此时必须匹配 OpenSSH
+  `known_hosts` 中的主机密钥，未知主机或密钥变化会直接失败且不会自动重试。
+- 桌面端/CLI 当前支持 URL 密码、`credentialRef`/`--credential-ref` 系统凭据引用，以及省略密码后使用 SSH agent；还支持单跳 SFTP 跳板（CLI 使用 `--sftp-jump` 与 `--sftp-jump-known-hosts`，桌面设置页提供同名运行时配置）。跳板和目标主机必须分别校验各自的 `known_hosts`，跳板配置只在本次运行中生效，不写入任务 JSON。桌面端仍未提供私钥文件导入；Android/iOS 已通过 Keystore/Keychain 保存密码或 SFTP 私钥引用，移动设置页也可导入只读 `known_hosts` 内容，但移动端暂不支持 SSH agent 或跳板机，连接时未知主机或指纹变化会直接失败。
 
 ### SMB
 
@@ -78,10 +81,11 @@
 
 ### ed2k
 
-- `doctor` 会检查 aMule `ed2k` CLI。
-- 如果 `ed2k` CLI 可用，桌面端通过该命令提交链接。
-- 如果命令不可用，退回系统 URL handler。
-- FluxDown 不掌控外部客户端的实际下载进度和完成状态。
+- `doctor` 会检查 aMule `ed2k` CLI；运行时优先使用可用的 `ed2k --version` 后端。
+- 如果 `ed2k` CLI 可用，桌面端通过该命令提交链接；命令不可用时退回系统 URL handler。
+- 外部客户端成功接收后，任务保存为 `handed-off`，并记录 `handoff_backend` 与 `handed_off_at_ms`；这只表示链接已交给外部客户端，不表示文件已下载完成。
+- CLI 和桌面端不会对 `handed-off` 任务执行暂停/继续；用户选择重新下载时才显式清理移交状态并重新尝试。
+- FluxDown 不掌控外部客户端的实际下载进度和完成状态，因此不会伪造速度、进度、文件大小或完成时间。
 
 ### m3u8/HLS
 
@@ -109,8 +113,10 @@
 ### SFTP
 
 - 使用 `dartssh2`。
-- 当前聚焦密码认证。
+- 支持 URL 密码，以及从 Android Keystore/iOS Keychain 临时加载的密码或 SFTP 私钥；凭据材料不会写入任务 JSON。
 - 支持远程 size 和 offset 读取。
+- 设置页可导入 OpenSSH `known_hosts` 文件。文件内容复制到应用配置后，SFTP 连接会按主机、端口、算法和 MD5 指纹精确匹配；未知主机、端口或密钥变化直接失败且不会自动重试。未配置时保留兼容行为，不主动替用户拒绝服务端。
+- 移动端暂不支持系统 ssh-agent 或跳板机；导入的 known_hosts 只用于本机连接校验，不会写入任务记录或上传。SFTP 私钥仅在本次 Dart SSH 握手期间从安全存储解密到内存。
 
 ### SMB
 
@@ -128,6 +134,7 @@
   并把未选文件的 libtorrent priority 设为 0。
 - 任务 JSON 会保存 `torrentName`、`torrentFiles` 和
   `selectedTorrentFileIndexes`，用于恢复展示、打开和分享。
+- 用户确认文件选择后，移动 Rust native 队列会接管已完成 metadata 的 Torrent/Magnet 下载；metadata 获取、二次确认和 libtorrent 文件树仍由 Dart 适配器负责，native 库缺失时回退 Dart。
 - 文件夹详情支持查看文件清单和预览已落盘文件。当前 `libtorrent_flutter 2.0.0` 只提供整体任务进度；下载中逐文件完成量显示未知，尚无真实逐文件速度，不能视为与桌面详情完全对齐。
 - 该依赖带有 GPL 原生组件，正式分发前必须审查许可证义务。
 
@@ -136,14 +143,15 @@
 - 使用 `url_launcher` 打开 `ed2k://` 链接。
 - Android manifest 声明 `ed2k` VIEW query。
 - iOS Info.plist 声明 `LSApplicationQueriesSchemes`。
-- 需要用户设备安装 eMule/aMule 兼容 App。
+- 需要用户设备安装 eMule/aMule 兼容 App；成功调用后任务保存为 `handedOff`，并记录 `handoffBackend=android-external-app` 与移交时间。
+- 没有可处理链接的 App 时任务进入 `failed`，提示用户安装兼容客户端；重试成功后才会变为 `handedOff`，不会先创建伪完成任务。
 
 ### m3u8/HLS
 
 - 支持 VOD playlist、master playlist variant 选择和 AES-128 分片解密。
 - Android/iOS 下载路径均支持 fMP4 初始化段（`EXT-X-MAP`）、BYTERANGE、并发分片和最终 `.mp4` 输出。
 - TS 分片先合并为临时文件，再尝试 Dart 内置转封装，失败时走原生平台通道兜底。iOS simulator 已有 TS/fMP4/BYTERANGE 历史 smoke，不能据此认定 iPhone 真机已验收。
-- 移动新建任务会在识别为 HLS 时显示 variant 编号和保留 TS 选项；选项随移动端任务 JSON 持久化，并由 Dart HLS 下载器执行。当前移动端产品调用 Rust FFI 仍只用于协议识别；FFI 的独立 `queue_add` 接口已支持保存这两个 HLS 字段，但尚未接管移动端下载执行。
+- 移动新建任务会在识别为 HLS 时显示 variant 编号和保留 TS 选项；选项随移动端任务 JSON 持久化。native 库可用时，移动正式入口将 HLS 交给 Rust 队列执行并回写真实进度；库缺失或初始化失败时回退 Dart HLS 下载器。FFI 的独立 `queue_add` 接口同时支持保存这两个 HLS 字段。
 - 暂不承诺直播、DRM 或复杂码率选择。
 
 ## 支持状态命令
@@ -154,14 +162,23 @@
 cargo run -p fluxdown-cli -- detect "https://example.com/file.zip"
 cargo run -p fluxdown-cli -- support "ed2k://|file|example|..."
 cargo run -p fluxdown-cli -- doctor
+cargo run -p fluxdown-cli -- download \
+  --sftp-known-hosts "$HOME/.ssh/known_hosts" \
+  "sftp://user:password@example.com/path/file.bin"
+
+# 省略密码时使用当前 SSH agent 中的公钥
+cargo run -p fluxdown-cli -- download \
+  --sftp-known-hosts "$HOME/.ssh/known_hosts" \
+  "sftp://user@example.com/path/file.bin"
 ```
 
-`doctor` 的结果会包含每个后端的可用性和说明。内建后端总是可用；ed2k 可能因 aMule CLI 缺失而退回系统 handler。
+`doctor` 的结果会包含每个后端的可用性和说明。内建后端总是可用；ed2k 可能因 aMule CLI 缺失而退回系统 handler。桌面设置页填写的 `known_hosts` 会在运行队列和单任务启动时使用，但不会写入任务记录。
 
 ## 已知限制
 
-- 原始 URL 凭据仍保存在队列 JSON 中用于下载；CLI JSON 输出/命令错误及桌面属性/任务错误展示已有脱敏。这不等于队列已加密或所有第三方日志都经过脱敏，不建议在共享环境中明文使用敏感凭据。
+- 使用 URL 用户名/密码的旧任务仍会在队列 JSON 中保留凭据；使用 `credential_ref` 的任务只保存系统凭据引用。CLI JSON 输出/命令错误及桌面属性/任务错误展示已有脱敏，这不等于队列已加密或所有第三方日志都经过脱敏。
+- SFTP 主机密钥校验目前是显式配置，不会自动生成或修改用户的 `known_hosts`；桌面和移动设置页只读取/复制文件内容，不编辑或上传文件。实验室自签服务应使用独立 known_hosts 文件，不要关闭生产环境的主机身份校验。
 - 断点续传依赖服务端或后端支持，不能保证所有资源都可恢复。
-- 移交型协议无法提供完整进度和完成状态。
-- 移动端后台下载能力受 Android/iOS 系统策略影响，当前以 App 前台执行为主要路径。
+- 移交型协议无法提供完整进度和完成状态；当前没有统一的外部客户端状态回传接口，因此 `handed-off` 不是 `finished` 的别名。
+- 移动端后台下载能力受 Android/iOS 系统策略影响：Android 下载队列运行期间启用前台服务和进度通知，iOS 只申请系统允许的短时后台窗口；进程被回收后由启动恢复逻辑接管，不承诺永久后台。
 - P2P 协议的可用性受网络环境、tracker、peer、移动系统限制和平台审核政策影响。

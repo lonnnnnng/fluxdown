@@ -18,6 +18,9 @@ import 'src/download_controller.dart';
 import 'src/download_defaults.dart';
 import 'src/download_task.dart';
 import 'src/mobile_torrent.dart';
+import 'src/mobile_credential_store.dart';
+import 'src/mobile_background_service.dart';
+import 'src/mobile_sftp_host_key.dart';
 import 'src/mobile_update.dart';
 import 'src/protocol_e2e_runner.dart';
 import 'src/protocol.dart';
@@ -119,6 +122,8 @@ const _queueConcurrencyPreferenceKey = 'fluxdown.queueConcurrency';
 const _downloadThreadCountPreferenceKey = 'fluxdown.downloadThreadCount';
 const _retryAttemptsPreferenceKey = 'fluxdown.retryAttempts';
 const _speedLimitKbpsPreferenceKey = 'fluxdown.speedLimitKbps';
+const _credentialReferencesPreferenceKey = 'fluxdown.credentialReferences';
+const _sftpKnownHostsPreferenceKey = 'fluxdown.sftpKnownHosts';
 const _storageChannel = MethodChannel('dev.fluxdown.mobile/storage');
 
 enum AppLanguage { zh, en }
@@ -302,6 +307,89 @@ class AppStrings {
       language == AppLanguage.zh ? '最大下载网速' : 'Max download speed';
   String get speedLimitHint =>
       language == AppLanguage.zh ? 'MB/s，留空不限速' : 'MB/s, blank means unlimited';
+  String get credentialSettings =>
+      language == AppLanguage.zh ? '安全凭据' : 'Secure credentials';
+  String get credentialSettingsHint => language == AppLanguage.zh
+      ? '密码或 SFTP 私钥只保存到系统安全存储，任务仅引用名称'
+      : 'Passwords and SFTP keys stay in secure storage; tasks keep only a reference';
+  String get addCredential =>
+      language == AppLanguage.zh ? '添加凭据' : 'Add credential';
+  String get noCredentials => language == AppLanguage.zh
+      ? '尚未保存凭据，可为 HTTP、FTP、SFTP 等任务复用。'
+      : 'No credentials saved yet. Reuse them for HTTP, FTP, SFTP and similar tasks.';
+  String get credentialReference =>
+      language == AppLanguage.zh ? '凭据引用' : 'Credential reference';
+  String get credentialUsername =>
+      language == AppLanguage.zh ? '用户名' : 'Username';
+  String get credentialPassword =>
+      language == AppLanguage.zh ? '密码' : 'Password';
+  String get credentialAuthType =>
+      language == AppLanguage.zh ? '认证方式' : 'Authentication';
+  String get credentialPasswordAuth =>
+      language == AppLanguage.zh ? '用户名和密码' : 'Username and password';
+  String get credentialPrivateKeyAuth =>
+      language == AppLanguage.zh ? 'SFTP 私钥' : 'SFTP private key';
+  String get credentialPrivateKey =>
+      language == AppLanguage.zh ? '私钥内容（PEM）' : 'Private key (PEM)';
+  String get credentialPassphrase => language == AppLanguage.zh
+      ? '私钥口令（可选）'
+      : 'Private key passphrase (optional)';
+  String get credentialPrivateKeyRequired => language == AppLanguage.zh
+      ? '请输入 SFTP 私钥内容。'
+      : 'Enter the SFTP private key.';
+  String get credentialPrivateKeyOnlySftp => language == AppLanguage.zh
+      ? 'SFTP 私钥凭据只能用于 SFTP 任务。'
+      : 'SFTP private-key credentials can only be used with SFTP tasks.';
+  String get credentialSave =>
+      language == AppLanguage.zh ? '保存凭据' : 'Save credential';
+  String get credentialDelete =>
+      language == AppLanguage.zh ? '删除凭据' : 'Delete credential';
+  String get credentialCancel => language == AppLanguage.zh ? '取消' : 'Cancel';
+  String get credentialNone =>
+      language == AppLanguage.zh ? '不使用凭据' : 'No credential';
+  String get credentialReferenceRequired =>
+      language == AppLanguage.zh ? '请输入凭据引用。' : 'Enter a credential reference.';
+  String get credentialUsernameRequired =>
+      language == AppLanguage.zh ? '请输入用户名。' : 'Enter a username.';
+  String get credentialSaved =>
+      language == AppLanguage.zh ? '凭据已保存。' : 'Credential saved.';
+  String get credentialDeleted =>
+      language == AppLanguage.zh ? '凭据已删除。' : 'Credential deleted.';
+  String get credentialDeleteTitle =>
+      language == AppLanguage.zh ? '删除凭据' : 'Delete credential';
+  String credentialDeleteMessage(String reference) => language == AppLanguage.zh
+      ? '确定删除“$reference”吗？使用该引用的任务将在下次运行时提示凭据不可用。'
+      : 'Delete “$reference”? Tasks using it will fail with a missing credential on the next run.';
+  String get credentialUnavailable => language == AppLanguage.zh
+      ? '凭据引用不存在或无法解密。'
+      : 'The credential reference is missing or cannot be decrypted.';
+  String get credentialUnsupportedProtocol => language == AppLanguage.zh
+      ? '该协议不支持凭据引用，请移除凭据或直接在链接中提供认证信息。'
+      : 'This protocol does not support credential references. Remove the reference or provide authentication in the URL.';
+  String get sftpHostKeySettings =>
+      language == AppLanguage.zh ? 'SFTP 主机密钥' : 'SFTP host keys';
+  String get sftpHostKeyHint => language == AppLanguage.zh
+      ? '导入 known_hosts 后只接受已登记的主机指纹'
+      : 'Import known_hosts to accept only registered host fingerprints';
+  String get sftpHostKeyConfigured =>
+      language == AppLanguage.zh ? '已配置主机密钥' : 'Host keys configured';
+  String get sftpHostKeyNotConfigured => language == AppLanguage.zh
+      ? '未配置，默认接受 SSH 库的连接'
+      : 'Not configured; SSH library defaults apply';
+  String get importKnownHosts =>
+      language == AppLanguage.zh ? '导入 known_hosts' : 'Import known_hosts';
+  String get clearKnownHosts =>
+      language == AppLanguage.zh ? '清除主机密钥' : 'Clear host keys';
+  String get knownHostsSelected =>
+      language == AppLanguage.zh ? 'SFTP 主机密钥已更新。' : 'SFTP host keys updated.';
+  String get knownHostsCleared =>
+      language == AppLanguage.zh ? 'SFTP 主机密钥已清除。' : 'SFTP host keys cleared.';
+  String get knownHostsInvalid => language == AppLanguage.zh
+      ? '文件中没有可用的 OpenSSH known_hosts 主机密钥。'
+      : 'The file contains no usable OpenSSH known_hosts entries.';
+  String get knownHostsSelectionFailed => language == AppLanguage.zh
+      ? '无法读取 known_hosts 文件。'
+      : 'Could not read the known_hosts file.';
   String get currentVersion =>
       language == AppLanguage.zh ? '当前版本' : 'Current version';
   String get checkForUpdates =>
@@ -540,6 +628,19 @@ String protocolLabel(String protocol) {
   return protocol.toUpperCase();
 }
 
+bool supportsMobileCredentialProtocol(String protocol) {
+  return const {
+    'http',
+    'https',
+    'webdav',
+    'webdavs',
+    'ftp',
+    'ftps',
+    'sftp',
+    'smb',
+  }.contains(protocol);
+}
+
 class FluxDownMobileApp extends StatefulWidget {
   const FluxDownMobileApp({super.key});
 
@@ -648,9 +749,11 @@ class DownloadHome extends StatefulWidget {
   State<DownloadHome> createState() => _DownloadHomeState();
 }
 
-class _DownloadHomeState extends State<DownloadHome> {
+class _DownloadHomeState extends State<DownloadHome>
+    with WidgetsBindingObserver {
   final outputController = TextEditingController();
   late final DownloadController controller;
+  late final MobileCredentialVault credentialVault;
   var loading = true;
   var queueConcurrency = defaultQueueConcurrency;
   var downloadThreadCount = defaultDownloadThreadCount;
@@ -660,27 +763,48 @@ class _DownloadHomeState extends State<DownloadHome> {
   var settingsStorageLoading = false;
   var settingsStorageUnavailable = false;
   var settingsStorageRequestId = 0;
+  var credentialReferences = <String>[];
+  String? sftpKnownHosts;
   var queueFilter = QueueFilter.all;
   var currentTab = MobileHomeTab.tasks;
   var updateChecking = false;
   var _exitDialogShowing = false;
+  final backgroundService = MobileBackgroundService();
+  Future<void>? _trackedQueueRun;
 
   AppStrings get strings => widget.strings;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(backgroundService.stop());
     outputController.dispose();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      unawaited(backgroundService.beginIosBackgroundWindow());
+      return;
+    }
+    if (state == AppLifecycleState.resumed) {
+      unawaited(backgroundService.endIosBackgroundWindow());
+      _scheduleQueue();
+    }
+  }
+
   Future<void> _load() async {
     final documents = await getApplicationDocumentsDirectory();
+    credentialVault = MobileCredentialStore();
     RustQueueBackend? rustBackend;
     try {
       // 作者: long
@@ -697,8 +821,18 @@ class _DownloadHomeState extends State<DownloadHome> {
     controller = DownloadController(
       onChanged: _refresh,
       rustBackend: rustBackend,
+      credentialVault: credentialVault,
+      rustQueuePath: p.join(documents.path, 'fluxdown', 'rust-queue.json'),
     );
     final preferences = await SharedPreferences.getInstance();
+    final savedCredentialReferences =
+        preferences
+            .getStringList(_credentialReferencesPreferenceKey)
+            ?.map((value) => value.trim())
+            .where((value) => value.isNotEmpty && value.length <= 128)
+            .toSet()
+            .toList()
+          ?..sort();
     outputController.text =
         preferences.getString(_outputFolderPreferenceKey) ??
         '${documents.path}/downloads';
@@ -709,6 +843,10 @@ class _DownloadHomeState extends State<DownloadHome> {
     );
     final savedRetryAttempts = preferences.getInt(_retryAttemptsPreferenceKey);
     final savedSpeedLimit = preferences.getInt(_speedLimitKbpsPreferenceKey);
+    final savedSftpKnownHosts = preferences.getString(
+      _sftpKnownHostsPreferenceKey,
+    );
+    controller.setSftpKnownHosts(savedSftpKnownHosts);
     await controller.load();
     if (!mounted) return;
     setState(() {
@@ -724,6 +862,10 @@ class _DownloadHomeState extends State<DownloadHome> {
       speedLimitKbps = savedSpeedLimit == null
           ? 0
           : savedSpeedLimit.clamp(0, 1 << 53).toInt();
+      credentialReferences = savedCredentialReferences ?? <String>[];
+      sftpKnownHosts = savedSftpKnownHosts?.trim().isEmpty == true
+          ? null
+          : savedSftpKnownHosts?.trim();
       loading = false;
     });
     _scheduleQueue();
@@ -733,6 +875,7 @@ class _DownloadHomeState extends State<DownloadHome> {
     if (mounted) {
       setState(() {});
     }
+    unawaited(_updateBackgroundNotification());
   }
 
   Future<bool> createTask({
@@ -743,6 +886,7 @@ class _DownloadHomeState extends State<DownloadHome> {
     List<TorrentFileEntry> torrentFiles = const [],
     List<int>? selectedTorrentFileIndexes,
     String? expectedSha256,
+    String? credentialRef,
     int? hlsVariantIndex,
     bool hlsKeepTransportStream = false,
   }) async {
@@ -756,6 +900,19 @@ class _DownloadHomeState extends State<DownloadHome> {
       _showSnack(strings.outputFolderSettingRequired);
       return false;
     }
+    if (credentialRef?.trim().isNotEmpty == true &&
+        !supportsMobileCredentialProtocol(detectProtocol(normalizedSource))) {
+      _showSnack(strings.credentialUnsupportedProtocol);
+      return false;
+    }
+    if (credentialRef?.trim().isNotEmpty == true) {
+      final credential = await credentialVault.getCredential(credentialRef!);
+      if (credential?.usesPrivateKey == true &&
+          detectProtocol(normalizedSource) != 'sftp') {
+        _showSnack(strings.credentialPrivateKeyOnlySftp);
+        return false;
+      }
+    }
 
     await controller.add(
       source: normalizedSource,
@@ -765,6 +922,7 @@ class _DownloadHomeState extends State<DownloadHome> {
       torrentFiles: torrentFiles,
       selectedTorrentFileIndexes: selectedTorrentFileIndexes,
       expectedSha256: expectedSha256,
+      credentialRef: credentialRef,
       hlsVariantIndex: hlsVariantIndex,
       hlsKeepTransportStream: hlsKeepTransportStream,
     );
@@ -776,14 +934,57 @@ class _DownloadHomeState extends State<DownloadHome> {
   }
 
   void _scheduleQueue() {
-    unawaited(
-      controller.runQueued(
-        concurrency: queueConcurrency,
-        maxRetries: retryAttempts,
-        speedLimitKbps: speedLimitKbps,
-        threadCount: downloadThreadCount,
-        onTorrentMetadata: selectTorrentFiles,
-      ),
+    final run = controller.runQueued(
+      concurrency: queueConcurrency,
+      maxRetries: retryAttempts,
+      speedLimitKbps: speedLimitKbps,
+      threadCount: downloadThreadCount,
+      onTorrentMetadata: selectTorrentFiles,
+    );
+    _trackedQueueRun ??= _trackQueueRun(run).whenComplete(() {
+      _trackedQueueRun = null;
+    });
+  }
+
+  Future<void> _trackQueueRun(Future<MobileQueueRunReport> run) async {
+    await backgroundService.start(
+      runningTasks: controller.tasks
+          .where((task) => task.state == DownloadState.running)
+          .length,
+    );
+    try {
+      await run;
+    } finally {
+      await backgroundService.stop();
+    }
+  }
+
+  Future<void> _updateBackgroundNotification() async {
+    if (_trackedQueueRun == null) return;
+    final tasks = controller.tasks;
+    final total = tasks
+        .where((task) => task.state != DownloadState.handedOff)
+        .length;
+    final running = tasks
+        .where((task) => task.state == DownloadState.running)
+        .length;
+    final finished = tasks
+        .where((task) => task.state == DownloadState.finished)
+        .length;
+    final bytesTotal = tasks.fold<int>(
+      0,
+      (sum, task) => sum + (task.totalBytes ?? 0),
+    );
+    final bytesDone = tasks.fold<int>(
+      0,
+      (sum, task) => sum + task.downloadedBytes,
+    );
+    final progress = bytesTotal <= 0 ? 0 : ((bytesDone * 100) ~/ bytesTotal);
+    await backgroundService.update(
+      runningTasks: running,
+      finishedTasks: finished,
+      totalTasks: total,
+      progressPercent: progress,
     );
   }
 
@@ -799,6 +1000,8 @@ class _DownloadHomeState extends State<DownloadHome> {
         onLoadStorageStats: loadStorageStats,
         onInspectTorrentMetadata: inspectTorrentMetadataFromSource,
         onCreate: createTask,
+        credentialReferences: credentialReferences,
+        onCreateWithCredential: createTask,
       ),
     );
   }
@@ -998,6 +1201,126 @@ class _DownloadHomeState extends State<DownloadHome> {
     });
     final preferences = await SharedPreferences.getInstance();
     await preferences.setInt(_speedLimitKbpsPreferenceKey, normalized);
+  }
+
+  Future<void> addCredential() async {
+    final value = await showDialog<MobileCredentialDraft>(
+      context: context,
+      builder: (_) => MobileCredentialEditorDialog(strings: strings),
+    );
+    if (!mounted || value == null) return;
+    try {
+      await credentialVault.setCredential(
+        value.reference,
+        value.privateKeyPem?.trim().isNotEmpty == true
+            ? MobileCredential.privateKey(
+                username: value.username,
+                privateKeyPem: value.privateKeyPem!.trim(),
+                passphrase: value.passphrase,
+              )
+            : MobileCredential(
+                username: value.username,
+                password: value.password,
+              ),
+      );
+      final next = {...credentialReferences, value.reference}.toList()..sort();
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setStringList(_credentialReferencesPreferenceKey, next);
+      if (!mounted) return;
+      setState(() {
+        credentialReferences = next;
+      });
+      _showSnack(strings.credentialSaved);
+    } on FormatException catch (error) {
+      if (mounted) _showSnack(error.message);
+    } catch (_) {
+      if (mounted) _showSnack(strings.credentialUnavailable);
+    }
+  }
+
+  Future<void> deleteCredential(String reference) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          strings.credentialDeleteTitle,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+        ),
+        content: Text(
+          strings.credentialDeleteMessage(reference),
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w400),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(strings.credentialCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(strings.credentialDelete),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    try {
+      await credentialVault.deleteCredential(reference);
+      final next = credentialReferences
+          .where((value) => value != reference)
+          .toList(growable: false);
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setStringList(_credentialReferencesPreferenceKey, next);
+      if (!mounted) return;
+      setState(() {
+        credentialReferences = next;
+      });
+      _showSnack(strings.credentialDeleted);
+    } catch (_) {
+      if (mounted) _showSnack(strings.credentialUnavailable);
+    }
+  }
+
+  Future<void> pickSftpKnownHosts() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        allowMultiple: false,
+        withData: true,
+        type: FileType.any,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final picked = result.files.single;
+      final bytes =
+          picked.bytes ??
+          (picked.path == null ? null : await File(picked.path!).readAsBytes());
+      if (bytes == null || bytes.isEmpty) {
+        throw const FormatException('known_hosts 文件为空');
+      }
+      final content = utf8.decode(bytes).trim();
+      final policy = MobileSftpKnownHosts.parse(content);
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(_sftpKnownHostsPreferenceKey, content);
+      controller.setSftpKnownHosts(content);
+      if (!mounted) return;
+      setState(() {
+        sftpKnownHosts = content;
+      });
+      _showSnack('${strings.knownHostsSelected} (${policy.entries.length})');
+    } on FormatException {
+      if (mounted) _showSnack(strings.knownHostsInvalid);
+    } on Object {
+      if (mounted) _showSnack(strings.knownHostsSelectionFailed);
+    }
+  }
+
+  Future<void> clearSftpKnownHosts() async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.remove(_sftpKnownHostsPreferenceKey);
+    controller.setSftpKnownHosts(null);
+    if (!mounted) return;
+    setState(() {
+      sftpKnownHosts = null;
+    });
+    _showSnack(strings.knownHostsCleared);
   }
 
   Future<void> startTask(String id) async {
@@ -1204,6 +1527,12 @@ class _DownloadHomeState extends State<DownloadHome> {
       onDownloadThreadCountChanged: setDownloadThreadCount,
       onRetryAttemptsChanged: setRetryAttempts,
       onSpeedLimitChanged: setSpeedLimitKbps,
+      credentialReferences: credentialReferences,
+      onAddCredential: addCredential,
+      onDeleteCredential: deleteCredential,
+      sftpKnownHostsConfigured: sftpKnownHosts != null,
+      onPickSftpKnownHosts: pickSftpKnownHosts,
+      onClearSftpKnownHosts: clearSftpKnownHosts,
       onCheckForUpdates: checkForUpdates,
       onPickOutputFolder: pickOutputFolder,
       storageStats: settingsStorageStats,
@@ -1566,6 +1895,8 @@ class NewTaskDialog extends StatefulWidget {
     required this.onLoadStorageStats,
     required this.onInspectTorrentMetadata,
     required this.onCreate,
+    this.credentialReferences = const [],
+    this.onCreateWithCredential,
     super.key,
   });
 
@@ -1589,6 +1920,20 @@ class NewTaskDialog extends StatefulWidget {
     bool hlsKeepTransportStream,
   })
   onCreate;
+  final List<String> credentialReferences;
+  final Future<bool> Function({
+    required String source,
+    required String outputFolder,
+    String? fileName,
+    String? torrentName,
+    List<TorrentFileEntry> torrentFiles,
+    List<int>? selectedTorrentFileIndexes,
+    String? expectedSha256,
+    String? credentialRef,
+    int? hlsVariantIndex,
+    bool hlsKeepTransportStream,
+  })?
+  onCreateWithCredential;
 
   @override
   State<NewTaskDialog> createState() => _NewTaskDialogState();
@@ -1604,6 +1949,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
   String? errorText;
   var fileNameEdited = false;
   var hlsKeepTransportStream = false;
+  String? selectedCredentialReference;
   StorageStats? storageStats;
   var storageLoading = false;
   var storageUnavailable = false;
@@ -1701,6 +2047,14 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
       return;
     }
     final protocol = detectProtocol(normalized);
+    if (selectedCredentialReference != null &&
+        !supportsMobileCredentialProtocol(protocol)) {
+      setState(() {
+        busy = false;
+        errorText = strings.credentialUnsupportedProtocol;
+      });
+      return;
+    }
     int? hlsVariantIndex;
     if (protocol == 'm3u8' && hlsVariantController.text.trim().isNotEmpty) {
       hlsVariantIndex = int.tryParse(hlsVariantController.text.trim());
@@ -1765,17 +2119,30 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
         return;
       }
     }
-    final created = await widget.onCreate(
-      source: normalized,
-      outputFolder: outputFolderController.text,
-      fileName: effectiveFileName,
-      torrentName: torrentName,
-      torrentFiles: torrentFiles,
-      selectedTorrentFileIndexes: selectedTorrentFileIndexes,
-      expectedSha256: expectedSha256,
-      hlsVariantIndex: hlsVariantIndex,
-      hlsKeepTransportStream: hlsKeepTransportStream,
-    );
+    final created = widget.onCreateWithCredential == null
+        ? await widget.onCreate(
+            source: normalized,
+            outputFolder: outputFolderController.text,
+            fileName: effectiveFileName,
+            torrentName: torrentName,
+            torrentFiles: torrentFiles,
+            selectedTorrentFileIndexes: selectedTorrentFileIndexes,
+            expectedSha256: expectedSha256,
+            hlsVariantIndex: hlsVariantIndex,
+            hlsKeepTransportStream: hlsKeepTransportStream,
+          )
+        : await widget.onCreateWithCredential!(
+            source: normalized,
+            outputFolder: outputFolderController.text,
+            fileName: effectiveFileName,
+            torrentName: torrentName,
+            torrentFiles: torrentFiles,
+            selectedTorrentFileIndexes: selectedTorrentFileIndexes,
+            expectedSha256: expectedSha256,
+            credentialRef: selectedCredentialReference,
+            hlsVariantIndex: hlsVariantIndex,
+            hlsKeepTransportStream: hlsKeepTransportStream,
+          );
     if (!mounted) return;
     if (created) {
       Navigator.of(context).pop();
@@ -2043,6 +2410,47 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                     ),
                     onChanged: (_) => unawaited(refreshStorageStats()),
                   ),
+                  if (widget.credentialReferences.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey('new-task-credential-reference'),
+                      initialValue: selectedCredentialReference ?? '',
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: strings.credentialReference,
+                        labelStyle: const TextStyle(fontSize: 12),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                      ),
+                      items: [
+                        DropdownMenuItem<String>(
+                          value: '',
+                          child: Text(
+                            strings.credentialNone,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        ...widget.credentialReferences.map(
+                          (reference) => DropdownMenuItem<String>(
+                            value: reference,
+                            child: Text(
+                              reference,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: busy
+                          ? null
+                          : (value) => setState(
+                              () => selectedCredentialReference =
+                                  value == null || value.isEmpty ? null : value,
+                            ),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   TextField(
                     key: const ValueKey('new-task-sha256'),
@@ -2885,6 +3293,12 @@ class SettingsView extends StatelessWidget {
     required this.onDownloadThreadCountChanged,
     required this.onRetryAttemptsChanged,
     required this.onSpeedLimitChanged,
+    this.credentialReferences = const [],
+    this.onAddCredential,
+    this.onDeleteCredential,
+    this.sftpKnownHostsConfigured = false,
+    this.onPickSftpKnownHosts,
+    this.onClearSftpKnownHosts,
     this.onCheckForUpdates,
     required this.onPickOutputFolder,
     required this.storageStats,
@@ -2907,6 +3321,12 @@ class SettingsView extends StatelessWidget {
   final ValueChanged<int> onDownloadThreadCountChanged;
   final ValueChanged<int> onRetryAttemptsChanged;
   final ValueChanged<int> onSpeedLimitChanged;
+  final List<String> credentialReferences;
+  final VoidCallback? onAddCredential;
+  final ValueChanged<String>? onDeleteCredential;
+  final bool sftpKnownHostsConfigured;
+  final VoidCallback? onPickSftpKnownHosts;
+  final VoidCallback? onClearSftpKnownHosts;
   final VoidCallback? onCheckForUpdates;
   final VoidCallback onPickOutputFolder;
   final StorageStats? storageStats;
@@ -3027,6 +3447,20 @@ class SettingsView extends StatelessWidget {
                 if (parsed != null) onSpeedLimitChanged(parsed);
               },
             ),
+            if (onAddCredential != null)
+              MobileCredentialSettingsSection(
+                strings: strings,
+                references: credentialReferences,
+                onAdd: onAddCredential!,
+                onDelete: onDeleteCredential,
+              ),
+            if (onPickSftpKnownHosts != null)
+              MobileSftpHostKeySettingsSection(
+                strings: strings,
+                configured: sftpKnownHostsConfigured,
+                onPick: onPickSftpKnownHosts!,
+                onClear: onClearSftpKnownHosts,
+              ),
             SettingsCompactRow(
               icon: Icons.info_outline,
               title: strings.currentVersion,
@@ -3056,6 +3490,390 @@ class SettingsView extends StatelessWidget {
                     ),
             ),
           ],
+        ),
+      ],
+    );
+  }
+}
+
+class MobileCredentialDraft {
+  const MobileCredentialDraft({
+    required this.reference,
+    required this.username,
+    required this.password,
+    this.privateKeyPem,
+    this.passphrase,
+  });
+
+  final String reference;
+  final String username;
+  final String password;
+  final String? privateKeyPem;
+  final String? passphrase;
+}
+
+class MobileCredentialSettingsSection extends StatelessWidget {
+  const MobileCredentialSettingsSection({
+    required this.strings,
+    required this.references,
+    required this.onAdd,
+    this.onDelete,
+    super.key,
+  });
+
+  final AppStrings strings;
+  final List<String> references;
+  final VoidCallback onAdd;
+  final ValueChanged<String>? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SettingsCompactRow(
+          icon: Icons.key_outlined,
+          title: strings.credentialSettings,
+          subtitle: strings.credentialSettingsHint,
+          trailing: IconButton(
+            key: const ValueKey('settings-add-credential'),
+            tooltip: strings.addCredential,
+            onPressed: onAdd,
+            icon: const Icon(Icons.add, size: 17),
+            constraints: const BoxConstraints.tightFor(width: 38, height: 38),
+            padding: EdgeInsets.zero,
+          ),
+        ),
+        if (references.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(32, 2, 4, 4),
+            child: Text(
+              strings.noCredentials,
+              style: textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontSize: 10,
+                height: 1.15,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          )
+        else
+          for (final reference in references)
+            Padding(
+              padding: const EdgeInsets.only(left: 32, top: 1, bottom: 1),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.lock_outline,
+                    size: 14,
+                    color: colorScheme.primary,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      reference,
+                      key: ValueKey('settings-credential-$reference'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurface,
+                        fontSize: 10.5,
+                        height: 1.1,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    key: ValueKey('settings-delete-credential-$reference'),
+                    tooltip: strings.credentialDelete,
+                    onPressed: onDelete == null
+                        ? null
+                        : () => onDelete!(reference),
+                    icon: const Icon(Icons.delete_outline, size: 15),
+                    constraints: const BoxConstraints.tightFor(
+                      width: 32,
+                      height: 32,
+                    ),
+                    padding: EdgeInsets.zero,
+                  ),
+                ],
+              ),
+            ),
+      ],
+    );
+  }
+}
+
+class MobileSftpHostKeySettingsSection extends StatelessWidget {
+  const MobileSftpHostKeySettingsSection({
+    required this.strings,
+    required this.configured,
+    required this.onPick,
+    this.onClear,
+    super.key,
+  });
+
+  final AppStrings strings;
+  final bool configured;
+  final VoidCallback onPick;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SettingsCompactRow(
+          icon: Icons.verified_user_outlined,
+          title: strings.sftpHostKeySettings,
+          subtitle: configured
+              ? strings.sftpHostKeyConfigured
+              : strings.sftpHostKeyNotConfigured,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                key: const ValueKey('settings-import-known-hosts'),
+                tooltip: strings.importKnownHosts,
+                onPressed: onPick,
+                icon: const Icon(Icons.file_open_outlined, size: 16),
+                constraints: const BoxConstraints.tightFor(
+                  width: 34,
+                  height: 38,
+                ),
+                padding: EdgeInsets.zero,
+              ),
+              if (configured)
+                IconButton(
+                  key: const ValueKey('settings-clear-known-hosts'),
+                  tooltip: strings.clearKnownHosts,
+                  onPressed: onClear,
+                  icon: Icon(
+                    Icons.delete_outline,
+                    size: 16,
+                    color: colorScheme.error,
+                  ),
+                  constraints: const BoxConstraints.tightFor(
+                    width: 34,
+                    height: 38,
+                  ),
+                  padding: EdgeInsets.zero,
+                ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(32, 1, 4, 4),
+          child: Text(
+            strings.sftpHostKeyHint,
+            style: textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontSize: 10,
+              height: 1.15,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class MobileCredentialEditorDialog extends StatefulWidget {
+  const MobileCredentialEditorDialog({required this.strings, super.key});
+
+  final AppStrings strings;
+
+  @override
+  State<MobileCredentialEditorDialog> createState() =>
+      _MobileCredentialEditorDialogState();
+}
+
+class _MobileCredentialEditorDialogState
+    extends State<MobileCredentialEditorDialog> {
+  final referenceController = TextEditingController();
+  final usernameController = TextEditingController();
+  final passwordController = TextEditingController();
+  final privateKeyController = TextEditingController();
+  final passphraseController = TextEditingController();
+  var usePrivateKey = false;
+  String? errorText;
+
+  @override
+  void dispose() {
+    referenceController.dispose();
+    usernameController.dispose();
+    passwordController.dispose();
+    privateKeyController.dispose();
+    passphraseController.dispose();
+    super.dispose();
+  }
+
+  void save() {
+    final reference = referenceController.text.trim();
+    final username = usernameController.text.trim();
+    if (reference.isEmpty) {
+      setState(() => errorText = widget.strings.credentialReferenceRequired);
+      return;
+    }
+    if (username.isEmpty) {
+      setState(() => errorText = widget.strings.credentialUsernameRequired);
+      return;
+    }
+    final privateKeyPem = privateKeyController.text.trim();
+    if (usePrivateKey && privateKeyPem.isEmpty) {
+      setState(() => errorText = widget.strings.credentialPrivateKeyRequired);
+      return;
+    }
+    Navigator.of(context).pop(
+      MobileCredentialDraft(
+        reference: reference,
+        username: username,
+        password: passwordController.text,
+        privateKeyPem: usePrivateKey ? privateKeyPem : null,
+        passphrase: usePrivateKey ? passphraseController.text : null,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 22, vertical: 24),
+      titlePadding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      title: Text(
+        widget.strings.addCredential,
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+      ),
+      contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      content: SizedBox(
+        width: 320,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              key: const ValueKey('credential-reference'),
+              controller: referenceController,
+              autofocus: true,
+              textInputAction: TextInputAction.next,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w400),
+              decoration: InputDecoration(
+                labelText: widget.strings.credentialReference,
+                errorText: errorText,
+                errorStyle: const TextStyle(fontSize: 10),
+              ),
+              onChanged: (_) {
+                if (errorText != null) setState(() => errorText = null);
+              },
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              key: const ValueKey('credential-username'),
+              controller: usernameController,
+              textInputAction: TextInputAction.next,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w400),
+              decoration: InputDecoration(
+                labelText: widget.strings.credentialUsername,
+              ),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<bool>(
+              key: const ValueKey('credential-auth-type'),
+              initialValue: usePrivateKey,
+              decoration: InputDecoration(
+                labelText: widget.strings.credentialAuthType,
+              ),
+              items: [
+                DropdownMenuItem<bool>(
+                  value: false,
+                  child: Text(
+                    widget.strings.credentialPasswordAuth,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+                DropdownMenuItem<bool>(
+                  value: true,
+                  child: Text(
+                    widget.strings.credentialPrivateKeyAuth,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() {
+                  usePrivateKey = value;
+                  errorText = null;
+                });
+              },
+            ),
+            const SizedBox(height: 8),
+            if (!usePrivateKey)
+              TextField(
+                key: const ValueKey('credential-password'),
+                controller: passwordController,
+                obscureText: true,
+                textInputAction: TextInputAction.done,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                ),
+                decoration: InputDecoration(
+                  labelText: widget.strings.credentialPassword,
+                ),
+                onSubmitted: (_) => save(),
+              ),
+            if (usePrivateKey) ...[
+              TextField(
+                key: const ValueKey('credential-private-key'),
+                controller: privateKeyController,
+                minLines: 4,
+                maxLines: 8,
+                textInputAction: TextInputAction.newline,
+                style: const TextStyle(
+                  fontSize: 11,
+                  height: 1.1,
+                  fontWeight: FontWeight.w400,
+                ),
+                decoration: InputDecoration(
+                  labelText: widget.strings.credentialPrivateKey,
+                  alignLabelWithHint: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                key: const ValueKey('credential-passphrase'),
+                controller: passphraseController,
+                obscureText: true,
+                textInputAction: TextInputAction.done,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                ),
+                decoration: InputDecoration(
+                  labelText: widget.strings.credentialPassphrase,
+                ),
+                onSubmitted: (_) => save(),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(widget.strings.credentialCancel),
+        ),
+        FilledButton(
+          key: const ValueKey('credential-save'),
+          onPressed: save,
+          child: Text(widget.strings.credentialSave),
         ),
       ],
     );
@@ -4062,7 +4880,7 @@ String _taskCardTrailingValue(AppStrings strings, DownloadTask task) {
     DownloadState.finished =>
       '${strings.endTime} ${_formatDateTime(task.finishedAt)}',
     DownloadState.handedOff =>
-      '${strings.handedOffAt} ${_formatDateTime(task.updatedAt)}',
+      '${strings.handedOffAt} ${_formatDateTime(task.handedOffAt ?? task.updatedAt)} · ${_handoffBackendLabel(strings, task)}',
     DownloadState.failed =>
       '${strings.failedAt} ${_formatDateTime(task.updatedAt)}',
   };
@@ -4090,7 +4908,8 @@ List<String> _taskCardMetricValues(AppStrings strings, DownloadTask task) {
       _formatBytePair(task),
     ],
     DownloadState.handedOff => [
-      '${strings.handedOffAt} ${_formatDateTime(task.updatedAt)}',
+      '${strings.handedOffAt} ${_formatDateTime(task.handedOffAt ?? task.updatedAt)}',
+      _handoffBackendLabel(strings, task),
       _formatBytePair(task),
     ],
     DownloadState.failed => [
@@ -4098,6 +4917,19 @@ List<String> _taskCardMetricValues(AppStrings strings, DownloadTask task) {
       '${strings.totalElapsed} ${_formatDuration(_taskCardElapsed(task))}',
       _formatBytePair(task),
     ],
+  };
+}
+
+String _handoffBackendLabel(AppStrings strings, DownloadTask task) {
+  return switch (task.handoffBackend) {
+    'android-external-app' =>
+      strings.language == AppLanguage.zh
+          ? 'Android 外部客户端'
+          : 'Android external app',
+    'amule-cli' || 'amule' => 'aMule',
+    'system-handler' || 'system-handoff' =>
+      strings.language == AppLanguage.zh ? '系统处理程序' : 'System handler',
+    _ => strings.language == AppLanguage.zh ? '外部客户端' : 'External client',
   };
 }
 

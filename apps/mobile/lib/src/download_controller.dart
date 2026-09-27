@@ -10,6 +10,7 @@ import 'download_failure.dart';
 import 'download_task.dart';
 import 'ffi/fluxdown_ffi.dart';
 import 'mobile_downloader.dart';
+import 'mobile_credential_store.dart';
 import 'mobile_torrent.dart';
 import 'protocol.dart';
 import 'rust_queue_backend.dart';
@@ -34,79 +35,185 @@ class DownloadController {
     TaskStore? store,
     MobileDownloadRunner? runner,
     RustQueueBackend? rustBackend,
+    MobileCredentialVault? credentialVault,
+    String? sftpKnownHosts,
+    String? rustQueuePath,
     void Function()? onChanged,
   }) : _store = store ?? TaskStore(),
        _runner = runner ?? MobileDownloadRunner(),
        _rustBackend = rustBackend,
-       _onChanged = onChanged;
+       _credentialVault = credentialVault ?? MobileCredentialStore(),
+       _sftpKnownHosts = sftpKnownHosts,
+       _rustQueuePath = rustQueuePath ?? rustBackend?.storePath,
+       _onChanged = onChanged {
+    _runner.setSftpKnownHosts(_sftpKnownHosts);
+  }
 
   final TaskStore _store;
   final MobileDownloadRunner _runner;
   final RustQueueBackend? _rustBackend;
+  final MobileCredentialVault _credentialVault;
+  String? _sftpKnownHosts;
+  final String? _rustQueuePath;
   final void Function()? _onChanged;
   final List<DownloadTask> _tasks = [];
+  final Map<String, int> _deletedTaskIds = {};
   final Set<String> _activeTaskIds = {};
   final Map<String, _StartRequest> _pendingStarts = {};
   Future<void> _saveQueue = Future.value();
+  bool _canonicalPersistenceReady = false;
   Future<MobileQueueRunReport>? _queueRun;
   _QueueRunRequest? _pendingQueueRun;
 
   List<DownloadTask> get tasks => List.unmodifiable(_tasks);
 
+  // 作者: long
+  /// 设置移动端 SFTP 主机身份策略；内容只作为应用配置传给本次连接，任务 JSON
+  /// 仍只保存源链接和凭据引用，避免把主机密钥配置复制到每个任务。
+  void setSftpKnownHosts(String? content) {
+    final normalized = content?.trim();
+    _sftpKnownHosts = normalized == null || normalized.isEmpty
+        ? null
+        : normalized;
+    _runner.setSftpKnownHosts(_sftpKnownHosts);
+  }
+
   bool get hasRunnableTasks => _tasks.any((task) => task.canRun);
 
   Future<void> load() async {
-    _tasks
-      ..clear()
-      ..addAll(await _store.load());
-    final interruptedAt = DateTime.now().toUtc();
-    var recoveredInterruptedTask = false;
-    for (var index = 0; index < _tasks.length; index += 1) {
-      final task = _tasks[index];
-      if (task.state != DownloadState.running) {
-        continue;
-      }
-      // 作者: long
-      // Controller 刚创建时没有存活的下载 Future，持久化 running 只能来自上次被系统终止的进程；立即恢复为暂停，保留断点并释放队列并发槽位。
-      _tasks[index] = task.copyWith(
-        state: DownloadState.paused,
-        pausedAt: interruptedAt,
-        clearFinishedAt: true,
-        currentSpeedBytesPerSecond: 0,
-        error: '任务因应用退出中断，已暂停，可继续下载。',
-      );
-      recoveredInterruptedTask = true;
-    }
-    _tasks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    var reconciledRustQueue = false;
     final backend = _rustBackend;
+    _canonicalPersistenceReady = false;
     if (backend != null) {
       try {
         // 作者: long
+        // 先处理上次未提交的迁移事务，再读取 Flutter 队列；否则内存可能继续使用
+        // 被中断事务写入的半套快照，导致恢复后的磁盘状态又被旧内存覆盖。
+        await _store.recoverPendingMigration(rustQueuePath: backend.storePath);
+      } on Object {
+        // 恢复异常时不覆盖原始文件；后续 beginMigrationBackup 会再次建立保护边界。
+      }
+    }
+    final flutterSnapshot = await _store.loadSnapshot();
+    TaskQueueSnapshot? rustFallbackSnapshot;
+    final rustQueuePath = _rustQueuePath;
+    if (backend == null && rustQueuePath != null) {
+      try {
+        rustFallbackSnapshot = await _store.loadRustSnapshot(rustQueuePath);
+      } on Object {
+        // Rust 文件损坏或版本过新时保留 Flutter 侧快照，避免一次升级直接清空列表。
+        rustFallbackSnapshot = null;
+      }
+    }
+    final initialTasks = rustFallbackSnapshot == null
+        ? flutterSnapshot.tasks
+        : [
+            ...rustFallbackSnapshot.tasks,
+            ...flutterSnapshot.tasks.where(
+              (task) => task.state == DownloadState.handedOff,
+            ),
+          ];
+    _tasks
+      ..clear()
+      ..addAll(initialTasks);
+    _deletedTaskIds
+      ..clear()
+      ..addAll(rustFallbackSnapshot?.deletedTaskIds ?? const {})
+      ..addAll(flutterSnapshot.deletedTaskIds);
+    _tasks.removeWhere((task) => _deletedTaskIds.containsKey(task.id));
+    QueueMigrationBackup? migrationBackup;
+    var migrationFailed = false;
+    if (backend != null) {
+      try {
+        // 作者: long
+        // Flutter/Rust 队列在迁移期间必须共享同一份可恢复快照；先建立事务 marker，
+        // 再处理 running 恢复和双向合并，避免 App 在中途被杀后留下半套状态。
+        migrationBackup = await _store.beginMigrationBackup(
+          rustQueuePath: backend.storePath,
+        );
+      } on Object {
+        // 备份失败时不触碰 native 队列，保留 Flutter 队列并让本次启动走 Dart 回退。
+        migrationBackup = null;
+      }
+    }
+    final interruptedAt = DateTime.now().toUtc();
+    final interruptedTaskIds = <String>{
+      for (final task in _tasks)
+        if (task.state == DownloadState.running) task.id,
+    };
+    var recoveredInterruptedTask = false;
+    // 作者: long
+    // 先记录上次进程留下的 running，不立即把它改成 paused；否则 copyWith 会刷新
+    // updatedAt，反而可能让 stale Flutter 快照压过 Rust 已经落盘的 finished 状态。
+    // 双队列合并完成后，只对仍没有更可靠 native 终态的任务做中断恢复。
+    if (backend == null || migrationBackup == null) {
+      recoveredInterruptedTask = _recoverInterruptedTasks(
+        interruptedTaskIds,
+        interruptedAt,
+      );
+    }
+    _tasks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    var reconciledRustQueue = false;
+    if (backend != null && migrationBackup != null) {
+      try {
+        _purgeRustTombstones(backend);
+        // 作者: long
         // App 重新启动后，Rust 的 running 任务已没有可接管的 Flutter 运行句柄；
-        // 先转为暂停，再按相同任务 ID 恢复终态，避免旧 native 进度覆盖用户保存的队列。
+        // 先转为暂停，再按任务时间戳合并两份快照，避免旧 native 进度覆盖用户保存的队列。
         for (final native in backend.list()) {
           if (native.state == 'running') {
             backend.pause(native.id);
           }
         }
-        backend.ensureTasks(
-          _tasks.where(
-            (task) =>
-                task.state == DownloadState.queued &&
-                backend.supportsTask(task),
-          ),
+        final merged = _mergeRustTasks(
+          backend.list(),
+          interruptedTaskIds: interruptedTaskIds,
         );
-        final nativeTasks = backend.list();
-        reconciledRustQueue = nativeTasks.any(
-          (native) => _tasks.any((task) => task.id == native.id),
+        _tasks
+          ..clear()
+          ..addAll(merged);
+        recoveredInterruptedTask = _recoverInterruptedTasks(
+          interruptedTaskIds,
+          interruptedAt,
         );
-        _applyRustTasks(nativeTasks);
+        // 作者: long
+        // 合并结果以任务 ID 为唯一键回写两侧；本地较新的设置/进度会覆盖 native，
+        // native 孤儿或较新的运行态则先导入 Flutter，避免双文件各自继续分叉。
+        backend.upsertTasks(merged);
+        final synchronizedNativeTasks = backend.list();
+        _tasks
+          ..clear()
+          ..addAll(
+            _mergeRustTasks(
+              synchronizedNativeTasks,
+              interruptedTaskIds: interruptedTaskIds,
+            ),
+          );
+        _tasks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        // 作者: long
+        // 成功完成首次合并后，Rust 文件成为活动任务的唯一来源；Flutter 文件只保留
+        // handedOff 投影。forceCanonical 确保本次迁移不会先写回旧的双队列格式。
+        await _save(forceCanonical: true);
+        await migrationBackup.commit();
+        _canonicalPersistenceReady = true;
+        reconciledRustQueue = true;
       } on Object {
-        // Rust 库或队列暂时不可用时保留 Flutter 原始记录；下一次运行仍可尝试迁移。
+        migrationFailed = true;
+        try {
+          await migrationBackup.restore();
+          final restored = await _store.loadSnapshot();
+          _tasks
+            ..clear()
+            ..addAll(restored.tasks);
+          _deletedTaskIds
+            ..clear()
+            ..addAll(restored.deletedTaskIds);
+        } on Object {
+          // 恢复失败时保留内存中的任务，不覆盖磁盘上的原始文件；下次启动仍会看到 pending marker。
+        }
+        recoveredInterruptedTask = false;
       }
     }
-    if (recoveredInterruptedTask || reconciledRustQueue) {
+    if (!migrationFailed && !reconciledRustQueue && recoveredInterruptedTask) {
       await _save();
     }
     _emit();
@@ -120,6 +227,7 @@ class DownloadController {
     List<TorrentFileEntry> torrentFiles = const [],
     List<int>? selectedTorrentFileIndexes,
     String? expectedSha256,
+    String? credentialRef,
     int? hlsVariantIndex,
     bool hlsKeepTransportStream = false,
   }) async {
@@ -131,6 +239,7 @@ class DownloadController {
       torrentFiles: torrentFiles,
       selectedTorrentFileIndexes: selectedTorrentFileIndexes,
       expectedSha256: expectedSha256,
+      credentialRef: credentialRef,
       hlsVariantIndex: hlsVariantIndex,
       hlsKeepTransportStream: hlsKeepTransportStream,
     );
@@ -144,8 +253,11 @@ class DownloadController {
     _runner.cancel(id);
     _runner.discardTorrent(id);
     // 作者: long
-    // Rust 迁移队列与 Flutter 队列是两份持久化数据；删除时必须同时清掉 native 任务，
-    // 否则下一次轮询可能把已删除的任务重新写回或继续占用下载资源。
+    // 先在内存记录删除时间；canonical 保存会把它写入 Rust deleted_task_ids，
+    // 即使 native 队列被运行句柄占用，下一次启动也不会把同一个 ID 重新导入。
+    _deletedTaskIds[id] = DateTime.now().toUtc().millisecondsSinceEpoch;
+    // 作者: long
+    // 删除时同步清掉 native 任务；tombstone 负责处理迟到的进度写回，避免已删除任务复活或继续占用队列。
     try {
       _rustBackend?.remove(id);
     } on Object {
@@ -197,6 +309,8 @@ class DownloadController {
         clearStartedAt: true,
         clearPausedAt: true,
         clearFinishedAt: true,
+        clearHandoffBackend: true,
+        clearHandedOffAt: true,
         currentSpeedBytesPerSecond: 0,
       ),
     );
@@ -264,6 +378,9 @@ class DownloadController {
     TorrentMetadataSelector? onTorrentMetadata,
   }) async {
     final task = _taskById(id);
+    final runtime = await _resolveRuntimeTask(task);
+    if (runtime == null) return;
+    final runtimeTask = runtime.task;
     final support = supportStatus(task.protocol);
     if (!support.executable || !task.isBuiltInMobile) {
       _replace(
@@ -276,12 +393,19 @@ class DownloadController {
       return;
     }
 
-    if (_rustBackend?.supportsTask(task) == true) {
+    // 作者: long
+    // 密码凭据只在本次 FFI 运行参数中注入 Rust；SFTP 私钥没有 Rust 内存协议，继续走
+    // Dart 适配器。两条路径都只把 credentialRef 写入任务 JSON，不把秘密落盘。
+    final rustCredential = await _loadPasswordCredentialForRust(task);
+    if (_rustBackend?.supportsTask(task) == true &&
+        (task.credentialRef?.trim().isNotEmpty != true ||
+            rustCredential != null)) {
       await _startActiveTaskWithRust(
         task,
         maxRetries: maxRetries,
         speedLimitKbps: speedLimitKbps,
         threadCount: threadCount,
+        runtimeCredential: rustCredential,
       );
       return;
     }
@@ -302,6 +426,8 @@ class DownloadController {
           startedAt: _startedAtForRun(current, now),
           clearPausedAt: true,
           clearFinishedAt: true,
+          clearHandoffBackend: true,
+          clearHandedOffAt: true,
           currentSpeedBytesPerSecond: 0,
         ),
       );
@@ -309,16 +435,24 @@ class DownloadController {
       _emit();
 
       try {
+        final activeTask = _taskById(id).copyWith(source: runtimeTask.source);
         final finished = await _runner.download(
-          _taskById(id),
+          activeTask,
           speedLimitKbps: speedLimitKbps,
           threadCount: effectiveThreadCount,
+          sftpCredential: runtime.sftpCredential,
           onTorrentMetadata: onTorrentMetadata,
           onProgress: (progress) async {
             _replace(progress.id, (current) {
               // 作者: long
               // 暂停已先写入队列，旧下载 Future 可能仍送达最后一次进度；保留用户的暂停状态，避免它被迟到回调改回 downloading。
-              return current.state == DownloadState.paused ? current : progress;
+              if (current.state == DownloadState.paused) return current;
+              // 作者: long
+              // 凭据只允许在本次下载请求中存在；进度对象可能被最终持久化，必须恢复原始 URL 和引用名。
+              return progress.copyWith(
+                source: current.source,
+                credentialRef: current.credentialRef,
+              );
             });
             await _save();
             _emit();
@@ -332,6 +466,7 @@ class DownloadController {
           return;
         }
         var completed = finished.copyWith(
+          source: task.source,
           finishedAt: finished.state == DownloadState.finished
               ? DateTime.now().toUtc()
               : null,
@@ -424,11 +559,61 @@ class DownloadController {
     _emit();
   }
 
+  Future<_ResolvedRuntimeTask?> _resolveRuntimeTask(DownloadTask task) async {
+    final reference = task.credentialRef?.trim();
+    if (reference == null || reference.isEmpty) {
+      return _ResolvedRuntimeTask(task: task);
+    }
+
+    try {
+      final credential = await _credentialVault.getCredential(reference);
+      if (credential == null) {
+        throw const FormatException('凭据引用不存在或无法解密');
+      }
+      if (credential.usesPrivateKey && task.protocol != 'sftp') {
+        throw const FormatException('SFTP 私钥凭据只能用于 SFTP 任务');
+      }
+      final runtimeSource = credential.usesPrivateKey
+          ? sourceWithMobileUsername(task.source, credential.username)
+          : sourceWithMobileCredential(task.source, credential);
+      // 作者: long
+      // 返回值只供当前 Future 使用；保留 credentialRef 让进度/完成快照继续指向安全存储，密码不会进入任务 JSON。
+      return _ResolvedRuntimeTask(
+        task: task.copyWith(source: runtimeSource),
+        sftpCredential: credential.usesPrivateKey ? credential : null,
+      );
+    } on Object {
+      _replace(
+        task.id,
+        (current) => current.copyWith(
+          state: DownloadState.failed,
+          error: '移动端凭据不可用，请检查安全存储中的凭据引用。',
+          finishedAt: DateTime.now().toUtc(),
+          currentSpeedBytesPerSecond: 0,
+        ),
+      );
+      await _save();
+      _emit();
+      return null;
+    }
+  }
+
+  Future<MobileCredential?> _loadPasswordCredentialForRust(
+    DownloadTask task,
+  ) async {
+    final reference = task.credentialRef?.trim();
+    if (reference == null || reference.isEmpty) return null;
+    final credential = await _credentialVault.getCredential(reference);
+    if (credential == null || credential.usesPrivateKey) return null;
+    return credential;
+  }
+
   Future<void> _startActiveTaskWithRust(
     DownloadTask task, {
     required int maxRetries,
     required int speedLimitKbps,
     required int threadCount,
+    MobileCredential? runtimeCredential,
   }) async {
     final backend = _rustBackend!;
     try {
@@ -444,6 +629,12 @@ class DownloadController {
         threadCount: threadCount,
         retryAttempts: maxRetries,
         speedLimitKbps: speedLimitKbps,
+        runtimeCredential: runtimeCredential == null
+            ? null
+            : {
+                'username': runtimeCredential.username,
+                'password': runtimeCredential.password,
+              },
         onProgress: (nativeTasks) async {
           _applyRustTasks(nativeTasks);
           await _save();
@@ -601,12 +792,23 @@ class DownloadController {
     } on Object {
       return null;
     }
-    final queued = _tasks
-        .where(
-          (task) =>
-              task.state == DownloadState.queued && backend.supportsTask(task),
-        )
-        .toList(growable: false);
+    final runtimeCredentials = <String, Map<String, String>>{};
+    final queued = <DownloadTask>[];
+    for (final task in _tasks.where(
+      (task) => task.state == DownloadState.queued,
+    )) {
+      if (!backend.supportsTask(task)) continue;
+      final reference = task.credentialRef?.trim();
+      if (reference != null && reference.isNotEmpty) {
+        final credential = await _loadPasswordCredentialForRust(task);
+        if (credential == null) continue;
+        runtimeCredentials[task.id] = {
+          'username': credential.username,
+          'password': credential.password,
+        };
+      }
+      queued.add(task);
+    }
     if (queued.isEmpty) {
       return null;
     }
@@ -626,6 +828,7 @@ class DownloadController {
         threadCount: threadCount,
         retryAttempts: maxRetries,
         speedLimitKbps: speedLimitKbps,
+        runtimeCredentials: runtimeCredentials,
         onProgress: (nativeTasks) async {
           _applyRustTasks(nativeTasks);
           await _save();
@@ -708,47 +911,86 @@ class DownloadController {
       final current = _tasks[index];
       final native = byId[current.id];
       if (native == null) continue;
-      if (current.state == DownloadState.handedOff ||
-          (current.state == DownloadState.finished &&
-              native.state != 'finished') ||
-          (current.state == DownloadState.failed &&
-              (native.state == 'queued' || native.state == 'paused')) ||
-          (current.state == DownloadState.paused &&
-              (native.state == 'queued' || native.state == 'running'))) {
-        // 作者: long
-        // 已移交、已完成及用户手动暂停/重试前的失败状态不能被旧 native
-        // 快照倒退覆盖；只有真正的新运行或终态才更新 Flutter 列表。
+      final candidate = native.toDownloadTask();
+      if (candidate == null || !_nativeTaskWins(current, candidate)) {
         continue;
       }
-      final state = switch (native.state) {
-        'queued' => DownloadState.queued,
-        'running' => DownloadState.running,
-        'paused' => DownloadState.paused,
-        'finished' => DownloadState.finished,
-        'failed' => DownloadState.failed,
-        _ => current.state,
-      };
-      final shouldClearStartedAt =
-          native.startedAt == null && state == DownloadState.queued;
-      final shouldClearFinishedAt =
-          state != DownloadState.finished && state != DownloadState.failed;
-      _tasks[index] = current.copyWith(
-        state: state,
-        startedAt: native.startedAt,
-        clearStartedAt: shouldClearStartedAt,
-        finishedAt: native.finishedAt,
-        clearFinishedAt: shouldClearFinishedAt,
-        clearTotalBytes:
-            native.totalBytes == null && state == DownloadState.queued,
-        fileName: native.fileName,
-        downloadedBytes: native.downloadedBytes,
-        totalBytes: native.totalBytes,
-        currentSpeedBytesPerSecond: native.currentSpeedBytesPerSecond,
-        error: native.error,
-        clearError: native.error == null,
-        clearPausedAt: state != DownloadState.paused,
-      );
+      _tasks[index] = candidate;
     }
+  }
+
+  List<DownloadTask> _mergeRustTasks(
+    List<FluxDownCoreTask> nativeTasks, {
+    Set<String> interruptedTaskIds = const <String>{},
+  }) {
+    final merged = <String, DownloadTask>{
+      for (final task in _tasks) task.id: task,
+    };
+    for (final native in nativeTasks) {
+      final candidate = native.toDownloadTask();
+      if (candidate == null ||
+          _deletedTaskIds.containsKey(candidate.id) ||
+          !_rustBackend!.supportsTask(candidate)) {
+        continue;
+      }
+      final current = merged[candidate.id];
+      if (current == null ||
+          _nativeTaskWins(
+            current,
+            candidate,
+            localWasInterrupted: interruptedTaskIds.contains(candidate.id),
+          )) {
+        merged[candidate.id] = candidate;
+      }
+    }
+    return merged.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  bool _nativeTaskWins(
+    DownloadTask local,
+    DownloadTask native, {
+    bool localWasInterrupted = false,
+  }) {
+    if (local.state == DownloadState.handedOff) {
+      return false;
+    }
+    if (localWasInterrupted && native.state == DownloadState.finished) {
+      return true;
+    }
+    if (native.updatedAt.isAfter(local.updatedAt)) {
+      return true;
+    }
+    if (local.updatedAt.isAfter(native.updatedAt)) {
+      return false;
+    }
+    // 作者: long
+    // 同一毫秒内的双写没有可靠的先后顺序，优先保留实际下载进度和完成终态，
+    // 但不让相同快照因状态排序反复震荡。
+    if (native.downloadedBytes > local.downloadedBytes) {
+      return true;
+    }
+    return native.state == DownloadState.finished &&
+        local.state != DownloadState.finished;
+  }
+
+  bool _recoverInterruptedTasks(Set<String> taskIds, DateTime interruptedAt) {
+    var recovered = false;
+    for (var index = 0; index < _tasks.length; index += 1) {
+      final task = _tasks[index];
+      if (!taskIds.contains(task.id) || task.state != DownloadState.running) {
+        continue;
+      }
+      _tasks[index] = task.copyWith(
+        state: DownloadState.paused,
+        pausedAt: interruptedAt,
+        clearFinishedAt: true,
+        currentSpeedBytesPerSecond: 0,
+        error: '任务因应用退出中断，已暂停，可继续下载。',
+      );
+      recovered = true;
+    }
+    return recovered;
   }
 
   String? _nextQueuedTaskId() {
@@ -817,17 +1059,55 @@ class DownloadController {
     _tasks[index] = update(_tasks[index]);
   }
 
-  Future<void> _save() {
+  Future<void> _save({bool forceCanonical = false}) {
     final snapshot = List<DownloadTask>.of(_tasks);
-    _saveQueue = _saveQueue
-        .catchError((_) {})
-        .then((_) => _store.save(snapshot));
+    final backend = _rustBackend;
+    final useCanonical =
+        backend != null && (forceCanonical || _canonicalPersistenceReady);
+    _saveQueue = _saveQueue.catchError((_) {}).then((_) async {
+      if (!useCanonical) {
+        await _store.save(
+          snapshot,
+          deletedTaskIds: Map<String, int>.of(_deletedTaskIds),
+        );
+        return;
+      }
+      // 作者: long
+      // Rust queue.json 是 native 任务的 canonical 存储；每次投影只 upsert 当前支持的
+      // 任务，并将删除 tombstone 写入 Rust，防止迟到进度回调重新生成已删除任务。
+      backend.upsertTasks(snapshot.where(backend.supportsTask));
+      for (final id in _deletedTaskIds.keys) {
+        try {
+          backend.remove(id);
+        } on Object {
+          // native 任务可能正处于终态写回；tombstone 会在下一次投影继续尝试。
+        }
+      }
+      await _store.saveMobileProjection(snapshot);
+    });
     return _saveQueue;
+  }
+
+  void _purgeRustTombstones(RustQueueBackend backend) {
+    for (final id in _deletedTaskIds.keys) {
+      try {
+        backend.remove(id);
+      } on Object {
+        // native 文件可能暂时被运行句柄占用；tombstone 会继续阻止本次及后续导入。
+      }
+    }
   }
 
   void _emit() {
     _onChanged?.call();
   }
+}
+
+class _ResolvedRuntimeTask {
+  const _ResolvedRuntimeTask({required this.task, this.sftpCredential});
+
+  final DownloadTask task;
+  final MobileCredential? sftpCredential;
 }
 
 DateTime _startedAtForRun(DownloadTask task, DateTime now) {

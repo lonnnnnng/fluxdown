@@ -32,6 +32,7 @@
 - [第三方许可证清单](third-party-licenses.md)：项目自有许可证、主要直接依赖和移动端 GPL 风险边界。
 - [运维与安全](operations-security.md)：本地数据、凭据处理、第三方后端、许可证、隐私假设和排障入口。
 - [路线图](roadmap.md)：已有功能与各端差异、当前版本验证缺口，以及近期/中期/长期任务和验收标准。
+- [P2 阶段完成记录](p2-completion-20260927.md)：P2-01 至 P2-05 的实现边界、证据和未承诺能力。
 
 ## 当前产品面
 
@@ -40,7 +41,7 @@ FluxDown 是一个跨平台下载器工作区：
 - 桌面端：Windows、macOS、Linux，包含 CLI 和 Tauri + React GUI。
 - 移动端：Android 和 iPhone，使用 Flutter App。
 - 共享核心：Rust core crate 提供协议检测、任务模型、任务存储、队列运行器和桌面下载执行能力。
-- 移动 FFI：协议识别优先复用 Rust；native 库可用时 HTTP/HTTPS/WebDAV(S) 优先由 Rust 队列执行，HLS、Torrent/Magnet、ed2k 仍由 Dart/移动原生适配器执行。
+- 移动 FFI：协议识别优先复用 Rust；native 库可用时 HTTP/HTTPS/WebDAV(S)/HLS 和完成 metadata 选择的 Torrent/Magnet 优先由 Rust 队列执行，metadata 获取、SFTP 私钥和 ed2k 仍由 Dart/移动原生适配器执行。
 
 当前版本号为 `1.0.26`，补强 Android Release 协议验收取证、Torrent/Magnet 校验和 macOS GUI 回归记录。公开 Assets 精简为 12 项（10 个上传文件与 2 个自动源码包），内部 manifest 继续做上传前校验，但不再在 Release Notes 展示文件校验表格。内部调试、商店和 iOS 验证产物仍保留在 Actions Artifacts。发布流水线只允许手动选择 `run_mode=package` 或 `run_mode=release`，普通代码推送和 `v*` 标签推送都不会自动执行。各次构建与运行证据见 [下载验证状态](download-verification.md)。
 
@@ -56,7 +57,7 @@ FluxDown 是一个跨平台下载器工作区：
 - 设置页提供下载保存位置、并发下载数、下载线程数、自动重试数和最大下载网速。
 - 下载执行逻辑接入并发排队、线程数、失败重试和可选限速配置。
 - Torrent/Magnet 在获取 metadata 后使用真实文件名；移动端支持多文件选择和文件夹详情，桌面 CLI/Tauri command 支持按文件编号选择。桌面详情已有 tracker/peer/会话速率；运行时分文件进度 UI 与轮询竞态修复纳入 `1.0.16`。
-- CLI JSON 输出、命令错误、桌面属性页和任务错误展示会脱敏 URL 用户名和密码，原始链接仍保留用于下载和复制。
+- CLI JSON 输出、命令错误、桌面属性页和任务错误展示会脱敏 URL 用户名和密码；桌面/CLI 可用系统凭据库引用避免新任务把密码写入队列，Android/iOS 设置页也可通过 Keystore/Keychain 保存并选择凭据引用。移动端密码引用通过 Rust FFI 或 Dart 运行时临时使用，旧 URL 凭据仍保留用于下载和复制。
 - CLI 和桌面端会把另存文件名规范化为单文件名，避免异常文件名写出保存目录。
 - 桌面队列默认使用平台原生数据目录，macOS 会从旧版 `~/.local/share/fluxdown/queue.json` 兼容迁移到 `~/Library/Application Support/FluxDown/queue.json`。
 - Android 真机已补充本地协议资源和媒体级 HLS/torrent/magnet 前台 App 验证报告。

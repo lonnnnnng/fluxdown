@@ -9,6 +9,7 @@ import 'package:fluxdown_mobile/src/download_defaults.dart';
 import 'package:fluxdown_mobile/src/download_failure.dart';
 import 'package:fluxdown_mobile/src/download_task.dart';
 import 'package:fluxdown_mobile/src/mobile_downloader.dart';
+import 'package:fluxdown_mobile/src/mobile_credential_store.dart';
 import 'package:fluxdown_mobile/src/mobile_ftp.dart';
 import 'package:fluxdown_mobile/src/mobile_sftp.dart';
 import 'package:fluxdown_mobile/src/mobile_smb.dart';
@@ -400,18 +401,206 @@ void main() {
         source: 'https://example.com/archive.zip',
         outputFolder: tempDir.path,
       );
-      await store.save([task]);
+      await store.save([task], deletedTaskIds: {'removed-task': 123});
 
       final raw = await existingFile.readAsString();
       expect(raw, contains('https://example.com/archive.zip'));
-      expect(jsonDecode(raw), isA<List<Object?>>());
-      final entries = existingFile.parent
-          .listSync()
-          .whereType<File>()
-          .map((file) => p.basename(file.path))
-          .toList();
-      expect(entries, ['queue.json']);
+      final envelope = jsonDecode(raw) as Map<String, Object?>;
+      expect(envelope['schemaVersion'], mobileQueueSchemaVersion);
+      expect(envelope['tasks'], isA<List<Object?>>());
+      expect(envelope['deletedTaskIds'], {'removed-task': 123});
+      final entries =
+          existingFile.parent
+              .listSync()
+              .whereType<File>()
+              .map((file) => p.basename(file.path))
+              .toList()
+            ..sort();
+      expect(entries, ['queue.json', 'queue.json.lock']);
       expect((await store.load()).single.id, task.id);
+      final snapshot = await store.loadSnapshot();
+      expect(snapshot.deletedTaskIds, {'removed-task': 123});
+    } finally {
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test(
+    'mobile task store preserves the queue when the destination is unusable',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'fluxdown_mobile_store_failure_test_',
+      );
+      final store = TaskStore(baseDirectory: tempDir);
+      final queueParent = Directory(p.join(tempDir.path, 'fluxdown'));
+      final queueTarget = Directory(p.join(queueParent.path, 'queue.json'));
+      final sentinel = File(p.join(queueTarget.path, 'sentinel.txt'));
+      await queueTarget.create(recursive: true);
+      await sentinel.writeAsString('keep-existing-state');
+
+      try {
+        final task = DownloadTask.create(
+          source: 'https://example.com/unwritable.bin',
+          outputFolder: tempDir.path,
+        );
+
+        // 作者: long
+        // 目标路径被目录占用时，原子 rename 必须失败并保留旧目录；临时文件也要在 finally 中清掉，
+        // 防止磁盘写入异常把下一次启动变成半套队列或残留临时快照。
+        await expectLater(
+          store.save([task]),
+          throwsA(isA<FileSystemException>()),
+        );
+        expect(await sentinel.readAsString(), 'keep-existing-state');
+        final tempFiles = queueParent
+            .listSync()
+            .whereType<File>()
+            .map((file) => p.basename(file.path))
+            .where((name) => name.startsWith('.queue.json.'));
+        expect(tempFiles, isEmpty);
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
+
+  test('mobile dual-queue migration restores a pending backup', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_migration_backup_test_',
+    );
+    final store = TaskStore(baseDirectory: tempDir);
+    final flutterFile = await store.queueFile;
+    final rustFile = File(p.join(tempDir.path, 'fluxdown', 'rust-queue.json'));
+    await flutterFile.parent.create(recursive: true);
+    await flutterFile.writeAsString(
+      '{"schemaVersion":1,"tasks":[{"id":"flutter-old"}]}',
+    );
+    await rustFile.writeAsString(
+      '{"schema_version":1,"tasks":[{"id":"rust-old"}]}',
+    );
+
+    try {
+      await store.beginMigrationBackup(rustQueuePath: rustFile.path);
+      await flutterFile.writeAsString('partial flutter migration');
+      await rustFile.writeAsString('partial rust migration');
+
+      final recovered = await store.recoverPendingMigration(
+        rustQueuePath: rustFile.path,
+      );
+      expect(recovered, isTrue);
+      expect(await flutterFile.readAsString(), contains('flutter-old'));
+      expect(await rustFile.readAsString(), contains('rust-old'));
+
+      // 已恢复事务会被标记为 recovered，不能在下一次启动时重复回滚用户的新写入。
+      await flutterFile.writeAsString('new flutter state');
+      expect(
+        await store.recoverPendingMigration(rustQueuePath: rustFile.path),
+        isFalse,
+      );
+      expect(await flutterFile.readAsString(), 'new flutter state');
+    } finally {
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test(
+    'migration backup removes a peer file that did not exist before migration',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'fluxdown_mobile_migration_missing_peer_test_',
+      );
+      final store = TaskStore(baseDirectory: tempDir);
+      final rustFile = File(
+        p.join(tempDir.path, 'fluxdown', 'rust-queue.json'),
+      );
+      final flutterFile = await store.queueFile;
+      await flutterFile.parent.create(recursive: true);
+      await flutterFile.writeAsString('{"schemaVersion":1,"tasks":[]}');
+
+      try {
+        final backup = await store.beginMigrationBackup(
+          rustQueuePath: rustFile.path,
+        );
+        await rustFile.writeAsString('created during migration');
+        await backup.restore();
+        expect(await rustFile.exists(), isFalse);
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'mobile task store reads legacy arrays and rejects future schemas',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'fluxdown_mobile_schema_test_',
+      );
+      final store = TaskStore(baseDirectory: tempDir);
+      final file = await store.queueFile;
+      await file.parent.create(recursive: true);
+      final task = DownloadTask.create(
+        source: 'https://example.com/legacy.bin',
+        outputFolder: tempDir.path,
+      );
+
+      try {
+        await file.writeAsString(jsonEncode([task.toJson()]));
+        expect((await store.load()).single.id, task.id);
+
+        await file.writeAsString(
+          jsonEncode({
+            'schemaVersion': mobileQueueSchemaVersion + 1,
+            'tasks': [],
+          }),
+        );
+        await expectLater(store.load(), throwsFormatException);
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
+
+  test('reads the Rust canonical queue and skips future task states', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fluxdown_mobile_rust_canonical_test_',
+    );
+    final store = TaskStore(baseDirectory: tempDir);
+    final rustFile = File(p.join(tempDir.path, 'rust-queue.json'));
+    await rustFile.writeAsString(
+      jsonEncode({
+        'schema_version': rustQueueSchemaVersion,
+        'tasks': [
+          {
+            'id': 'rust-http',
+            'source': 'https://example.com/file.bin',
+            'protocol': 'https',
+            'state': 'queued',
+            'output_dir': tempDir.path,
+            'file_name': 'file.bin',
+            'created_at_ms': 1000,
+            'updated_at_ms': 1000,
+            'downloaded_bytes': 0,
+            'current_speed_bytes_per_second': 0,
+          },
+          {
+            'id': 'future-state',
+            'source': 'https://example.com/future.bin',
+            'protocol': 'https',
+            'state': 'awaiting-metadata-v2',
+            'output_dir': tempDir.path,
+            'file_name': 'future.bin',
+          },
+        ],
+        'deleted_task_ids': {'deleted-before-restart': 123},
+      }),
+    );
+
+    try {
+      final snapshot = await store.loadRustSnapshot(rustFile.path);
+      expect(snapshot, isNotNull);
+      expect(snapshot!.tasks.single.id, 'rust-http');
+      expect(snapshot.deletedTaskIds, {'deleted-before-restart': 123});
     } finally {
       await tempDir.delete(recursive: true);
     }
@@ -461,10 +650,181 @@ void main() {
       expect(controller.tasks.single.totalBytes, isNull);
       expect(controller.tasks.single.finishedAt, isNull);
       expect(controller.tasks.single.error, isNull);
+      expect(controller.tasks.single.handoffBackend, 'android-external-app');
+      expect(controller.tasks.single.handedOffAt, isNotNull);
+      final restored = DownloadTask.fromJson(controller.tasks.single.toJson());
+      expect(restored.state, DownloadState.handedOff);
+      expect(restored.handoffBackend, 'android-external-app');
+      expect(restored.handedOffAt, controller.tasks.single.handedOffAt);
+
+      await controller.resetForRedownload(task.id);
+      expect(controller.tasks.single.state, DownloadState.queued);
+      expect(controller.tasks.single.handoffBackend, isNull);
+      expect(controller.tasks.single.handedOffAt, isNull);
     } finally {
       await tempDir.delete(recursive: true);
     }
   });
+
+  test(
+    'mobile controller reports missing secure credentials before downloading',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'fluxdown_mobile_credential_reference_test_',
+      );
+      final controller = DownloadController(
+        store: TaskStore(baseDirectory: tempDir),
+      );
+
+      try {
+        final task = await controller.add(
+          source: 'https://example.com/private.bin',
+          outputFolder: tempDir.path,
+          credentialRef: 'office-http',
+        );
+
+        await controller.start(task.id);
+
+        expect(controller.tasks.single.state, DownloadState.failed);
+        expect(controller.tasks.single.error, contains('移动端凭据不可用'));
+        expect(controller.tasks.single.error, isNot(contains('password')));
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'mobile controller resolves secure credentials only for the runtime URL',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'fluxdown_mobile_credential_runtime_test_',
+      );
+      final runner = _FakeMobileDownloadRunner();
+      final vault = _FakeMobileCredentialVault({
+        'office-http': const MobileCredential(
+          username: 'alice',
+          password: 'p@ss:1',
+        ),
+      });
+      final controller = DownloadController(
+        store: TaskStore(baseDirectory: tempDir),
+        runner: runner,
+        credentialVault: vault,
+      );
+
+      try {
+        final task = await controller.add(
+          source: 'https://example.com/private.bin',
+          outputFolder: tempDir.path,
+          credentialRef: 'office-http',
+        );
+
+        await controller.start(task.id);
+
+        expect(runner.lastSource, isNotNull);
+        final runtimeUri = Uri.parse(runner.lastSource!);
+        expect(runtimeUri.userInfo, contains('alice'));
+        expect(runtimeUri.userInfo, contains('p%40ss%3A1'));
+        expect(
+          controller.tasks.single.source,
+          'https://example.com/private.bin',
+        );
+        expect(controller.tasks.single.credentialRef, 'office-http');
+        expect(
+          controller.tasks.single.toJson().toString(),
+          isNot(contains('p@ss:1')),
+        );
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'mobile controller passes SFTP private keys only to the runtime runner',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'fluxdown_mobile_sftp_key_runtime_test_',
+      );
+      final runner = _FakeMobileDownloadRunner();
+      const pem = '''-----BEGIN OPENSSH PRIVATE KEY-----
+test-private-key
+-----END OPENSSH PRIVATE KEY-----''';
+      final vault = _FakeMobileCredentialVault({
+        'office-sftp-key': const MobileCredential.privateKey(
+          username: 'alice',
+          privateKeyPem: pem,
+          passphrase: 'secret-passphrase',
+        ),
+      });
+      final controller = DownloadController(
+        store: TaskStore(baseDirectory: tempDir),
+        runner: runner,
+        credentialVault: vault,
+      );
+
+      try {
+        final task = await controller.add(
+          source: 'sftp://example.com/incoming/file.bin',
+          outputFolder: tempDir.path,
+          credentialRef: 'office-sftp-key',
+        );
+
+        await controller.start(task.id);
+
+        expect(Uri.parse(runner.lastSource!).userInfo, 'alice');
+        expect(runner.lastSftpCredential?.username, 'alice');
+        expect(runner.lastSftpCredential?.privateKeyPem, pem);
+        expect(runner.lastSftpCredential?.passphrase, 'secret-passphrase');
+        expect(controller.tasks.single.source, task.source);
+        expect(
+          controller.tasks.single.toJson().toString(),
+          isNot(contains(pem)),
+        );
+        expect(
+          controller.tasks.single.toJson().toString(),
+          isNot(contains('secret-passphrase')),
+        );
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'mobile controller reports a missing ed2k handler without retrying',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'fluxdown_mobile_ed2k_missing_handler_test_',
+      );
+      final controller = DownloadController(
+        store: TaskStore(baseDirectory: tempDir),
+        runner: MobileDownloadRunner.withLauncher(
+          ed2kLauncher: (_) async => false,
+        ),
+      );
+
+      try {
+        final task = await controller.add(
+          source: 'ed2k://|file|example.iso|123|ABCDEF|/',
+          outputFolder: tempDir.path,
+        );
+
+        await controller.start(task.id, maxRetries: 3);
+
+        expect(controller.tasks.single.state, DownloadState.failed);
+        expect(
+          controller.tasks.single.error,
+          contains('没有已安装的应用可以处理这个 ed2k 链接'),
+        );
+        expect(controller.tasks.single.handoffBackend, isNull);
+        expect(controller.tasks.single.handedOffAt, isNull);
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    },
+  );
 
   test(
     'mobile controller runs queued tasks with bounded concurrency',
@@ -2060,20 +2420,48 @@ seg-2.ts
   });
 }
 
+class _FakeMobileCredentialVault implements MobileCredentialVault {
+  _FakeMobileCredentialVault(this.values);
+
+  final Map<String, MobileCredential> values;
+
+  @override
+  Future<void> setCredential(
+    String reference,
+    MobileCredential credential,
+  ) async {
+    values[reference] = credential;
+  }
+
+  @override
+  Future<MobileCredential?> getCredential(String reference) async =>
+      values[reference];
+
+  @override
+  Future<void> deleteCredential(String reference) async {
+    values.remove(reference);
+  }
+}
+
 class _FakeMobileDownloadRunner extends MobileDownloadRunner {
   var active = 0;
   var maxActive = 0;
   final speedLimitKbpsValues = <int>[];
   final threadCountValues = <int>[];
+  String? lastSource;
+  MobileCredential? lastSftpCredential;
 
   @override
   Future<DownloadTask> download(
     DownloadTask task, {
     int speedLimitKbps = 0,
     int threadCount = defaultDownloadThreadCount,
+    MobileCredential? sftpCredential,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
+    lastSource = task.source;
+    lastSftpCredential = sftpCredential;
     speedLimitKbpsValues.add(speedLimitKbps);
     threadCountValues.add(threadCount);
     active += 1;
@@ -2108,6 +2496,7 @@ class _FlakyMobileDownloadRunner extends MobileDownloadRunner {
     DownloadTask task, {
     int speedLimitKbps = 0,
     int threadCount = defaultDownloadThreadCount,
+    MobileCredential? sftpCredential,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
@@ -2139,6 +2528,7 @@ class _ThrowingMobileDownloadRunner extends MobileDownloadRunner {
     DownloadTask task, {
     int speedLimitKbps = 0,
     int threadCount = defaultDownloadThreadCount,
+    MobileCredential? sftpCredential,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
@@ -2163,6 +2553,7 @@ class _CancellableMobileDownloadRunner extends MobileDownloadRunner {
     DownloadTask task, {
     int speedLimitKbps = 0,
     int threadCount = defaultDownloadThreadCount,
+    MobileCredential? sftpCredential,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
@@ -2198,6 +2589,7 @@ class _LateResultAfterPauseMobileDownloadRunner extends MobileDownloadRunner {
     DownloadTask task, {
     int speedLimitKbps = 0,
     int threadCount = defaultDownloadThreadCount,
+    MobileCredential? sftpCredential,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
@@ -2239,6 +2631,7 @@ class _ResumeAfterPauseMobileDownloadRunner extends MobileDownloadRunner {
     DownloadTask task, {
     int speedLimitKbps = 0,
     int threadCount = defaultDownloadThreadCount,
+    MobileCredential? sftpCredential,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {
@@ -2290,6 +2683,7 @@ class _PauseThenFinishMobileDownloadRunner extends MobileDownloadRunner {
     DownloadTask task, {
     int speedLimitKbps = 0,
     int threadCount = defaultDownloadThreadCount,
+    MobileCredential? sftpCredential,
     TorrentMetadataSelector? onTorrentMetadata,
     required FutureOr<void> Function(DownloadTask task) onProgress,
   }) async {

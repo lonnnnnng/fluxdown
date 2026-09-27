@@ -17,8 +17,8 @@ class RustQueueRunResult {
 
 /// 移动端 Rust 队列的迁移适配层。
 ///
-/// 该类使用独立的 Rust queue.json，不直接覆盖 Flutter camelCase 队列；
-/// 这样 Rust 后端异常时仍可安全回退 Dart 控制器，等 schema 转换完成后再接入生产入口。
+/// Flutter 队列仍负责承载 handedOff 等移动端专属状态；可由 Rust 执行的任务
+/// 会通过完整字段导入 native queue.json，再以任务 ID 幂等对齐，避免重启后重复入队。
 class RustQueueBackend {
   RustQueueBackend({required this.core, required this.storePath});
 
@@ -27,10 +27,20 @@ class RustQueueBackend {
 
   bool supportsTask(DownloadTask task) {
     // 作者: long
-    // 先迁移已在 Android 真机和 iOS 模拟器验证过的 HTTP/WebDAV 家族；
-    // HLS 转封装、Torrent/Magnet 文件选择和 ed2k 外部移交仍由移动适配器负责。
+    // Rust 队列覆盖 HTTP/WebDAV 家族、HLS VOD，以及已经完成 metadata 选择的
+    // Torrent/Magnet。移动端仍用 libtorrent 负责二次确认和文件树选择，确认结果写入任务后
+    // 再交给 Rust 执行，避免在 metadata 选择完成前改变用户行为。
     return switch (task.protocol) {
-      'http' || 'https' || 'webdav' || 'webdavs' => true,
+      'http' ||
+      'https' ||
+      'webdav' ||
+      'webdavs' ||
+      'ftp' ||
+      'ftps' ||
+      'sftp' ||
+      'smb' ||
+      'm3u8' => true,
+      'torrent' || 'magnet' => task.torrentFiles.isNotEmpty,
       _ => false,
     };
   }
@@ -43,7 +53,19 @@ class RustQueueBackend {
     final existing = list().map((task) => task.id).toSet();
     for (final task in tasks) {
       if (supportsTask(task) && !existing.contains(task.id)) {
-        enqueue(task);
+        core.queueUpsert(storePath, _taskPayload(task));
+      }
+    }
+  }
+
+  /// 将冲突合并后的完整快照写回 Rust 队列。
+  ///
+  /// `ensureTasks` 只负责补齐缺失任务，不能覆盖 native 中较旧的同 ID 快照；
+  /// 迁移事务需要显式 upsert，才能把 Flutter 侧较新的设置、状态和进度同步回去。
+  void upsertTasks(Iterable<DownloadTask> tasks) {
+    for (final task in tasks) {
+      if (supportsTask(task)) {
+        core.queueUpsert(storePath, _taskPayload(task));
       }
     }
   }
@@ -63,6 +85,7 @@ class RustQueueBackend {
     int threadCount = 16,
     int retryAttempts = 3,
     int speedLimitKbps = 0,
+    Map<String, Map<String, String>> runtimeCredentials = const {},
     Duration pollInterval = const Duration(milliseconds: 200),
     FutureOr<void> Function(List<FluxDownCoreTask> tasks)? onProgress,
   }) async {
@@ -71,6 +94,7 @@ class RustQueueBackend {
       'threadCount': threadCount,
       'retryAttempts': retryAttempts,
       'speedLimitKbps': speedLimitKbps,
+      'runtimeCredentials': runtimeCredentials,
     });
     final runId = handle['runId'];
     if (runId is! String || runId.isEmpty) {
@@ -85,6 +109,7 @@ class RustQueueBackend {
     int threadCount = 16,
     int retryAttempts = 3,
     int speedLimitKbps = 0,
+    Map<String, String>? runtimeCredential,
     Duration pollInterval = const Duration(milliseconds: 200),
     FutureOr<void> Function(List<FluxDownCoreTask> tasks)? onProgress,
   }) async {
@@ -92,6 +117,8 @@ class RustQueueBackend {
       'threadCount': threadCount,
       'retryAttempts': retryAttempts,
       'speedLimitKbps': speedLimitKbps,
+      if (runtimeCredential != null)
+        'runtimeCredentials': {taskId: runtimeCredential},
     });
     final runId = handle['runId'];
     if (runId is! String || runId.isEmpty) {
@@ -138,6 +165,7 @@ class RustQueueBackend {
       'outputDir': task.outputFolder,
       'fileName': task.fileName,
       'expectedSha256': task.expectedSha256,
+      'credentialRef': task.credentialRef,
       'torrentFileIndices': task.selectedTorrentFileIndexes,
       'torrentName': task.torrentName,
       'torrentFiles': task.torrentFiles
@@ -153,6 +181,20 @@ class RustQueueBackend {
           .toList(growable: false),
       'hlsVariantIndex': task.hlsVariantIndex,
       'hlsKeepTransportStream': task.hlsKeepTransportStream,
+      'state': task.state.name,
+      'downloadedBytes': task.downloadedBytes,
+      'totalBytes': task.totalBytes,
+      'currentSpeedBytesPerSecond': task.currentSpeedBytesPerSecond,
+      'error': task.error,
+      'speedLimitMbps': task.speedLimitMbps,
+      'createdAtMs': task.createdAt.millisecondsSinceEpoch,
+      'updatedAtMs': task.updatedAt.millisecondsSinceEpoch,
+      'startedAtMs': task.startedAt?.millisecondsSinceEpoch,
+      'finishedAtMs': task.finishedAt?.millisecondsSinceEpoch,
+      'handoffBackend': task.handoffBackend,
+      'handedOffAtMs': task.handedOffAt?.millisecondsSinceEpoch,
     };
   }
+
+  Map<String, Object?> _taskPayload(DownloadTask task) => _requestFor(task);
 }

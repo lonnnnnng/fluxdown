@@ -3,6 +3,9 @@ import 'dart:io';
 
 import 'package:dartssh2/dartssh2.dart';
 
+import 'mobile_credential_store.dart';
+import 'mobile_sftp_host_key.dart';
+
 class SftpTransferSpec {
   const SftpTransferSpec({
     required this.host,
@@ -56,7 +59,28 @@ class MobileSftpClient {
   final SSHClient _client;
   final SftpClient _sftp;
 
-  static Future<MobileSftpClient> connect(SftpTransferSpec spec) async {
+  static Future<MobileSftpClient> connect(
+    SftpTransferSpec spec, {
+    String? knownHosts,
+    MobileCredential? credential,
+  }) async {
+    final hostPolicy = knownHosts?.trim().isNotEmpty == true
+        ? MobileSftpKnownHosts.parse(knownHosts!)
+        : null;
+    List<SSHKeyPair>? identities;
+    if (credential?.usesPrivateKey == true) {
+      try {
+        // 作者: long
+        // 私钥只在建立本次 SSH 会话前从安全存储解密到内存，dartssh2 负责解析
+        // OpenSSH/RSA/EC PEM；解析失败统一转成不泄露私钥内容的可操作错误。
+        identities = SSHKeyPair.fromPem(
+          credential!.privateKeyPem!,
+          credential.passphrase,
+        );
+      } on Object {
+        throw const FormatException('SFTP 私钥无法解析或口令错误');
+      }
+    }
     final socket = await SSHSocket.connect(
       spec.host,
       spec.port,
@@ -65,7 +89,18 @@ class MobileSftpClient {
     final client = SSHClient(
       socket,
       username: spec.username,
-      onPasswordRequest: () => spec.password,
+      identities: identities,
+      onVerifyHostKey: hostPolicy == null
+          ? null
+          : (type, fingerprint) => hostPolicy.verify(
+              host: spec.host,
+              port: spec.port,
+              keyType: type,
+              fingerprint: fingerprint,
+            ),
+      onPasswordRequest: credential?.usesPrivateKey == true
+          ? null
+          : () => spec.password,
     );
     final sftp = await client.sftp();
     return MobileSftpClient._(client, sftp);

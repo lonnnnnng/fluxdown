@@ -1,6 +1,6 @@
 # 路线图
 
-核对日期：2026-09-26。源码基线：`main` / 当前工作树（P1-05 错误处理与异常恢复）；当前发行版：[`1.0.26`](releases/1.0.26.md)。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
+核对日期：2026-09-27。源码基线：`main` / 当前工作树（P2-05 凭据与连接安全，桌面端与移动端 SFTP known_hosts 配置入口已补齐）；当前发行版：[`1.0.26`](releases/1.0.26.md)。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
 
 状态口径：**已实现**表示有实际代码和入口；**部分实现**表示仍有端侧差异或功能缺口；**待验证**表示缺少目标版本、目标设备的运行证据；**规划**表示尚未交付。构建成功、模拟数据 UI 测试、历史真机通过不能互相替代。
 
@@ -33,14 +33,14 @@
 | 数量与速度设置 | 数字输入配置并发、线程、重试、限速并持久化。 | 数字输入配置并发、线程、重试、限速并持久化。 | 由命令参数配置；默认值和参数范围不应直接等同 GUI。 |
 | Torrent 多文件选择 | metadata 解析后在新建弹框展示文件树并支持多选，保存文件编号；详情支持已落盘文件打开。 | metadata 解析后弹出多文件选择，保存选择结果，支持文件夹详情与已落盘文件预览。 | 重复传入 `--torrent-file-index` 选择文件。 |
 | Torrent 详情 | 文件清单、逐文件已下载量/百分比、tracker、peer、会话速度/ETA；运行中逐文件速度按轮询样本计算，静态 metadata 进度和速度显示未知。 | 文件清单与任务总进度；下载中逐文件完成字节未知，尚无真实逐文件速度。 | 当前以任务级输出为主，无对应详情命令。 |
-| HLS | 清晰度 variant 选择、分片缓存恢复、可选保留 TS；默认尝试 FFmpeg 转 MP4，失败保留 TS。 | VOD、AES-128、fMP4、BYTERANGE、TS 转 MP4；移动端新建任务可指定 variant/保留 TS。 | CLI 已提供 `--hls-variant-index` 和 `--hls-keep-ts`；FFI 入队可保存 HLS 字段，但移动端实际下载仍由 Dart 适配器执行，尚未迁移到 FFI `queueRun`。 |
+| HLS | 清晰度 variant 选择、分片缓存恢复、可选保留 TS；默认尝试 FFmpeg 转 MP4，失败保留 TS。 | VOD、AES-128、fMP4、BYTERANGE、TS 转 MP4；移动端新建任务可指定 variant/保留 TS。 | CLI、Rust FFI 和移动端已共享 HLS 字段；native 库可用时移动队列走 Rust，Android Redmi 真机已完成本地 HLS TS 与 variant/fMP4 输出验证；iPhone 真机和更长/复杂媒体矩阵仍待目标环境。 |
 | 平台集成与诊断 | 托盘、关窗驻留、单实例、完成/失败通知、可关闭的剪贴板监听、窗口尺寸恢复、更新检查与安装包下载。 | 有原生扫码、文件选择、打开/分享入口；不等于已有系统级长期后台下载。 | `detect/support/doctor` 用于识别及后端诊断。 |
 
 ### 工程与发行
 
-- **共享边界已明确**：桌面 GUI/CLI 共用 Rust core。移动端协议识别 FFI 优先、Dart 回退；native 库可用时 HTTP/HTTPS/WebDAV(S) 优先走 Rust 队列，其他协议仍由 Dart/移动原生适配器执行。C ABI、JSON 解码、内存释放、iOS Runner 链接已落地，不代表全部协议已完成下载引擎迁移。
-- **本地数据可靠性**：桌面使用平台原生数据目录，兼容 macOS 旧队列路径；Rust 队列已有跨进程文件锁和原子替换，移动队列已有原子保存。后续聚焦格式迁移与故障恢复。
-- **输出安全**：CLI/桌面已做文件名规范化及 URL 凭据展示脱敏；原始队列仍保留真实链接用于下载和复制，不等于凭据已加密存储。
+- **共享边界已明确**：桌面 GUI/CLI 共用 Rust core。移动端协议识别 FFI 优先、Dart 回退；native 库可用时 HTTP/HTTPS/WebDAV(S)/HLS 和已完成 metadata 选择的 Torrent/Magnet 优先走 Rust 队列，metadata 获取、SFTP 私钥和 ed2k 外部移交仍由 Dart/移动原生适配器执行。C ABI、JSON 解码、内存释放、iOS Runner 链接和运行时密码凭据透传已落地。
+- **本地数据可靠性**：桌面使用平台原生数据目录，兼容 macOS 旧队列路径；Rust canonical 队列使用跨进程旁路锁、原子替换和 `deleted_task_ids` tombstone，Flutter 仅保存 `handedOff` 投影。旧双队列迁移有前快照、pending journal 恢复和按任务时间戳合并；P2-03 的单一活动队列收敛已完成。
+- **输出安全**：CLI/桌面已做文件名规范化及 URL 凭据展示脱敏；桌面/CLI 已支持 OS 系统凭据库引用，移动端也已通过 Keystore/Keychain 保存引用对应的凭据。使用引用的任务只在队列保存 `credential_ref`，移动端密码凭据通过 Rust FFI 或 Dart 运行时临时使用，私钥仍只在 Dart SFTP 握手期间加载；旧 URL 凭据任务仍保留真实链接用于下载和复制。
 - **测试基础**：已有 Rust core/CLI 队列与协议测试、Flutter 控制器/UI/FFI 测试、桌面隔离 UI 回归、跨平台 HTTP/Range smoke、可复用协议资源和真机报告。后续按平台与异常场景缺口补充用例。
 - **发行策略**：只有明确打包/发版后才手动运行流水线；后续公开 10 个上传文件，加 GitHub 自动源码包共 12 项。CLI 三平台压缩包和两份许可说明继续保留，manifest 仅用于内部大小及 SHA-256 校验，不在 Release Notes 展示文件校验表格。内部调试、商店和 iOS 验证产物保留 Actions Artifacts；已有资产白名单、缺包、大小及 SHA-256 回验。
 - **包体与许可证**：Android 沿用 Flutter Release 默认 R8/资源压缩；已配置 Rust 链接裁剪、Dart 符号分离、未使用字体清理和归档压缩，保留协议能力和 Android ABI 范围。已有 MIT LICENSE、主要第三方许可证清单与随包文本，完整传递依赖审计仍待补齐。
@@ -52,7 +52,7 @@
 
 | 平台 | `1.0.25` 已有证据 | 历史运行证据 | 仍待补验 |
 | --- | --- | --- | --- |
-| Android | `1.0.25 (26)` Release APK 已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）安装并正常启动；12 项协议 Release 自检完成，11 项真实落盘并做大小/SHA-256 校验，ed2k 按无 handler 预期失败。 | 同设备历史已通过暂停、继续、重启恢复、Torrent/Magnet metadata 多文件选择和任务详情。 | 当前 Release 的 FFI 实际加载、扫码、目录权限、HLS variant/TS 及前台手工 UI 仍需目标设备条件补验；Debug 包的 16KB 对齐警告不能替代 Release 结论。 |
+| Android | 当前工作树 `1.0.26 (27)` Release APK（`144,815,221` bytes，SHA-256 `0fda95829c2f5acfce3462d97b649e9d8b9511ac34cd878a023925aa6c3853fe`）已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）安装并正常启动；Rust FFI 真机 smoke 覆盖 HTTP、HLS TS、master variant/fMP4，四个任务均完成。历史 `1.0.25` Release 另有 11 类协议真实落盘证据。 | 同设备已通过暂停、继续、重启恢复、Torrent/Magnet metadata 多文件选择和任务详情。 | ed2k 仍按外部 handler 边界；扫码、目录权限、长时间后台和正式签名分发按环境补验。 |
 | iOS simulator | `FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration` 已通过当前工作树：HTTP、fMP4 HLS、BYTERANGE HLS 均完成并输出 MP4 头；构建与 FFI 导出检查通过。 | App 内 HTTP、fMP4/BYTERANGE/TS HLS smoke。 | 队列和设置页手工交互、当前包 FFI 实际加载的完整证据；TS/variant 配置和 iPhone 真机流程仍待目标环境。 |
 | iPhone 真机 | unsigned device app 构建及 FFI 导出检查；没有签名 IPA。 | 尚无完整真机验收。 | 签名安装后扫码、目录选择、打开/分享、HTTP/HLS/Torrent/Magnet 和恢复流程。 |
 | macOS 桌面 | `npm run verify:macos` 与当前 `.app` 前台 GUI 协议回归均通过；DMG 为 `FluxDown_1.0.25_aarch64.dmg`，GUI 11 项真实落盘并校验 SHA-256，ed2k 完成系统移交。 | 2026-08-05 原生 GUI 12 类协议流程。 | 当前版托盘、更新和更多手工交互仍可继续补验；本轮 GUI 脚本生成的结果见 `docs/artifacts/macos-desktop-gui-protocol-e2e-20260926.json`。 |
@@ -68,7 +68,7 @@
 | --- | --- | --- | --- |
 | P1-01 | 当前发行版跨端验收 | Android `1.0.25` Release 协议矩阵、macOS 非 GUI 总验收已收口；iPhone 真机、Windows/Linux 本轮跳过，macOS 前台 GUI 仍待当前会话补验。 | 已完成可用环境的构建、启动、下载 smoke 和回归记录；剩余环境恢复后按同一资源和字段补验，不提前宣称全平台完成。 |
 | P1-02 | Torrent 文件夹体验补齐 | 桌面新建弹框文件树多选、真实文件名回写、运行中逐文件进度/采样速度、完成文件打开和路径安全校验已完成，并通过隔离 UI、Rust 测试和本地 tracker/seeder P2P 回归；仍缺原生 GUI 前台交互复验、移动端真实逐文件速度和选择重启恢复。 | 桌面与移动端选择结果可持久化、重启可恢复；按后端实际数据展示文件进度/速度，未知时明确显示未知；已落盘文件可打开；补齐原生 GUI、Android/iOS 运行证据。 |
-| P1-03 | HLS 配置跨端对齐 | 代码、core/移动自动化测试、iOS simulator 基础 HLS smoke 已完成；可配置 variant/TS 的 Android/iPhone App 内运行证据仍缺。 | 已达到代码和自动化测试标准；目标设备可用后补跑 variant/TS，不能用 FFI 识别测试替代。 |
+| P1-03 | HLS 配置跨端对齐 | 代码、core/移动自动化测试、Android Redmi 真机 variant/TS 队列下载、iOS simulator 基础 HLS smoke 已完成；iPhone 真机的 variant/TS 运行证据仍缺。 | Android 可配置 variant/TS 已由真实 FFI 队列落盘验证；iPhone 设备可用后补跑同一矩阵，不能用 FFI 识别测试替代。 |
 | P1-04 | 设置与保存位置一致性 | macOS 桌面前台已验证目录、并发、线程、重试、限速保存/回显和无效目录提示；移动临时目录权限问题已修复并通过自动化回归。 | 代码和可用环境验证完成；Windows/Linux/iPhone 的原生目录权限和并发限速仍按各自环境补验。 |
 | P1-05 | 错误处理与异常恢复 | 错误分类、可操作提示、不可恢复错误不重试、HLS 非瞬态错误不重试、截断保护、启动恢复和移动加载恢复均已由 core/CLI/桌面/Flutter 回归覆盖；本轮全 workspace 回归再次通过。 | 真实磁盘满、系统撤销目录权限、iOS/Android 后台被杀和无 peer 长时间运行仍需目标设备/实验室环境，属于外部验收而非代码缺口。 |
 
@@ -76,11 +76,11 @@
 
 | 编号 | 方向 | 交付条件 |
 | --- | --- | --- |
-| P2-01 | 移动下载引擎逐步收敛到 Rust | 已补非阻塞单任务/队列运行句柄、状态轮询、暂停/继续/重置/删除、句柄回收，以及队列并发、线程数、重试次数和限速参数透传；正式入口在 native 库可用时优先让 HTTP/HTTPS/WebDAV(S) 走 Rust，HLS/Torrent/Magnet/ed2k 仍走 Dart/原生适配器；Android 真机与 iOS simulator HTTP 小文件回归通过，库缺失/初始化失败回退 Dart。下一步是整队列 schema 迁移、更多协议逐项真机回归和剩余协议的能力对齐。 |
-| P2-02 | 系统后台下载 | Android foreground service/通知与系统限制适配；iOS 使用平台允许的后台策略并明确不支持的协议。锁屏、切后台、进程被回收后的行为分别实测，不承诺所有协议永久后台运行。 |
-| P2-03 | 队列格式演进 | 在已有文件锁/原子保存基础上增加版本化 schema、备份和迁移失败恢复；覆盖旧队列升级、并发修改与磁盘写入失败，避免丢任务或覆盖用户选择。 |
-| P2-04 | ed2k 外部客户端集成 | 增加明确的客户端选择、缺失提示和诊断；仅在外部客户端提供可用接口时接入状态回传，分别显示已移交、外部下载中与完成。 |
-| P2-05 | 凭据与连接安全 | 敏感认证信息与普通队列数据分离；补 SFTP 主机身份校验/密钥配置方案和兼容测试，明确日志脱敏范围及实验室自签证书开关边界。 |
+| P2-01 | 移动下载引擎逐步收敛到 Rust | **已完成（混合边界）**：非阻塞单任务/队列运行句柄、状态轮询、暂停/继续/重置/删除、句柄回收、并发/线程/重试/限速透传、canonical schema v2、tombstone、Dart 回退和运行时密码凭据均已落地。native 库可用时 HTTP/HTTPS/WebDAV(S)/HLS 与完成 metadata 选择的 Torrent/Magnet 走 Rust；metadata 获取、文件选择、SFTP 私钥和 ed2k 外部移交保留端侧适配器。Rust/FFI/Flutter 回归及 Android 三 ABI 真机 HTTP/HLS 队列验证通过。 |
+| P2-02 | 系统后台下载 | **已完成（平台能力边界）**：Android 使用 foreground service、通知 channel、运行统计和进度更新；iOS 使用 `beginBackgroundTask` 提供短时后台窗口。应用被系统回收后，启动恢复会把无句柄的 running 任务转为 paused/queued，不能承诺 iOS 永久后台或被 force-stop 后继续执行。 |
+| P2-03 | 队列格式演进 | **已完成**：Rust canonical schema v2、`deleted_task_ids` tombstone、旁路锁、原子回写、迁移前快照、`.queue-migration/manifest.json` 事务标记、启动恢复、按 `updatedAt` 冲突合并和全量 upsert 均已覆盖；未知状态不会降级成 queued。Rust core/FFI、Flutter analyze/test、canonical 回退读取和 Android 真机迁移/删除 tombstone/HLS 队列回归通过。 |
+| P2-04 | ed2k 外部客户端集成 | **已完成（移交通路边界）**：桌面优先调用 aMule `ed2k` CLI，缺失时使用系统 URL handler；Android/iOS 使用 `url_launcher`。成功移交统一落为 `handed-off`/`handedOff`，保存后端和时间，不冒充 `finished`；无 handler 明确失败，暂停/继续拒绝移交终态，显式重试才清理移交信息。第三方客户端的进度、完成回传、最终路径和客户端选择不在 FluxDown 可控范围内，因此不虚构为已实现。 |
+| P2-05 | 凭据与连接安全 | **已完成（支持边界）**：桌面/CLI 使用系统凭据库引用，支持 HTTP/HTTPS、WebDAV(S)、FTP(S)、SFTP、SMB；SFTP 支持 known_hosts、SSH agent 和单跳跳板，错误指纹不自动重试。移动端使用 Android Keystore/iOS Keychain 保存密码、SFTP 私钥和口令；密码凭据可通过 Rust FFI 运行时参数或 Dart 请求临时使用，私钥固定走 Dart SFTP 握手，任务 JSON 只保存引用。Android 真机和 iOS simulator 的私钥、known_hosts、错误指纹回归通过；移动端 ssh-agent、跳板机及 iOS 物理真机仍明确不支持/待环境补验。 |
 | P2-06 | 正式签名与合规分发 | 建立 Android 正式签名及升级兼容方案、Windows Authenticode、macOS 签名/公证、iOS 签名安装；补全传递依赖许可证材料、移动端 GPL 义务审查和发布阻断检查，再准备商店材料。 |
 
 当前正式签名边界：`1.0.17` Android APK 使用 `Android Debug` 测试证书，Windows 未做 Authenticode，macOS 为 ad-hoc，iOS 只提供构建验证包。脚本或 secrets 配置入口存在，不代表正式分发已就绪，详见 [发行说明](releases/1.0.17.md)。

@@ -3,11 +3,16 @@ use clap::{Parser, Subcommand};
 use fluxdown_core::{
     DEFAULT_DOWNLOAD_THREAD_COUNT, DEFAULT_QUEUE_CONCURRENCY, DEFAULT_RETRY_ATTEMPTS,
     DownloadEngine, DownloadOptions, DownloadRequest, DownloadState, QueueRunner,
-    QueueRunnerOptions, TaskStore, default_store_path, detect_protocol, doctor_report,
-    redact_url_credentials_in_text, runtime_support_status, validate_sha256_text,
+    QueueRunnerOptions, SftpJumpOptions, TaskStore, default_store_path, delete_credential,
+    detect_protocol, doctor_report, redact_url_credentials_in_text, runtime_support_status,
+    set_credential, validate_credential_ref, validate_sha256_text,
 };
-use std::path::PathBuf;
 use std::time::Duration;
+use std::{
+    io::{self, Read},
+    path::PathBuf,
+};
+use url::Url;
 
 const MIN_CONCURRENCY: usize = 1;
 const MAX_CONCURRENCY: usize = 30;
@@ -34,6 +39,10 @@ enum Command {
         source: String,
     },
     Doctor,
+    Credential {
+        #[command(subcommand)]
+        command: CredentialCommand,
+    },
     Download {
         source: String,
         #[arg(short, long, default_value = ".")]
@@ -58,6 +67,26 @@ enum Command {
             help = "Keep HLS transport stream output instead of remuxing to MP4"
         )]
         hls_keep_ts: bool,
+        #[arg(
+            long = "sftp-known-hosts",
+            help = "OpenSSH known_hosts file used to verify SFTP server identity"
+        )]
+        sftp_known_hosts: Option<PathBuf>,
+        #[arg(
+            long = "sftp-jump",
+            help = "runtime SFTP jump URL, for example sftp://user@bastion:22"
+        )]
+        sftp_jump: Option<String>,
+        #[arg(
+            long = "sftp-jump-known-hosts",
+            help = "OpenSSH known_hosts file used to verify the SFTP jump host"
+        )]
+        sftp_jump_known_hosts: Option<PathBuf>,
+        #[arg(
+            long = "credential-ref",
+            help = "system credential reference created by `credential set`"
+        )]
+        credential_ref: Option<String>,
         #[arg(long)]
         restart: bool,
     },
@@ -78,6 +107,11 @@ enum Command {
             help = "Keep HLS transport stream output instead of remuxing to MP4"
         )]
         hls_keep_ts: bool,
+        #[arg(
+            long = "credential-ref",
+            help = "system credential reference created by `credential set`"
+        )]
+        credential_ref: Option<String>,
     },
     List,
     Start {
@@ -100,6 +134,21 @@ enum Command {
             help = "Keep HLS transport stream output instead of remuxing to MP4"
         )]
         hls_keep_ts: bool,
+        #[arg(
+            long = "sftp-known-hosts",
+            help = "OpenSSH known_hosts file used to verify SFTP server identity"
+        )]
+        sftp_known_hosts: Option<PathBuf>,
+        #[arg(
+            long = "sftp-jump",
+            help = "runtime SFTP jump URL, for example sftp://user@bastion:22"
+        )]
+        sftp_jump: Option<String>,
+        #[arg(
+            long = "sftp-jump-known-hosts",
+            help = "OpenSSH known_hosts file used to verify the SFTP jump host"
+        )]
+        sftp_jump_known_hosts: Option<PathBuf>,
     },
     Run {
         #[arg(short, long, default_value_t = DEFAULT_QUEUE_CONCURRENCY)]
@@ -122,6 +171,21 @@ enum Command {
             help = "Keep HLS transport stream output instead of remuxing to MP4"
         )]
         hls_keep_ts: bool,
+        #[arg(
+            long = "sftp-known-hosts",
+            help = "OpenSSH known_hosts file used to verify SFTP server identity"
+        )]
+        sftp_known_hosts: Option<PathBuf>,
+        #[arg(
+            long = "sftp-jump",
+            help = "runtime SFTP jump URL, for example sftp://user@bastion:22"
+        )]
+        sftp_jump: Option<String>,
+        #[arg(
+            long = "sftp-jump-known-hosts",
+            help = "OpenSSH known_hosts file used to verify the SFTP jump host"
+        )]
+        sftp_jump_known_hosts: Option<PathBuf>,
     },
     Pause {
         id: String,
@@ -132,6 +196,18 @@ enum Command {
     Remove {
         id: String,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum CredentialCommand {
+    /// 将用户名和 stdin 中的密码保存到系统凭据库。
+    Set {
+        reference: String,
+        #[arg(long)]
+        username: String,
+    },
+    /// 删除系统凭据库中的引用。
+    Delete { reference: String },
 }
 
 #[tokio::main]
@@ -160,6 +236,32 @@ async fn run_cli() -> Result<()> {
         Command::Doctor => {
             println!("{}", serde_json::to_string_pretty(&doctor_report().await)?);
         }
+        Command::Credential { command } => match command {
+            CredentialCommand::Set {
+                reference,
+                username,
+            } => {
+                let mut password = String::new();
+                io::stdin().read_to_string(&mut password)?;
+                let password = password.trim_end_matches(['\r', '\n']);
+                let reference = validate_credential_ref(&reference).map_err(anyhow::Error::msg)?;
+                set_credential(&reference, &username, password)
+                    .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+                println!(
+                    "{}",
+                    serde_json::json!({"reference": reference, "stored": true})
+                );
+            }
+            CredentialCommand::Delete { reference } => {
+                let reference = validate_credential_ref(&reference).map_err(anyhow::Error::msg)?;
+                delete_credential(&reference)
+                    .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+                println!(
+                    "{}",
+                    serde_json::json!({"reference": reference, "deleted": true})
+                );
+            }
+        },
         Command::Download {
             source,
             output,
@@ -170,10 +272,16 @@ async fn run_cli() -> Result<()> {
             torrent_file_indices,
             hls_variant_index,
             hls_keep_ts,
+            sftp_known_hosts,
+            sftp_jump: sftp_jump_url,
+            sftp_jump_known_hosts,
+            credential_ref,
             restart,
         } => {
+            let sftp_jump = parse_sftp_jump(sftp_jump_url, sftp_jump_known_hosts)?;
             let mut request = DownloadRequest::new(source, output);
             request.file_name = name;
+            request.credential_ref = credential_ref;
             request.expected_sha256 = validated_expected_sha256(expected_sha256)?;
             request.torrent_file_indices = torrent_file_indices;
             request.hls_variant_index = hls_variant_index;
@@ -181,8 +289,15 @@ async fn run_cli() -> Result<()> {
             let summary = DownloadEngine::new()
                 .download_with_options(
                     request,
-                    download_options(threads, speed_limit_mbps, hls_variant_index, hls_keep_ts)
-                        .with_restart_existing(restart),
+                    download_options(
+                        threads,
+                        speed_limit_mbps,
+                        hls_variant_index,
+                        hls_keep_ts,
+                        sftp_known_hosts,
+                        sftp_jump,
+                    )
+                    .with_restart_existing(restart),
                 )
                 .await
                 .map_err(|error| anyhow::anyhow!(error.user_message()))?;
@@ -196,9 +311,11 @@ async fn run_cli() -> Result<()> {
             torrent_file_indices,
             hls_variant_index,
             hls_keep_ts,
+            credential_ref,
         } => {
             let mut request = DownloadRequest::new(source, output);
             request.file_name = name;
+            request.credential_ref = credential_ref;
             request.expected_sha256 = validated_expected_sha256(expected_sha256)?;
             request.torrent_file_indices = torrent_file_indices;
             request.hls_variant_index = hls_variant_index;
@@ -229,7 +346,11 @@ async fn run_cli() -> Result<()> {
             speed_limit_mbps,
             hls_variant_index,
             hls_keep_ts,
+            sftp_known_hosts,
+            sftp_jump: sftp_jump_url,
+            sftp_jump_known_hosts,
         } => {
+            let sftp_jump = parse_sftp_jump(sftp_jump_url, sftp_jump_known_hosts)?;
             let report = QueueRunner::new(store)
                 .run_task_with_options(
                     &id,
@@ -240,6 +361,8 @@ async fn run_cli() -> Result<()> {
                         restart,
                         hls_variant_index,
                         hls_keep_ts,
+                        sftp_known_hosts,
+                        sftp_jump,
                     ),
                 )
                 .await?;
@@ -256,7 +379,11 @@ async fn run_cli() -> Result<()> {
             speed_limit_mbps,
             hls_variant_index,
             hls_keep_ts,
+            sftp_known_hosts,
+            sftp_jump: sftp_jump_url,
+            sftp_jump_known_hosts,
         } => {
+            let sftp_jump = parse_sftp_jump(sftp_jump_url, sftp_jump_known_hosts)?;
             let report = QueueRunner::new(store)
                 .run_queued_with_options(
                     clamp_concurrency(concurrency),
@@ -267,6 +394,8 @@ async fn run_cli() -> Result<()> {
                         restart,
                         hls_variant_index,
                         hls_keep_ts,
+                        sftp_known_hosts,
+                        sftp_jump,
                     ),
                 )
                 .await?;
@@ -308,12 +437,21 @@ fn runner_options(
     restart_existing: bool,
     hls_variant_index: Option<usize>,
     hls_keep_ts: bool,
+    sftp_known_hosts: Option<PathBuf>,
+    sftp_jump: Option<SftpJumpOptions>,
 ) -> QueueRunnerOptions {
     QueueRunnerOptions {
         // 作者: long
         // CLI 和桌面设置共用同一条业务边界：失败重试最多 10 次，避免终端误传大数导致任务长时间循环。
         retry_attempts: clamp_retry_attempts(retry_attempts),
-        download: download_options(threads, speed_limit_mbps, hls_variant_index, hls_keep_ts),
+        download: download_options(
+            threads,
+            speed_limit_mbps,
+            hls_variant_index,
+            hls_keep_ts,
+            sftp_known_hosts,
+            sftp_jump,
+        ),
         restart_existing,
     }
 }
@@ -323,9 +461,30 @@ fn download_options(
     speed_limit_mbps: Option<f64>,
     hls_variant_index: Option<usize>,
     hls_keep_ts: bool,
+    sftp_known_hosts: Option<PathBuf>,
+    sftp_jump: Option<SftpJumpOptions>,
 ) -> DownloadOptions {
     DownloadOptions::new(threads, speed_limit_mbps_to_bps(speed_limit_mbps))
         .with_hls_options(hls_variant_index, hls_keep_ts)
+        .with_sftp_known_hosts(sftp_known_hosts)
+        .with_sftp_jump(sftp_jump)
+}
+
+fn parse_sftp_jump(
+    value: Option<String>,
+    known_hosts: Option<PathBuf>,
+) -> Result<Option<SftpJumpOptions>> {
+    if value.is_none() && known_hosts.is_some() {
+        anyhow::bail!("--sftp-jump-known-hosts requires --sftp-jump")
+    }
+    value
+        .map(|value| {
+            let url = Url::parse(&value)
+                .map_err(|error| anyhow::anyhow!("invalid --sftp-jump URL: {error}"))?;
+            SftpJumpOptions::from_url(&url, known_hosts)
+                .map_err(|error| anyhow::anyhow!(error.user_message()))
+        })
+        .transpose()
 }
 
 fn validated_expected_sha256(value: Option<String>) -> Result<Option<String>> {
@@ -365,7 +524,7 @@ async fn pause_task(store: &TaskStore, id: &str) -> Result<fluxdown_core::Downlo
             Ok(store.set_state(id, DownloadState::Paused).await?)
         }
         DownloadState::Paused => Ok(task),
-        DownloadState::Finished | DownloadState::Failed => {
+        DownloadState::Finished | DownloadState::HandedOff | DownloadState::Failed => {
             bail!("only queued or running tasks can be paused")
         }
     }
@@ -384,8 +543,10 @@ async fn resume_task(store: &TaskStore, id: &str) -> Result<fluxdown_core::Downl
         DownloadState::Paused => Ok(store.set_state(id, DownloadState::Queued).await?),
         DownloadState::Queued => Ok(task),
         DownloadState::Running => bail!("running tasks do not need resume"),
-        DownloadState::Finished | DownloadState::Failed => {
-            bail!("finished or failed tasks cannot be resumed; start them again explicitly")
+        DownloadState::Finished | DownloadState::HandedOff | DownloadState::Failed => {
+            bail!(
+                "finished, handed-off or failed tasks cannot be resumed; start them again explicitly"
+            )
         }
     }
 }
@@ -405,7 +566,7 @@ mod tests {
 
     #[test]
     fn cli_queue_limits_match_product_settings() {
-        let options = runner_options(99, 99, Some(-1.0), false, None, false);
+        let options = runner_options(99, 99, Some(-1.0), false, None, false, None, None);
 
         assert_eq!(DEFAULT_QUEUE_CONCURRENCY, 5);
         assert_eq!(DEFAULT_DOWNLOAD_THREAD_COUNT, 16);
@@ -419,9 +580,52 @@ mod tests {
 
     #[test]
     fn cli_default_download_options_use_sixteen_threads() {
-        let options = download_options(DEFAULT_DOWNLOAD_THREAD_COUNT, None, None, false);
+        let options =
+            download_options(DEFAULT_DOWNLOAD_THREAD_COUNT, None, None, false, None, None);
 
         assert_eq!(options.thread_count, 16);
         assert_eq!(options.speed_limit_bps, None);
+    }
+
+    #[test]
+    fn cli_sftp_known_hosts_path_is_carried_into_download_options() {
+        let path = PathBuf::from("/tmp/fluxdown/known_hosts");
+        let options = download_options(
+            DEFAULT_DOWNLOAD_THREAD_COUNT,
+            None,
+            None,
+            false,
+            Some(path.clone()),
+            None,
+        );
+
+        assert_eq!(options.sftp_known_hosts, Some(path));
+    }
+
+    #[test]
+    fn cli_sftp_jump_url_is_runtime_only_and_carries_known_hosts() {
+        let path = PathBuf::from("/tmp/fluxdown/jump_known_hosts");
+        let jump = parse_sftp_jump(
+            Some("sftp://jump-user@example.test:2222/".to_string()),
+            Some(path.clone()),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(jump.username, "jump-user");
+        assert_eq!(jump.host, "example.test");
+        assert_eq!(jump.port, 2222);
+        assert_eq!(jump.known_hosts, Some(path));
+        let options = download_options(
+            DEFAULT_DOWNLOAD_THREAD_COUNT,
+            None,
+            None,
+            false,
+            None,
+            Some(jump),
+        );
+        assert!(options.sftp_jump.is_some());
+        let json = serde_json::to_string(&options).unwrap();
+        assert!(!json.contains("jump-user"));
+        assert!(!json.contains("example.test"));
     }
 }

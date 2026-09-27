@@ -16,7 +16,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for tool in docker python3 shasum wc; do
+for tool in docker python3 shasum ssh-keygen ssh-keyscan wc; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "missing required tool: $tool" >&2
     exit 1
@@ -156,6 +156,9 @@ UPLOAD_DIR="$TMP_DIR/upload"
 DIRECT_DIR="$TMP_DIR/downloads/direct"
 QUEUE_DIR="$TMP_DIR/downloads/queue"
 STORE="$TMP_DIR/queue.json"
+KNOWN_HOSTS="$TMP_DIR/known_hosts"
+BAD_KNOWN_HOSTS="$TMP_DIR/known_hosts.bad"
+BAD_KEY="$TMP_DIR/mismatch_ed25519"
 mkdir -p "$UPLOAD_DIR" "$DIRECT_DIR" "$QUEUE_DIR"
 
 SAMPLE_NAME="fluxdown-cli-sftp-sample.txt"
@@ -171,6 +174,15 @@ docker run -d --platform linux/amd64 --name "$CONTAINER_NAME" \
   flux:fluxpass:::upload >/dev/null
 # long: Docker 端口可连接不代表 SSHD 已准备好，等到 banner 后再交给 libssh2，避免偶发 Failed getting banner。
 wait_for_sftp_banner 127.0.0.1 "$SFTP_PORT"
+# long: 只信任当前隔离 fixture 返回的主机密钥；非标准端口必须写成 [host]:port，避免把端口 22 的记录误用于测试服务。
+ssh-keyscan -T 5 -p "$SFTP_PORT" 127.0.0.1 > "$KNOWN_HOSTS" 2>/dev/null
+if [[ ! -s "$KNOWN_HOSTS" ]]; then
+  echo "ssh-keyscan returned no host keys" >&2
+  exit 1
+fi
+# long: 生成另一把合法 Ed25519 公钥，确保错误 fixture 命中 host-key mismatch，而不是 known_hosts 解析失败。
+ssh-keygen -q -t ed25519 -N '' -f "$BAD_KEY"
+printf '[127.0.0.1]:%s %s\n' "$SFTP_PORT" "$(cat "$BAD_KEY.pub")" > "$BAD_KNOWN_HOSTS"
 
 echo "macOS CLI SFTP fixture"
 echo "  source: $SOURCE"
@@ -187,6 +199,7 @@ DIRECT_JSON="$TMP_DIR/sftp-direct.json"
 fluxdown download "$SOURCE" \
   --output "$DIRECT_DIR" \
   --name direct-sftp.txt \
+  --sftp-known-hosts "$KNOWN_HOSTS" \
   > "$DIRECT_JSON"
 assert_json_value "$DIRECT_JSON" "protocol" "sftp"
 assert_json_value "$DIRECT_JSON" "display_name" "direct-sftp.txt"
@@ -202,7 +215,7 @@ fluxdown --store "$STORE" add "$SOURCE" \
   --name queue-sftp.txt \
   > "$ADD_JSON"
 TASK_ID="$(json_get "$ADD_JSON" "id")"
-fluxdown --store "$STORE" run --concurrency 1 > "$RUN_JSON"
+fluxdown --store "$STORE" run --concurrency 1 --sftp-known-hosts "$KNOWN_HOSTS" > "$RUN_JSON"
 fluxdown --store "$STORE" list > "$LIST_JSON"
 assert_json_value "$RUN_JSON" "started" "1"
 assert_json_value "$RUN_JSON" "finished" "1"
@@ -210,4 +223,32 @@ assert_task_value "$LIST_JSON" "$TASK_ID" "state" "finished"
 assert_task_value "$LIST_JSON" "$TASK_ID" "file_name" "queue-sftp.txt"
 assert_sha256 "$QUEUE_DIR/queue-sftp.txt" "$EXPECTED_SHA256"
 
+MISMATCH_DIR="$TMP_DIR/downloads/mismatch"
+mkdir -p "$MISMATCH_DIR"
+MISMATCH_JSON="$TMP_DIR/sftp-mismatch.json"
+MISMATCH_ERR="$TMP_DIR/sftp-mismatch.err"
+set +e
+fluxdown download "$SOURCE" \
+  --output "$MISMATCH_DIR" \
+  --name mismatch-sftp.txt \
+  --sftp-known-hosts "$BAD_KNOWN_HOSTS" \
+  > "$MISMATCH_JSON" 2> "$MISMATCH_ERR"
+MISMATCH_STATUS=$?
+set -e
+if [[ "$MISMATCH_STATUS" -eq 0 ]]; then
+  echo "host-key mismatch unexpectedly succeeded" >&2
+  exit 1
+fi
+if ! grep -q 'SFTP 主机身份校验失败' "$MISMATCH_ERR"; then
+  echo "host-key mismatch did not produce actionable error" >&2
+  cat "$MISMATCH_ERR" >&2
+  exit 1
+fi
+if [[ -e "$MISMATCH_DIR/mismatch-sftp.txt" ]]; then
+  echo "host-key mismatch created an output file" >&2
+  exit 1
+fi
+
 echo "macOS CLI SFTP verification passed"
+echo "  known_hosts: matched download and queue run"
+echo "  mismatch: rejected before authentication and output creation"
