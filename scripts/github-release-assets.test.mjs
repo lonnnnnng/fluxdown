@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import test from 'node:test'
 import { publicReleaseAssetNames, verifyPublicReleaseAssets } from './verify-github-release-assets.mjs'
+import { stripChecksumTables } from './release-notes.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
@@ -63,7 +64,8 @@ test('publishes exactly 10 files and leaves development artifacts out', (t) => {
   const notes = readFileSync(resolve(data.assets, '../RELEASE_NOTES.md'), 'utf8')
   assert.match(notes, /Assets 共 12 项/)
   assert.doesNotMatch(notes, /## 文件校验/)
-  assert.doesNotMatch(notes, /^\|.*(?:SHA-?256|checksum|哈希|校验值).*\|$/im)
+  assert.doesNotMatch(notes, /^\|.*(?:SHA-?256|checksum|digest|哈希|校验值|校验和).*\|$/im)
+  assert.doesNotMatch(notes, /release-manifest/i)
   assert.equal(readdirSync(data.assets).some((name) => name.endsWith('release-manifest.json')), false)
   const manifest = JSON.parse(readFileSync(resolve(data.assets, '../release-manifest.json'), 'utf8'))
   assert.equal(manifest.assets.length, 10)
@@ -72,6 +74,72 @@ test('publishes exactly 10 files and leaves development artifacts out', (t) => {
     assert.match(asset.sha256, /^[0-9a-f]{64}$/)
   }
   assert.match(notes, new RegExp(`releases/download/v${version}/FluxDown-${version}-windows-x86_64-setup.exe`))
+})
+
+test('strips checksum tables while keeping the platform download table', () => {
+  const markdown = `## 主要变更
+
+- 保留功能验证说明。
+
+## 文件校验
+
+| 文件 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| app.apk | 123 | deadbeef |
+
+## 下载安装
+
+| 平台 | 推荐下载 |
+| --- | --- |
+| Android | APK |
+`
+  const sanitized = stripChecksumTables(markdown)
+  assert.doesNotMatch(sanitized, /文件校验|SHA-?256|字节数|deadbeef/i)
+  assert.match(sanitized, /\| 平台 \| 推荐下载 \|/)
+  assert.match(sanitized, /保留功能验证说明/)
+})
+
+test('strips checksum sections with nested headings', () => {
+  const markdown = `### 校验明细
+
+| 文件名 | 大小 | checksum |
+| --- | ---: | --- |
+| app.apk | 123 | deadbeef |
+
+### 下载安装
+
+| 平台 | 文件 |
+| --- | --- |
+| Android | APK |
+`
+  const sanitized = stripChecksumTables(markdown)
+  assert.doesNotMatch(sanitized, /校验明细|checksum|deadbeef/i)
+  assert.match(sanitized, /### 下载安装/)
+  assert.match(sanitized, /\| 平台 \| 文件 \|/)
+})
+
+test('strips checksum tables without boundary pipes', () => {
+  const markdown = `文件名 | 大小 | SHA256
+--- | ---: | ---
+app.apk | 123 | deadbeef
+
+## 下载安装
+`
+  const sanitized = stripChecksumTables(markdown)
+  assert.doesNotMatch(sanitized, /SHA256|deadbeef/i)
+  assert.match(sanitized, /## 下载安装/)
+})
+
+test('strips checksum tables labeled with Chinese checksum wording', () => {
+  const markdown = `构建产物 | 字节数 | 校验和
+--- | ---: | ---
+app.apk | 123 | deadbeef
+
+## 下载安装
+`
+  const sanitized = stripChecksumTables(markdown)
+  assert.doesNotMatch(sanitized, /校验和|deadbeef/i)
+  assert.match(sanitized, /## 下载安装/)
 })
 
 for (const [platform, artifact, binaryName, extension] of [

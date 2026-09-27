@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { gzipSync } from 'node:zlib'
 import { verifyPublicReleaseAssets } from './verify-github-release-assets.mjs'
+import { stripChecksumTables } from './release-notes.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
@@ -108,12 +109,9 @@ function writeInternalManifest() {
 }
 
 function writeReleaseNotes() {
-  const changelog = readFileSync(resolve(root, `docs/releases/${version}.md`), 'utf8').trim()
   // 作者: long
-  // 公开发行说明只保留下载入口；文件哈希留在内部 manifest，避免把校验明细表带回 Release 页面。
-  if (/^\|.*(?:SHA-?256|checksum|哈希|校验值).*\|$/im.test(changelog)) {
-    throw new Error('发行说明不能包含文件校验表格；请保留内部 manifest 校验')
-  }
+  // 旧版发行说明可能还带校验表；生成公开页面时统一剔除，避免维护者忘记清理而把内部明细重新发布。
+  const changelog = stripChecksumTables(readFileSync(resolve(root, `docs/releases/${version}.md`), 'utf8'))
   const download = (name) => `https://github.com/lonnnnnng/fluxdown/releases/download/v${version}/${name}`
   const notes = `# FluxDown ${version}
 
