@@ -124,6 +124,7 @@ const _retryAttemptsPreferenceKey = 'fluxdown.retryAttempts';
 const _speedLimitKbpsPreferenceKey = 'fluxdown.speedLimitKbps';
 const _credentialReferencesPreferenceKey = 'fluxdown.credentialReferences';
 const _sftpKnownHostsPreferenceKey = 'fluxdown.sftpKnownHosts';
+const _maxDownloadSourceLength = 8192;
 const _storageChannel = MethodChannel('dev.fluxdown.mobile/storage');
 
 enum AppLanguage { zh, en }
@@ -507,10 +508,28 @@ class AppStrings {
   String get outputPath => language == AppLanguage.zh ? '文件路径' : 'File path';
   String get fileSize => language == AppLanguage.zh ? '文件大小' : 'File size';
   String get fileFormat => language == AppLanguage.zh ? '文件格式' : 'File format';
+  String get torrentFileProgressHint => language == AppLanguage.zh
+      ? '文件级进度按实际写入数据统计，速度为当前采样值'
+      : 'File progress uses written data; speed is sampled locally';
   String get unknownFileFormat => language == AppLanguage.zh ? '未知' : 'Unknown';
   String get protocol => language == AppLanguage.zh ? '协议' : 'Protocol';
   String get sourceRequired =>
       language == AppLanguage.zh ? '下载源不能为空。' : 'Source is required.';
+  String get sourceUnsupported => language == AppLanguage.zh
+      ? '暂不支持这个下载源，请使用 HTTP、HLS、Torrent、Magnet 等受支持链接。'
+      : 'This source is not supported. Use an HTTP, HLS, Torrent, Magnet, or other supported link.';
+  String get sourceTooLong => language == AppLanguage.zh
+      ? '下载源过长，最多支持 8192 个字符。'
+      : 'The download source is too long. It must be 8192 characters or fewer.';
+  String get qrSourceUnsupported => language == AppLanguage.zh
+      ? '二维码内容不是受支持的下载链接。'
+      : 'The QR code does not contain a supported download link.';
+  String get qrSourceTooLong => language == AppLanguage.zh
+      ? '二维码内容过长，无法作为下载链接。'
+      : 'The QR code content is too long to use as a download link.';
+  String get scannerUnavailable => language == AppLanguage.zh
+      ? '无法访问摄像头，请检查权限后重试。'
+      : 'The camera is unavailable. Check permission and try again.';
   String get sha256Invalid => language == AppLanguage.zh
       ? 'SHA-256 需要是 64 位十六进制。'
       : 'SHA-256 must be 64 hex characters.';
@@ -896,19 +915,27 @@ class _DownloadHomeState extends State<DownloadHome>
       _showSnack(strings.sourceRequired);
       return false;
     }
+    if (normalizedSource.length > _maxDownloadSourceLength) {
+      _showSnack(strings.sourceTooLong);
+      return false;
+    }
+    final detectedProtocol = detectProtocol(normalizedSource);
+    if (detectedProtocol == 'unknown') {
+      _showSnack(strings.sourceUnsupported);
+      return false;
+    }
     if (output.isEmpty) {
       _showSnack(strings.outputFolderSettingRequired);
       return false;
     }
     if (credentialRef?.trim().isNotEmpty == true &&
-        !supportsMobileCredentialProtocol(detectProtocol(normalizedSource))) {
+        !supportsMobileCredentialProtocol(detectedProtocol)) {
       _showSnack(strings.credentialUnsupportedProtocol);
       return false;
     }
     if (credentialRef?.trim().isNotEmpty == true) {
       final credential = await credentialVault.getCredential(credentialRef!);
-      if (credential?.usesPrivateKey == true &&
-          detectProtocol(normalizedSource) != 'sftp') {
+      if (credential?.usesPrivateKey == true && detectedProtocol != 'sftp') {
         _showSnack(strings.credentialPrivateKeyOnlySftp);
         return false;
       }
@@ -1106,10 +1133,24 @@ class _DownloadHomeState extends State<DownloadHome>
     return value == null || value.isEmpty ? null : value;
   }
 
-  Future<String?> scanQrSource() {
-    return Navigator.of(context).push<String>(
+  Future<String?> scanQrSource() async {
+    final scanned = await Navigator.of(context).push<String>(
       MaterialPageRoute(builder: (_) => QrScannerPage(strings: strings)),
     );
+    if (!mounted || scanned == null) return null;
+    final normalized = scanned.trim();
+    // 作者: long
+    // 二维码可能携带任意文本或超长载荷；先在扫描边界筛掉无效内容，避免把未知 scheme
+    // 或恶意大字符串带入新建弹框和任务队列，后续粘贴/手输仍由创建流程再次校验。
+    if (normalized.length > _maxDownloadSourceLength) {
+      _showSnack(strings.qrSourceTooLong);
+      return null;
+    }
+    if (normalized.isEmpty || detectProtocol(normalized) == 'unknown') {
+      _showSnack(strings.qrSourceUnsupported);
+      return null;
+    }
+    return normalized;
   }
 
   Future<String?> pickOutputFolderForNewTask() async {
@@ -1511,7 +1552,9 @@ class _DownloadHomeState extends State<DownloadHome>
 
   @override
   Widget build(BuildContext context) {
-    final tasks = controller.tasks;
+    // 作者: long
+    // 控制器和本地队列是异步恢复的；首帧只显示加载态，避免在 late 字段初始化前读取任务列表导致启动闪退。
+    final tasks = loading ? const <DownloadTask>[] : controller.tasks;
     final settingsView = SettingsView(
       strings: strings,
       language: widget.language,
@@ -1578,6 +1621,7 @@ class _DownloadHomeState extends State<DownloadHome>
         floatingActionButton: loading || currentTab != MobileHomeTab.tasks
             ? null
             : FloatingActionButton(
+                key: const ValueKey('new-task-fab'),
                 onPressed: showNewTaskDialog,
                 tooltip: strings.newTask,
                 child: const Icon(Icons.add),
@@ -2039,6 +2083,12 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
       });
       return;
     }
+    if (normalized.length > _maxDownloadSourceLength) {
+      setState(() {
+        errorText = strings.sourceTooLong;
+      });
+      return;
+    }
     final expectedSha256 = normalizeSha256Text(sha256Controller.text);
     if (expectedSha256 != null && !isValidSha256(expectedSha256)) {
       setState(() {
@@ -2047,6 +2097,12 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
       return;
     }
     final protocol = detectProtocol(normalized);
+    if (protocol == 'unknown') {
+      setState(() {
+        errorText = strings.sourceUnsupported;
+      });
+      return;
+    }
     if (selectedCredentialReference != null &&
         !supportsMobileCredentialProtocol(protocol)) {
       setState(() {
@@ -2260,6 +2316,7 @@ class _NewTaskDialogState extends State<NewTaskDialog> {
                         ),
                       ),
                       IconButton(
+                        key: const ValueKey('new-task-close'),
                         tooltip: strings.close,
                         onPressed: busy
                             ? null
@@ -3081,7 +3138,26 @@ class _QrScannerPageState extends State<QrScannerPage> {
       ),
       body: Stack(
         children: [
-          MobileScanner(controller: controller, onDetect: handleBarcode),
+          MobileScanner(
+            controller: controller,
+            onDetect: handleBarcode,
+            // 作者: long
+            // 相机权限或设备不可用时直接展示原因，避免扫描页只剩黑屏让用户误以为正在识别。
+            errorBuilder: (context, error) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  widget.strings.scannerUnavailable,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ),
+            ),
+          ),
           Center(
             child: Container(
               width: 260,
@@ -3386,6 +3462,7 @@ class SettingsView extends StatelessWidget {
               ),
             ),
             SettingsNumberInput(
+              key: const ValueKey('settings-concurrency'),
               icon: Icons.download_outlined,
               title: strings.concurrencySetting,
               subtitle: strings.concurrencySettingHint,
@@ -3402,6 +3479,7 @@ class SettingsView extends StatelessWidget {
               },
             ),
             SettingsNumberInput(
+              key: const ValueKey('settings-thread-count'),
               icon: Icons.settings_outlined,
               title: strings.downloadThreadsSetting,
               subtitle: strings.downloadThreadsHint,
@@ -3418,6 +3496,7 @@ class SettingsView extends StatelessWidget {
               },
             ),
             SettingsNumberInput(
+              key: const ValueKey('settings-retry-attempts'),
               icon: Icons.restart_alt,
               title: strings.retryAttemptsSetting,
               subtitle: strings.retryAttemptsHint,
@@ -3434,6 +3513,7 @@ class SettingsView extends StatelessWidget {
               },
             ),
             SettingsNumberInput(
+              key: const ValueKey('settings-speed-limit'),
               icon: Icons.speed_outlined,
               title: strings.speedLimitSetting,
               subtitle: strings.speedLimitHint,
@@ -5287,6 +5367,20 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
     super.dispose();
   }
 
+  @override
+  void didUpdateWidget(covariant TorrentFolderPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.task.id != widget.task.id) {
+      _fileDownloadedBytes = <int, int?>{};
+      _fileSpeeds = <int, int>{};
+      _lastFileProgressAt = null;
+    }
+    // 作者: long
+    // 队列轮询可能在详情页仍打开时替换父级任务快照；同步 widget.task 才能让完成/失败等状态及时反映到文件指标。
+    task = widget.task;
+    unawaited(_refreshFileProgress(task));
+  }
+
   void _refreshTask() {
     DownloadTask? latest;
     for (final candidate in widget.controller.tasks) {
@@ -5541,6 +5635,18 @@ class _TorrentFolderPageState extends State<TorrentFolderPage> {
                                       ),
                                     ],
                                   ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    widget.strings.torrentFileProgressHint,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: textTheme.labelSmall?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                      fontSize: 8,
+                                      height: 1,
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -5678,16 +5784,21 @@ class _TorrentFileRow extends StatelessWidget {
                                       fontWeight: FontWeight.w400,
                                     ),
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _formatSpeed(metrics.speedBytesPerSecond),
-                                    maxLines: 1,
-                                    style: textTheme.labelSmall?.copyWith(
-                                      color: colorScheme.onSurfaceVariant,
-                                      fontSize: 8.5,
-                                      fontWeight: FontWeight.w400,
+                                  if (visualState == DownloadState.running) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _formatSpeed(metrics.speedBytesPerSecond),
+                                      key: ValueKey(
+                                        'torrent-detail-file-speed-${file.index}',
+                                      ),
+                                      maxLines: 1,
+                                      style: textTheme.labelSmall?.copyWith(
+                                        color: colorScheme.onSurfaceVariant,
+                                        fontSize: 8.5,
+                                        fontWeight: FontWeight.w400,
+                                      ),
                                     ),
-                                  ),
+                                  ],
                                 ],
                               ),
                             ],

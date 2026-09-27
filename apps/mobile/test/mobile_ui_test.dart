@@ -156,6 +156,61 @@ void main() {
     expect(storagePaths, ['/downloads', '/picked']);
   });
 
+  testWidgets('new task rejects unknown and oversized sources before enqueue', (
+    tester,
+  ) async {
+    var createCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NewTaskDialog(
+            strings: AppStrings.zh,
+            defaultOutputFolder: '/downloads',
+            onPickOutputFolder: () async => null,
+            onReadClipboard: () async => null,
+            onScanQr: () async => null,
+            onLoadStorageStats: (_) async => null,
+            onInspectTorrentMetadata: (_) async => null,
+            onCreate:
+                ({
+                  required source,
+                  required outputFolder,
+                  fileName,
+                  torrentName,
+                  torrentFiles = const [],
+                  selectedTorrentFileIndexes,
+                  expectedSha256,
+                  hlsVariantIndex,
+                  hlsKeepTransportStream = false,
+                }) async {
+                  createCount += 1;
+                  return true;
+                },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('new-task-source')),
+      'mailto:someone@example.com',
+    );
+    await tester.tap(find.byKey(const ValueKey('new-task-submit')));
+    await tester.pumpAndSettle();
+    expect(find.text(AppStrings.zh.sourceUnsupported), findsOneWidget);
+    expect(createCount, 0);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('new-task-source')),
+      'https://example.com/${List.filled(8190, 'x').join()}',
+    );
+    await tester.tap(find.byKey(const ValueKey('new-task-submit')));
+    await tester.pumpAndSettle();
+    expect(find.text(AppStrings.zh.sourceTooLong), findsOneWidget);
+    expect(createCount, 0);
+  });
+
   testWidgets('settings submits values without a protocol details entry', (
     tester,
   ) async {
@@ -974,12 +1029,34 @@ void main() {
       expect(find.text('文件格式: MP4'), findsOneWidget);
       expect(find.text('文件大小: 1.0 KB'), findsOneWidget);
       expect(find.text('已下载: 512 B / 1.0 KB'), findsOneWidget);
+      expect(find.text(AppStrings.zh.torrentFileProgressHint), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('torrent-detail-file-speed-0')),
+        findsOneWidget,
+      );
 
       final fileName = tester.widget<Text>(
         find.byKey(const ValueKey('torrent-detail-file-name-0')),
       );
       expect(fileName.maxLines, isNull);
       expect(fileName.overflow, TextOverflow.visible);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TorrentFolderPage(
+            strings: AppStrings.zh,
+            controller: DownloadController(),
+            task: task.copyWith(state: DownloadState.finished),
+            loadFileProgress: (_, files) async =>
+                files.map((file) => file.size).toList(growable: false),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('torrent-detail-file-speed-0')),
+        findsNothing,
+      );
 
       await tester.pumpWidget(const SizedBox.shrink());
     },

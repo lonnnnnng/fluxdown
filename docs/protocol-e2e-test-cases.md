@@ -308,11 +308,13 @@ npm run verify:macos-desktop-gui-protocols
 
 执行前需要启动 Docker Desktop，并给当前终端或自动化宿主授予 macOS“辅助功能”权限。脚本会使用隔离的 `XDG_DATA_HOME`，动态启动局域网 HTTP(S)、FTP(S)、SFTP、SMB、tracker 和 seeder，通过前台界面逐项新建任务，再校验队列状态、落盘文件大小和 SHA-256；结束后自动清理动态服务。
 
-2026-08-05 的完整结果见：
+历史基线 2026-08-05 的完整结果见：
 
 - [macOS 原生桌面端 12 协议验证报告](macos-desktop-protocol-e2e-report-20260805.md)
 - [结构化 JSON 证据](artifacts/macos-desktop-gui-protocol-e2e-20260805.json)
 - [完成队列截图](artifacts/macos-desktop-gui-queue-20260805.png)
+- [当前工作树 2026-09-27 JSON 证据](artifacts/macos-desktop-gui-protocol-e2e-20260927.json)
+- [当前工作树 2026-09-27 队列截图](artifacts/macos-desktop-gui-queue-20260927.png)
 - [跨平台协议测试资源清单](protocol-test-resources.md)
 
 每次运行都会选择新的随机端口，后续移动端或其他电脑必须使用新 JSON 中的 `source`，不能直接复用历史局域网端口。ed2k 只验证系统移交；若外部客户端收到的是占位 hash 或失效链接，不得记录为真实下载成功。

@@ -2,7 +2,11 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.26](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.26)。以下功能说明以当前源码为准，历史验证单独标注。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27)。以下功能说明以当前源码为准，历史验证单独标注。
+
+### 1.0.27 更新（2026-09-27）
+
+补齐移动端输入校验、启动恢复竞态和 iOS Simulator UI smoke，修正 Torrent/Magnet 详情页的文件级状态指标，并同步 P1 验收记录。P2-06 正式签名与合规分发仍按环境条件保留为未完成项。详见 [发行说明](docs/releases/1.0.27.md)。
 
 ### 1.0.26 更新（2026-09-26）
 
@@ -87,8 +91,8 @@ iOS FFI 链接、移动端 JSON 解码/内存释放、桌面 Torrent 分文件�
 | macOS 桌面/CLI | release CLI 覆盖 HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet 和队列控制；桌面 GUI 前台已完成 12 类协议真实验证；Tauri command 覆盖 HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet。 | ed2k 仍按产品定义移交外部客户端；WebDAV/WebDAVS 已验证传输映射，完整目录遍历仍需单独补。 |
 | Windows 桌面/CLI | CI 产物已发布；Windows 开发机完成 CLI 12 协议真实用例验证和原生 Tauri GUI 前台 12 协议验证，ed2k 按产品定义完成系统移交验证。`1.0.11` 又用公网真实资源（Cloudflare、curl.se、Apple BipBop、Rebex、Debian）复验了 CLI 与原生 GUI 的 HTTP/HTTPS、FTP、SFTP、HLS、队列控制和限速，见 [Windows 真实资源验证报告](docs/windows-real-resource-verification.md)。 | ed2k 不是 FluxDown 内建下载完成；GUI 验证使用 E2E 专用窗口和隔离队列。FTPS 对强制 TLS 会话复用的服务器（vsftpd 默认配置、Rebex）暂不支持数据传输，由 suppaftp 引擎上游限制决定（[suppaftp#93](https://github.com/veeso/suppaftp/issues/93)）。 |
 | Linux 桌面/CLI | CI 已生成 Linux CLI、GUI 可执行文件、`.deb`、`.rpm` 并做非空检查。 | 尚未在 Linux 桌面环境安装 GUI 并完成真实下载。 |
-| Android App | `1.0.25` Release 已在 Redmi Note 8 Pro 完成 11 类真实落盘协议验收；当前工作树 `1.0.26 (27)` Release 已安装启动，Rust FFI 队列真机用例覆盖 HTTP、HLS TS、master variant/fMP4，四个任务均完成。Flutter 全量测试和 host Rust FFI 回归通过。 | ed2k 仍按外部 handler 边界处理；扫码、目录授权、iOS/Android 长时间后台和正式签名分发仍需按环境补验。 |
-| iOS App | 历史 simulator 已完成 HTTP、fMP4/BYTERANGE/TS HLS smoke；2026-09-08 本地 simulator 与 unsigned device app 构建通过，最终二进制均检查到 8 个 FFI 导出符号；构建产物保留在 Actions Artifacts。 | 本次未新增 App 内下载验证。签名 IPA、iPhone 真机扫码、文件选择、分享/打开仍待补；Release 不提供普通用户可安装的 iOS 包。 |
+| Android App | 上一版 `1.0.26 (27)` Release 已安装启动，Rust FFI 队列真机用例覆盖 HTTP、HLS TS、master variant/fMP4，四个任务均完成；本版继续保留移动端输入校验和启动恢复修复。Flutter 全量测试和 host Rust FFI 回归通过。 | ed2k 仍按外部 handler 边界处理；扫码、目录授权、iOS/Android 长时间后台和正式签名分发仍需按环境补验。 |
+| iOS App | 当前 simulator 已完成 HTTP、fMP4/BYTERANGE/TS HLS smoke，并通过 `verify:ios:ui` 完成任务页/设置页切换和存储统计检查；unsigned device app 构建通过，最终二进制均检查到 8 个 FFI 导出符号。 | 签名 IPA、iPhone 真机扫码、文件选择、分享/打开仍待补；Release 不提供普通用户可安装的 iOS 包。 |
 
 上表中的历史下载验证不能替代当前版本回归。完整证据见 [下载验证状态](docs/download-verification.md)。
 
@@ -151,13 +155,13 @@ Runner 构建阶段自动编译并静态链接 Rust FFI，最低部署版本为 
 | 命令行 | Windows x64 CLI ZIP、macOS ARM64 / Linux x64 CLI TAR.GZ |
 | 许可说明 | LICENSE、第三方许可证清单 |
 
-Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.26.md)。
+Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.27.md)。
 
 发布 manifest 继续在流水线内部生成和校验，但不再作为公开附件或展示在 Release 页面；三个 ZIP/TAR.GZ 是独立 CLI 版本，不是桌面安装包的重复副本。
 
 CLI 解压后运行 `fluxdown` / `fluxdown.exe`，Unix 可执行权限已保留。Android APK 仍包含 arm64-v8a、armeabi-v7a、x86_64；Release 启用 R8，Dart 符号和 R8 mapping 单独保存在 Actions Artifacts，不是从 App 删除功能。
 
-Release 页面：[FluxDown 1.0.26](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.26)。
+Release 页面：[FluxDown 1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27)。
 
 ## 文档
 

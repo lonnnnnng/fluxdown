@@ -67,7 +67,7 @@ npm run verify:macos-desktop-gui-protocols
 脚本会重新生成可从同一局域网访问的动态地址，并把本次完整地址、落盘路径、大小和 SHA-256 写入：
 
 ```text
-docs/artifacts/macos-desktop-gui-protocol-e2e-20260805.json
+docs/artifacts/macos-desktop-gui-protocol-e2e-20260927.json
 ```
 
 后续移动端或其他电脑验证时，不应直接复用旧随机端口。应先启动实验室，再把新 JSON 中的 `source` 地址转换为目标设备可访问的 Mac 局域网地址。Android 使用 USB 时可对 HTTP(S) 端口使用 `adb reverse`；SFTP、SMB、FTP(S) 和 P2P 仍应使用真实局域网地址。

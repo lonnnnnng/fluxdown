@@ -2,7 +2,11 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.26](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.26). Features below describe the current source; historical verification is labeled separately.
+FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27). Features below describe the current source; historical verification is labeled separately.
+
+### 1.0.27 Update (2026-09-27)
+
+Adds mobile input validation, fixes the startup recovery race, adds iOS Simulator UI smoke coverage, and corrects Torrent/Magnet detail metrics. P2-06 formal signing and compliant distribution remains environment-gated and unfinished. See the [release notes](docs/releases/1.0.27.md) (Chinese).
 
 ### 1.0.26 Update (2026-09-26)
 
@@ -79,7 +83,7 @@ The following `v1.0.17` captures show the queue, new-task dialog, and settings o
 | macOS Desktop/CLI | Release CLI covers HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet plus queue controls. Foreground desktop GUI has completed real validation for 12 protocol cases. Tauri commands cover HTTP/HLS/WebDAV/FTP/FTPS/SFTP/SMB/Torrent/Magnet. | ed2k is handed off to an external client by product definition; WebDAV/WebDAVS transport mapping is verified, while full directory traversal still needs a separate pass. |
 | Windows Desktop/CLI | CI artifacts have been published. A Windows development machine completed CLI real-download validation for 12 protocol cases and native Tauri GUI foreground validation for 12 protocol cases. ed2k completed the product-defined system handoff flow. In `1.0.11`, CLI and native GUI were re-verified against real public internet resources (Cloudflare, curl.se, Apple BipBop, Rebex, Debian) covering HTTP/HTTPS, FTP, SFTP, HLS, queue controls, and speed limiting; see the [Windows real-resource verification report](docs/windows-real-resource-verification.md). | ed2k is not completed by FluxDown's own internal downloader. GUI verification used a dedicated E2E window and isolated queue. FTPS servers that enforce TLS session reuse (vsftpd default config, Rebex) are not supported for data transfer yet; this is an upstream suppaftp engine limitation ([suppaftp#93](https://github.com/veeso/suppaftp/issues/93)). |
 | Linux Desktop/CLI | CI builds Linux CLI, GUI executable, `.deb`, and `.rpm` artifacts and checks that they are non-empty. | Installing the Linux GUI in a desktop environment and completing a real download is still pending. |
-| Android App | `1.0.25` Release completed 11 real protocol download cases on the Redmi Note 8 Pro. The current worktree `1.0.26 (27)` Release installs and launches; the Rust FFI device smoke covers HTTP, HLS TS, master variant/fMP4, and all four tasks finish. Flutter tests and host Rust FFI regression pass. | ed2k remains an external-handler boundary; QR, directory permissions, long-running background behavior, and signed distribution still need environment-specific verification. |
+| Android App | The previous `1.0.26 (27)` Release installs and launches; the Rust FFI device smoke covers HTTP, HLS TS, master variant/fMP4, and all four tasks finish. This release keeps the mobile input validation and startup recovery fixes. Flutter tests and host Rust FFI regression pass. | ed2k remains an external-handler boundary; QR, directory permissions, long-running background behavior, and signed distribution still need environment-specific verification. |
 | iOS App | Historical simulator smoke covers HTTP and fMP4/BYTERANGE/TS HLS. Local simulator and unsigned device builds pass on 2026-09-08, with all 8 FFI exports checked in the linked binaries. Build outputs remain in Actions Artifacts. | No new in-app download pass. Signed IPA and physical iPhone QR, file picking, and share/open checks remain pending. There is no end-user iOS installation package in Release. |
 
 Historical download results do not replace regression testing on current source. See [Download verification status](docs/download-verification.md) for evidence.
@@ -143,11 +147,11 @@ Releases `v1.0.16` and `v1.0.17` contain 11 uploaded files. Starting with `v1.0.
 | Command line | Windows x64 CLI ZIP; macOS ARM64 / Linux x64 CLI TAR.GZ |
 | License notices | LICENSE, third-party license notices |
 
-Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.26.md) for signing and verification limits. The manifest remains an internal CI check and is not shown as a checksum table on the release page.
+Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.27.md) for signing and verification limits. The manifest remains an internal CI check and is not shown as a checksum table on the release page.
 
 Extract the CLI archive and run `fluxdown` / `fluxdown.exe`; Unix executable permissions are retained. Android still includes arm64-v8a, armeabi-v7a, and x86_64. Release uses R8; Dart symbols and R8 mapping are retained separately in Actions Artifacts.
 
-Release page: [FluxDown 1.0.26](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.26).
+Release page: [FluxDown 1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27).
 
 ## Documentation
 

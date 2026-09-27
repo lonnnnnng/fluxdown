@@ -15,6 +15,37 @@ P2-01 至 P2-05 已按当前产品边界完成代码收口，逐项说明见 [P2
 - `flutter build apk --release` 通过，生成 `app-release.apk`（`144,815,221` bytes，SHA-256 `0fda95829c2f5acfce3462d97b649e9d8b9511ac34cd878a023925aa6c3853fe`）；安装到 Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）后启动正常，版本 `1.0.26 (27)`，未见 `FATAL EXCEPTION`。
 - Android Release 包的前台服务权限和 `.DownloadForegroundService` 注册已由 `adb dumpsys package` 核验；服务声明为 `exported=false`，外部 shell 不能直接启动，符合仅由 App 内 MethodChannel 控制的边界。
 
+## 2026-09-27 P1 第二、第三优先级回归（工作树，未发布）
+
+本轮跳过 P2-06 正式签名与合规分发，只验收当前源码和可用环境中的下载、队列、异常输入与文档边界。
+
+### Android 真机
+
+- Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）安装并启动本轮重新构建的 `1.0.26 (27)` Release APK，包 SHA-256 为
+  `dadd39b490088f5fee1ac3a1ec42971a6808c6cc337a51a6a453055cc4893d2c`；此前 P2 收口使用的构建 hash
+  `0fda95829c2f5acfce3462d97b649e9d8b9511ac34cd878a023925aa6c3853fe` 仍保留在历史记录中。
+- `flutter test integration_test/rust_queue_e2e_test.dart -d wsvwypiz7xwslvl7` 通过：Rust FFI
+  队列 HTTP `131,072` bytes、HLS TS `6` bytes、master variant/fMP4 `31` bytes，四个任务状态均为
+  `finished`；覆盖排队、直接启动、暂停/继续、队列迁移和删除 tombstone。
+- 代码回归补充了新建任务对未知协议和超过 `8192` 字符下载源的拦截；二维码扫描结果也会在进入新建弹框前执行相同协议和长度校验，摄像头异常显示可操作提示。
+
+### iOS Simulator
+
+- iPhone 16 Pro simulator（`EADF8DFC-ED26-4C03-8735-C0889ECB2DA5`）执行
+  `FLUXDOWN_IOS_INCLUDE_TS_HLS=1 FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration` 通过。
+- HTTP 输出 `29` bytes，fMP4 HLS 与 BYTERANGE HLS 均为 `4,814` bytes，TS HLS 转 MP4 为 `19,886` bytes；四项均有 `outputSha256`、MP4 `ftyp` 文件头和 `exitStatus=0`。
+- `flutter test integration_test/rust_queue_e2e_test.dart -d EADF8DFC-ED26-4C03-8735-C0889ECB2DA5` 通过，队列 HTTP/HLS/variant 共 `131,072`、`6`、`31` bytes 均真实落盘。
+- `npm run verify:ios:ui` 通过：真实启动 iPhone 16 Pro simulator，进入任务页，切换设置页并检查存储统计区域，再打开新建任务弹框，确认链接、剪贴板、扫码、文件名和保存位置控件，以及并发/线程/重试/限速四项设置入口，最后关闭弹框并回到设置页；同时修复了异步恢复期间首帧读取未初始化队列控制器导致的 `LateInitializationError`。
+- 移动 Torrent 详情回归补充：详情页在父级任务快照替换时同步状态；文件行只在下载中显示采样速度，完成/失败/暂停不再展示 `0 B/s`。当前文件级数据仍来自 Android/iOS 实际写入字节，等待 bridge 的逐文件 piece API 后再升级为网络进度。
+
+### macOS 桌面与 CLI
+
+- `npm run verify:macos-desktop-gui-protocols` 通过：HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、HLS、SFTP、SMB、Torrent、Magnet 共 11 类真实落盘并校验 SHA-256，ed2k 完成系统移交；本轮生成的证据为
+  [`macos-desktop-gui-protocol-e2e-20260927.json`](artifacts/macos-desktop-gui-protocol-e2e-20260927.json)
+  和 [`macos-desktop-gui-queue-20260927.png`](artifacts/macos-desktop-gui-queue-20260927.png)。
+- `npm run verify:macos-cli-queue-controls` 通过，覆盖暂停/继续、运行中删除、失败重试、完成任务重启和并发排队；所有数据均在临时 store 和临时 HTTP 服务中完成，未改写用户默认队列。
+- Windows/Linux 仍按环境约束跳过，iPhone 真机仍未具备可部署条件；这些边界不因本轮 macOS/iOS simulator 通过而改变。
+
 ## 2026-09-27 P2-05 桌面/CLI SFTP 跳板机验收（工作树，未发布）
 
 - `npm run verify:macos-cli-sftp-jump` 启动两个隔离的本机 OpenSSH 服务：跳板和目标使用不同 host key，均关闭密码认证，仅接受当前 `ssh-agent` 中的 Ed25519 用户密钥；CLI 使用无密码 SFTP 跳板 URL 和两份独立 `known_hosts` 完成真实转发下载。
@@ -91,16 +122,15 @@ P2-01 至 P2-05 已按当前产品边界完成代码收口，逐项说明见 [P2
 本轮 Windows/Linux 按用户要求跳过，不把历史 Windows 运行记录或 Linux 构建产物升级为
 `1.0.25` 真机/桌面运行结论。
 
-## 2026-09-26 macOS `1.0.25` 原生 GUI 协议回归
+## 2026-09-26 macOS `1.0.25` 原生 GUI 协议回归（历史记录）
 
 - 使用当前 `target/release/bundle/macos/FluxDown.app` 前台窗口运行
   `npm run verify:macos-desktop-gui-protocols`，HTTP、HTTPS、WebDAV、WebDAVS、FTP、
   FTPS、HLS、SFTP、SMB、Torrent、Magnet 11 项均完成真实落盘并通过 SHA-256；ed2k
   完成系统移交，未冒充内建下载。
 - Torrent/Magnet 通过本地 Docker seeder/tracker 完成；HLS 输出 MP4 并通过 ffprobe。
-- 当前证据： [GUI 结果 JSON](artifacts/macos-desktop-gui-protocol-e2e-20260926.json) 和
-  [队列截图](artifacts/macos-desktop-gui-queue-20260926.png)。脚本内部仍使用历史文件名
-  `20260805` 写出中间结果，本轮已复制为带当前日期的证据文件。
+- 本节保留历史 `1.0.25` 证据；当前工作树复跑结果见上方
+  [2026-09-27 P1 第二、第三优先级回归](#2026-09-27-p1-第二第三优先级回归工作树未发布)。
 
 ## 2026-09-26 Android `1.0.24` Release 完整协议验收
 
@@ -401,6 +431,7 @@ FluxDown 已经具备多端架构、构建产物、CI/Release artifact 校验、
 | `npm run verify:apple:runtime` | 通过：用于补充运行态证据，默认后台 boot simulator 并启用 TS HLS，完成 iOS App 内 HTTP/fMP4 HLS/BYTERANGE HLS/TS HLS 下载 smoke；真机和签名 readiness 当前返回 `78`，按外部条件未就绪记录。 |
 | `npm run verify:ios` | 通过：该脚本汇总 `flutter --version`、`xcodebuild -version`、`mobile:analyze`、`mobile:test`、iOS framework build/artifact 校验、iOS simulator build/artifact 校验、无签名 device build/artifact 校验和移动端 URL scheme 校验；用于日常非前台 iOS 构建验证。 |
 | `npm run verify:ios:integration` | 通过：在 iOS 18.3 simulator `FluxDownTemp2-iPhone16` 上生成本地 HTTP/fMP4 HLS/BYTERANGE HLS fixture，构建隐藏自检 App，staged install 后通过 `simctl launch --console` 收集结果；`ios-http-local` 输出 `29` bytes，`ios-hls-local` 和 `ios-hls-byterange-local` 均输出 `4815` bytes，`outputHeadHex` 包含 `66747970`。显式设置 `FLUXDOWN_IOS_INCLUDE_TS_HLS=1` 可额外启用 TS HLS 专项探针，当前 `ios-hls-ts-local` 也已通过，输出 `19884` bytes。 |
+| `npm run verify:ios:ui` | 通过：在已启动的 iPhone 16 Pro simulator 上真实启动 Flutter App，检查任务页、设置页、存储统计、新建任务弹框的链接/剪贴板/扫码/文件名/保存位置控件，以及四项数值设置入口；不会创建下载任务或调用摄像头。 |
 | `npm run verify:macos` | 通过：覆盖 `cargo fmt --check`、严格 Clippy、core/CLI/desktop 测试、release CLI HTTP/HLS/FTP/FTPS/SFTP/SMB/Torrent/Magnet/队列控制真实 fixture、CLI-only artifact 校验、desktop command FTPS/SFTP/SMB/Torrent/Magnet fixture、完整 macOS artifact 校验、许可证和 CI 手动触发策略检查；04:38 单独复跑 Rust 测试后当前计数为 core 68、CLI 单元 1、CLI 集成 33、desktop 非 ignored 32 / ignored 7。 |
 | `npm run verify:macos-cli-artifact` | 通过：校验 `target/release/fluxdown` 存在且非空，大小 `14689536` bytes；`--version` 输出 `fluxdown 1.0.3`，`detect/support/doctor` 均通过。 |
 | `npm run desktop:dmg` | 通过：生成 `target/release/bundle/macos/FluxDown.app` 和 `target/release/bundle/dmg/FluxDown_1.0.3_aarch64.dmg`；本轮 04:16 复验 DMG 大小 `8731864` bytes，`hdiutil verify` checksum 通过；`.app` ad-hoc 签名校验通过。 |

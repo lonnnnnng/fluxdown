@@ -1565,7 +1565,7 @@ dependencies = [
 
 [[package]]
 name = "fluxdown-cli"
-version = "1.0.26"
+version = "1.0.27"
 dependencies = [
  "anyhow",
  "clap",
@@ -1578,7 +1578,7 @@ dependencies = [
 
 [[package]]
 name = "fluxdown-core"
-version = "1.0.26"
+version = "1.0.27"
 dependencies = [
  "aes 0.8.4",
  "anyhow",
@@ -1608,7 +1608,7 @@ dependencies = [
 
 [[package]]
 name = "fluxdown-desktop"
-version = "1.0.26"
+version = "1.0.27"
 dependencies = [
  "anyhow",
  "fluxdown-core",
@@ -1630,7 +1630,7 @@ dependencies = [
 
 [[package]]
 name = "fluxdown-ffi"
-version = "1.0.26"
+version = "1.0.27"
 dependencies = [
  "fluxdown-core",
  "serde",

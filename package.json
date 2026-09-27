@@ -1,7 +1,7 @@
 {
   "name": "fluxdown",
   "private": true,
-  "version": "1.0.26",
+  "version": "1.0.27",
   "workspaces": [
     "apps/desktop"
   ],
@@ -65,6 +65,7 @@
     "verify:ios:integration": "bash scripts/verify-ios-integration.sh",
     "verify:ios:physical-integration": "bash scripts/verify-ios-physical-integration.sh",
     "verify:ios:sftp": "bash scripts/verify-ios-sftp-private-key.sh",
+    "verify:ios:ui": "cd apps/mobile && flutter test integration_test/ui_smoke_test.dart -d ${FLUXDOWN_IOS_DEVICE_ID:-EADF8DFC-ED26-4C03-8735-C0889ECB2DA5}",
     "verify:release": "node scripts/verify-artifacts.mjs release",
     "verify:ci-config": "node --check scripts/prepare-github-release-assets.mjs && node scripts/verify-artifacts.mjs ci-config && node --test scripts/github-release-assets.test.mjs scripts/windows-pe.test.mjs",
     "verify:github-release": "node scripts/verify-github-release-assets.mjs",
