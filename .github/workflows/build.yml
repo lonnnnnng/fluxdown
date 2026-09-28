@@ -1,5 +1,5 @@
 name: Build
-run-name: ${{ inputs.run_mode == 'release' && format('手动发版 {0}', github.ref_name) || format('手动打包 {0}', github.ref_name) }}
+run-name: ${{ inputs.run_mode == 'release' && format('手动发版 {0}', github.ref_name) || inputs.run_mode == 'mobile-release' && format('手动发布移动端 {0}', github.ref_name) || format('手动打包 {0}', github.ref_name) }}
 
 on:
   # long: 构建和发布资源成本较高，只在明确发版或打包时手动启动，避免普通提交或 tag 推送重复触发。
@@ -13,6 +13,7 @@ on:
         options:
           - package
           - release
+          - mobile-release
 
 concurrency:
   # long: 同一个 ref 上误点多次手动打包或发版时，只保留最后一次运行，避免 Actions 页面继续出现重复执行记录。
@@ -28,15 +29,16 @@ jobs:
         shell: bash
         run: |
           case "${{ inputs.run_mode }}" in
-            package|release) ;;
+            package|release|mobile-release) ;;
             *)
-              echo "run_mode must be package or release."
+              echo "run_mode must be package, release or mobile-release."
               exit 1
               ;;
           esac
 
-          # long: 发版必须绑定 v* 标签，避免在 main 上误点发版后消耗整套多平台构建资源。
-          if [ "${{ inputs.run_mode }}" = "release" ] && [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+          # 作者: long
+          # 正式发版和移动端专用发版都必须绑定 v* 标签，避免从任意分支生成不可追溯的公开资产。
+          if [[ "${{ inputs.run_mode }}" == "release" || "${{ inputs.run_mode }}" == "mobile-release" ]] && [[ "$GITHUB_REF" != refs/tags/v* ]]; then
             echo "Release mode must run on a v* tag ref. Current ref: $GITHUB_REF"
             exit 1
           fi
@@ -49,6 +51,7 @@ jobs:
 
   rust:
     name: Rust core and CLI (${{ matrix.os }})
+    if: ${{ inputs.run_mode != 'mobile-release' }}
     needs: preflight
     runs-on: ${{ matrix.os }}
     strategy:
@@ -110,6 +113,7 @@ jobs:
 
   desktop:
     name: Desktop GUI (${{ matrix.os }})
+    if: ${{ inputs.run_mode != 'mobile-release' }}
     needs: preflight
     runs-on: ${{ matrix.os }}
     strategy:
@@ -313,6 +317,7 @@ jobs:
 
   ios:
     name: iOS app
+    if: ${{ inputs.run_mode != 'mobile-release' }}
     needs: preflight
     runs-on: macos-latest
     env:
@@ -528,5 +533,59 @@ jobs:
             gh release create "$GITHUB_REF_NAME" dist/github-release/assets/* \
               --title "FluxDown ${GITHUB_REF_NAME#v}" \
               --notes-file dist/github-release/RELEASE_NOTES.md \
+              --verify-tag
+          fi
+
+  mobile_release:
+    name: Publish Android mobile release
+    if: ${{ inputs.run_mode == 'mobile-release' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    needs:
+      - android
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: fluxdown-android-release-apk
+          path: dist/mobile-release
+      - name: Verify tag and prepare arm64 APK
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $version."
+            exit 1
+          fi
+          apk="dist/mobile-release/app-release.apk"
+          if [ ! -s "$apk" ]; then
+            echo "Android release APK is missing: $apk"
+            exit 1
+          fi
+          mv "$apk" "dist/mobile-release/FluxDown-${version}-android-arm64-v8a-release.apk"
+      - name: Publish Android-only release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          apk="dist/mobile-release/FluxDown-${version}-android-arm64-v8a-release.apk"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$apk" --clobber
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "FluxDown ${version} Android" \
+              --notes-file "docs/releases/${version}.md" \
+              --draft=false \
+              --prerelease
+          else
+            gh release create "$GITHUB_REF_NAME" "$apk" \
+              --title "FluxDown ${version} Android" \
+              --notes-file "docs/releases/${version}.md" \
+              --prerelease \
               --verify-tag
           fi

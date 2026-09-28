@@ -127,5 +127,5 @@ CLI 需要支持：
 - `npm --workspace apps/desktop run build` 通过。
 - `cd apps/mobile && flutter analyze && flutter test` 通过。
 - `.github/workflows/build.yml` 能在 GitHub Actions 中构建并上传多端产物。
-- 在 `v<package.json version>` 标签 ref 上手动运行流水线，并设置 `run_mode=release` 后，发布作业能上传 Release assets。
+- 在 `v<package.json version>` 标签 ref 上手动运行流水线，并设置 `run_mode=release` 后，发布作业能上传全平台 Release assets；移动端 Alpha 使用 `run_mode=mobile-release`，只上传 Android arm64-v8a APK。
 - 文档中的协议支持状态和当前代码实现一致。

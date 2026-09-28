@@ -9,7 +9,7 @@
 - Rust workspace `Cargo.toml`
 - Flutter `apps/mobile/pubspec.yaml`
 
-当前版本号为 `1.0.27`，补齐移动端输入校验、启动恢复竞态、iOS Simulator UI smoke 和 Torrent/Magnet 详情指标修复，见 [发行说明](releases/1.0.27.md)。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
+当前源码版本号为 `1.0.28-alpha.1`，本次为只发布移动端的 Alpha 版本，见 [发行说明](releases/1.0.28-alpha.1.md)；桌面稳定版仍为 `1.0.27`。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
 
 ## 本地依赖
 
@@ -388,9 +388,10 @@ Release manifest 记录平台、产物类型、大小和 SHA-256。目录型产�
 - `desktop`：Linux、Windows、macOS 上构建 Tauri GUI 并上传平台产物。
 - `android`：分析、测试、构建 debug APK、release APK 和 AAB。
 - `ios`：构建 iOS simulator、unsigned device；签名 secrets 齐全时构建 IPA。
-- `release`：手动运行在 `v*` 标签 ref 上，并选择 `run_mode=release` 时，整理公开白名单文件、校验大小/哈希，再发布 GitHub Release。内部产物不会因为已经构建就自动公开。
+- `release`：手动运行在 `v*` 标签 ref 上，并选择 `run_mode=release` 时，整理公开白名单文件、校验大小/哈希，再发布全平台 GitHub Release。内部产物不会因为已经构建就自动公开。
+- `mobile-release`：手动运行在 `v*` 标签 ref 上，并选择 `run_mode=mobile-release` 时，只运行 Android job，发布带 `arm64-v8a` 标识的移动端 APK，并标记为 Alpha pre-release；不会重建或上传桌面/CLI/iOS 资产。
 
-流水线只在明确需要打包或发版时，通过 GitHub Actions 页面手动触发 `workflow_dispatch` 运行。普通代码提交推送到 `main` 只同步代码，不触发打包流水线；推送 `v*` 标签也只同步标签，不自动触发流水线。手动触发时必须选择 `run_mode`：需要打包时选择 `package`，需要发版时选择 `release` 并切换到对应 `v*` 标签 ref。选择 `release` 但 ref 不是 `v*` 标签时，预检会立刻失败，避免误跑整套多平台构建。Actions 页面里事件为 `push` 的记录是旧版配置留下的历史执行记录，当前配置不会因普通 push 继续新增。
+流水线只在明确需要打包或发版时，通过 GitHub Actions 页面手动触发 `workflow_dispatch` 运行。普通代码提交推送到 `main` 只同步代码，不触发打包流水线；推送 `v*` 标签也只同步标签，不自动触发流水线。手动触发时必须选择 `run_mode`：需要打包时选择 `package`，需要全平台发版时选择 `release`，只发布移动端 Alpha 时选择 `mobile-release`，并切换到对应 `v*` 标签 ref。选择正式发版模式但 ref 不是 `v*` 标签时，预检会立刻失败，避免误跑不可追溯的公开资产。Actions 页面里事件为 `push` 的记录是旧版配置留下的历史执行记录，当前配置不会因普通 push 继续新增。
 
 `npm run verify:ci-config` 检查脚本语法、手动触发/同 ref 去重/标签发布门槛，并运行公开资产回归。手动流水线在 preflight 阶段先执行这些检查，避免等多平台编译完才发现发布策略错误。
 
@@ -419,7 +420,7 @@ Release manifest 记录平台、产物类型、大小和 SHA-256。目录型产�
 3. 运行 `npm run audit:release` 查看发布准备状态。
 4. 提交代码并推送到 `main`。这一步只同步代码，不触发 GitHub Actions 打包流水线。
 5. 创建并推送与新版本一致的 `v<version>` 标签；先确认标签不存在，不重写已发布标签。
-6. 在 GitHub Actions 页面手动运行 `Build` workflow，选择刚推送的 `v*` 标签 ref，并设置 `run_mode=release`。
+6. 全平台稳定版在 GitHub Actions 页面选择 `run_mode=release`；只发布移动端 Alpha 时选择 `run_mode=mobile-release`。两者都必须选择刚推送的 `v*` 标签 ref。
 7. 从 Release 下载回验全部 10 个公开文件的大小/SHA-256、版本/包名，检查页面含源码包共 12 项；不要把只检查 CI 工作目录写成远端资产验证通过。
 
 ## 常见问题

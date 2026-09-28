@@ -2,7 +2,11 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current version is [1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27). Features below describe the current source; historical verification is labeled separately.
+FluxDown is a multi-protocol downloader for desktop and mobile. The current source version is [1.0.28-alpha.1](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.28-alpha.1), a mobile-only alpha release; the stable desktop release remains [1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27). Features below describe the current source; historical verification is labeled separately.
+
+### 1.0.28-alpha.1 Mobile Alpha (2026-09-28)
+
+Moves Torrent/Magnet metadata retrieval and file selection on Android/iOS to Rust FFI. Rust failures now surface directly instead of falling back to Dart metadata parsing. This release publishes only the Android arm64-v8a mobile package; desktop artifacts are not republished. See the [release notes](docs/releases/1.0.28-alpha.1.md) (Chinese).
 
 ### 1.0.27 Update (2026-09-27)
 
@@ -27,7 +31,7 @@ Strengthened Android Release protocol evidence with isolated Torrent/Magnet outp
 - HLS supports master variant selection, cached-segment resume, and optional TS output across desktop, CLI, and the mobile new-task form. Remuxing to `.mp4` is attempted when supported; failures safely fall back to `.ts`.
 - Mobile speed limiting, cancellation-aware pause, chunk cancellation for FTP/SFTP/SMB/HLS, and Torrent speed settings are wired through the download controller. Successful ed2k handoff uses `handedOff` and is not reported as an internal FluxDown download completion.
 - CLI and desktop redact usernames and passwords in URLs, and support system credential references so new credentials do not enter the queue. Save-as names are sanitized to a single file name. Android/iOS now store and select credential references through Keystore/Keychain-backed secure storage; password credentials are passed transiently to Rust FFI or Dart for the active request, while private keys remain in the Dart SFTP handshake, and task JSON never contains the secret material.
-- Mobile protocol detection tries Rust through FFI, with a Dart fallback when unavailable. Its queue and actual downloads still use Dart/native mobile adapters; migration to the Rust download engine is not complete.
+- Mobile protocol detection and Torrent/Magnet metadata preview use Rust through FFI; metadata failures surface directly instead of falling back to Dart parsing. When the native library is available, HTTP/HTTPS/WebDAV(S)/HLS and Torrent/Magnet tasks with confirmed file selections prefer the Rust queue; SFTP private keys and ed2k handoff remain in Dart/native adapters.
 - Normal commits and tag pushes do not trigger GitHub Actions. CI is run manually only for explicit packaging or release work.
 
 ### 1.0.20 Update (2026-09-12)
@@ -149,11 +153,11 @@ Releases `v1.0.16` and `v1.0.17` contain 11 uploaded files. Starting with `v1.0.
 | Command line | Windows x64 CLI ZIP; macOS ARM64 / Linux x64 CLI TAR.GZ |
 | License notices | LICENSE, third-party license notices |
 
-Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.27.md) for signing and verification limits. The manifest remains an internal CI check and is not shown as a checksum table on the release page.
+Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [mobile alpha release notes](docs/releases/1.0.28-alpha.1.md) and the [stable desktop release notes](docs/releases/1.0.27.md) for signing and verification limits. The manifest remains an internal CI check and is not shown as a checksum table on the release page.
 
 Extract the CLI archive and run `fluxdown` / `fluxdown.exe`; Unix executable permissions are retained. Future Android Release APK/AAB artifacts provide `arm64-v8a` only, avoiding three copies of the Rust native library; historical releases keep the ABI range documented in their release notes. Release uses R8; Dart symbols and R8 mapping are retained separately in Actions Artifacts.
 
-Release page: [FluxDown 1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27).
+Release pages: [Mobile Alpha 1.0.28-alpha.1](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.28-alpha.1) · [Stable desktop 1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27).
 
 ## Documentation
 

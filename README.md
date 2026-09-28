@@ -2,7 +2,11 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版本为 [1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27)。以下功能说明以当前源码为准，历史验证单独标注。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前源码版本为 [1.0.28-alpha.1](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.28-alpha.1)，这是仅移动端的 Alpha 发布；桌面稳定版仍为 [1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27)。以下功能说明以当前源码为准，历史验证单独标注。
+
+### 1.0.28-alpha.1 移动端 Alpha（2026-09-28）
+
+将 Android/iOS 的 Torrent/Magnet metadata 获取和文件选择迁移到 Rust FFI；Rust 失败时直接显示错误，不再回退到 Dart metadata 解析。该版本只发布 Android arm64-v8a 移动包，桌面端不重新发布。详见 [发行说明](docs/releases/1.0.28-alpha.1.md)。
 
 ### 1.0.27 更新（2026-09-27）
 
@@ -157,13 +161,13 @@ Runner 构建阶段自动编译并静态链接 Rust FFI，最低部署版本为 
 | 命令行 | Windows x64 CLI ZIP、macOS ARM64 / Linux x64 CLI TAR.GZ |
 | 许可说明 | LICENSE、第三方许可证清单 |
 
-Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。当前签名与验证边界见 [发行说明](docs/releases/1.0.27.md)。
+Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继续保留在对应构建的 Actions Artifacts，不进入普通用户下载区。移动端 Alpha 的签名与验证边界见 [发行说明](docs/releases/1.0.28-alpha.1.md)，桌面稳定版边界见 [1.0.27 发行说明](docs/releases/1.0.27.md)。
 
 发布 manifest 继续在流水线内部生成和校验，但不再作为公开附件或展示在 Release 页面；三个 ZIP/TAR.GZ 是独立 CLI 版本，不是桌面安装包的重复副本。
 
 CLI 解压后运行 `fluxdown` / `fluxdown.exe`，Unix 可执行权限已保留。后续 Android Release APK/AAB 仅提供 `arm64-v8a`，以避免重复携带三套 Rust 原生库；Release 启用 R8，Dart 符号和 R8 mapping 单独保存在 Actions Artifacts，不是从 App 删除功能。历史版本的 ABI 范围以对应发行说明为准。
 
-Release 页面：[FluxDown 1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27)。
+Release 页面：[移动端 Alpha 1.0.28-alpha.1](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.28-alpha.1) · [桌面稳定版 1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27)。
 
 ## 文档
 
