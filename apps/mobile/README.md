@@ -18,7 +18,8 @@ Run from `apps/mobile`. Android Rust `.so` files must be built separately using 
 flutter analyze
 flutter test
 flutter build apk --debug
-flutter build apk --release
+flutter build apk --release --split-per-abi --target-platform android-arm64
+cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk build/app/outputs/flutter-apk/app-release.apk
 flutter build appbundle --release
 flutter build ios --simulator
 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release
@@ -36,8 +37,7 @@ npm run mobile:ios:verify
 Plain `flutter test` skips the four native-library cases. Pass `FLUXDOWN_FFI_TEST_LIBRARY` as described in the build guide to test a real host Rust library; this does not replace Android/iOS native-device verification.
 
 The Android debug APK is written to `build/app/outputs/flutter-apk/app-debug.apk`.
-The Android release APK is written to `build/app/outputs/flutter-apk/app-release.apk`.
-The Android App Bundle is written to `build/app/outputs/bundle/release/app-release.aab`.
+The Android Release APK is built for `arm64-v8a` only and is written to `build/app/outputs/flutter-apk/app-release.apk`. The Android App Bundle is also restricted to `arm64-v8a` by the Gradle ABI filter and is written to `build/app/outputs/bundle/release/app-release.aab`.
 
 For Android store signing, copy `android/key.properties.example` to `android/key.properties`, point `storeFile` at the upload keystore, and fill in the passwords and alias. The real `android/key.properties` and keystore files are ignored by git. If `android/key.properties` is absent, release builds fall back to debug signing for install and packaging checks.
 

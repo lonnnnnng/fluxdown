@@ -42,6 +42,15 @@ android {
         versionName = flutter.versionName
     }
 
+    packaging {
+        jniLibs {
+            // 作者: long
+            // 第三方插件以预编译 .so 形式提供多 ABI，abiFilters 不会过滤这些输入；
+            // 在最终打包阶段排除非 arm64 目录，确保 APK/AAB 不携带无法使用的副本。
+            excludes += setOf("**/armeabi-v7a/**", "**/x86_64/**")
+        }
+    }
+
     signingConfigs {
         create("release") {
             if (hasReleaseKeystore) {

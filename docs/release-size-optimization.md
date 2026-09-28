@@ -1,6 +1,6 @@
 # 1.0.16 包体优化与回归记录
 
-核验日期：2026-09-08。目标是保留功能、协议和平台兼容性，尽量减少下载体积，不设固定压缩比例。远端 Release 构建、资产回验和 Release CLI smoke 已完成；全协议 GUI/真机验收仍按既有边界单独记录。
+核验日期：2026-09-08，arm64-only 构建补充核验于 2026-09-28。目标是保留功能和协议能力，Android Release 改为仅支持 arm64-v8a 以换取更小安装包；其他平台兼容性不变。远端 Release 构建、资产回验和 Release CLI smoke 已完成；全协议 GUI/真机验收仍按既有边界单独记录。
 
 ## R8 现状
 
@@ -14,7 +14,7 @@
 | 范围 | 已实现配置 | 保留边界 |
 | --- | --- | --- |
 | Rust 全平台 | Thin LTO、单代码生成单元、去除 debug info；CLI/桌面另去符号表 | 保持吞吐优先优化与 panic 展开，保留移动 FFI 导出 |
-| Android APK/AAB | 分离 Dart 调试符号、移除没有使用的 Cupertino 图标字体 | 保留 arm64-v8a、armeabi-v7a、x86_64，以及扫码、Torrent 和所有协议 |
+| Android APK/AAB | 分离 Dart 调试符号、移除没有使用的 Cupertino 图标字体、只打包 arm64-v8a | 保留扫码、Torrent 和所有协议；不再重复携带 armeabi-v7a、x86_64 原生库 |
 | iOS Release | 分离 Dart 调试符号，链接优化后的 Rust 静态库 | 不裁剪 FFI 导出，不改变签名/真机验证边界 |
 | macOS DMG | 原有 UDZO 容器使用 zlib level 9 | 不更换镜像格式，不修改 App 内容与安装操作 |
 | Windows Setup / Linux DEB | 从优化后的 Rust 二进制生成 | Windows 保持 NSIS 默认 LZMA，DEB 不引入新系统依赖 |
@@ -49,6 +49,17 @@ CI 实测：macOS CLI 从 `15,732,112` 字节降至 `9,305,648` 字节，减少 
 | Linux RPM | 10,188,625 | 5,261,797 | -48.4% |
 | Windows 安装向导 | 5,580,477 | 5,334,806 | -4.4% |
 | iOS unsigned App（Actions Artifact） | 56,811,563 | 45,707,652 | -19.5% |
+
+### arm64-only 构建实测
+
+2026-09-28 在当前工作树使用 Release 配置重新构建并检查 ZIP 内容：
+
+| 产物 | 大小 | ABI 检查 |
+| --- | ---: | --- |
+| Android APK `app-release.apk` | 51,883,591 bytes | 仅 `arm64-v8a` |
+| Android AAB `app-release.aab` | 44,574,115 bytes | 仅 `arm64-v8a` |
+
+APK 通过 `--split-per-abi --target-platform android-arm64` 生成后复制回既有标准文件名；Gradle 打包阶段额外排除第三方插件的 `armeabi-v7a`、`x86_64` 原生库。32 位 ARM 和 x86 Android 设备不再属于该 Release 包的支持范围。
 
 本地 macOS App/DMG 与 iOS unsigned Release 构建通过；DMG 签名校验和最终 iOS Runner 的 8 个 FFI 导出检查通过。`npm run verify:release-cli-smoke` 用已构建的 macOS Release CLI 跑通版本、detect/add/pause/resume/run/list/download，队列和直接下载各 256 KiB，SHA-256 均为 `31a1f9dea0169551092d05e8bf4a446228c8c3eb4c9b713c66adcb7fd53c89be`。这是隔离本地 HTTP/Range 回归，不是公网或全协议验收。
 

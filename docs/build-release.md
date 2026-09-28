@@ -134,14 +134,15 @@ npm run verify:windows-gui
 ```sh
 cd apps/mobile
 flutter build apk --debug
-flutter build apk --release --split-debug-info=build/symbols/android
+flutter build apk --release --split-per-abi --target-platform android-arm64 --split-debug-info=build/symbols/android
+cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk build/app/outputs/flutter-apk/app-release.apk
 flutter build appbundle --release --split-debug-info=build/symbols/android
 ```
 
 输出：
 
 - `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`
-- `apps/mobile/build/app/outputs/flutter-apk/app-release.apk`
+- `apps/mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`（复制为 `app-release.apk` 供发布脚本使用）
 - `apps/mobile/build/app/outputs/bundle/release/app-release.aab`
 
 ### Android 签名
@@ -182,11 +183,12 @@ CI 的 Windows CLI 与桌面产物支持 Authenticode 签名（SHA-256 摘要 + 
 
 ### Android 原生库
 
-需要已安装 Android NDK、`cargo-ndk` 和三个 Rust targets。从仓库根目录执行，与手动 CI 的 Android 步骤一致：
+需要已安装 Android NDK、`cargo-ndk` 和 `aarch64-linux-android` Rust target。从仓库根目录执行，与手动 CI 的 Android 步骤一致：
 
 ```sh
-rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-PATH="$HOME/.cargo/bin:$PATH" cargo ndk --target arm64-v8a --target armeabi-v7a --target x86_64 --platform 24 \
+rustup target add aarch64-linux-android
+rm -rf apps/mobile/android/app/src/main/jniLibs/armeabi-v7a apps/mobile/android/app/src/main/jniLibs/x86_64
+PATH="$HOME/.cargo/bin:$PATH" cargo ndk --target arm64-v8a --platform 24 \
   -o apps/mobile/android/app/src/main/jniLibs build --release \
   -p fluxdown-ffi --features fluxdown-core/vendored-openssl
 ```
@@ -195,7 +197,7 @@ PATH="$HOME/.cargo/bin:$PATH" cargo ndk --target arm64-v8a --target armeabi-v7a 
 会出现 `can't find crate for core`；构建时必须让 `~/.cargo/bin` 排在 PATH 前面，确保 cargo、rustc
 和 target 属于同一套 rustup 工具链。
 
-产出的 `arm64-v8a` / `armeabi-v7a` / `x86_64` 三个 `libfluxdown_ffi.so` 会被 Flutter 打进 APK/AAB。Android 使用 `DynamicLibrary.open('libfluxdown_ffi.so')`；仍需在对应 ABI 设备上验证加载，host 测试不能替代这一步。
+产出的 `arm64-v8a/libfluxdown_ffi.so` 会被 Flutter 打进 APK/AAB。Android Gradle 在最终打包阶段排除 `armeabi-v7a`、`x86_64` 的预编译插件库，Release APK 另外使用 `--split-per-abi --target-platform android-arm64` 产出 arm64 包；Android 使用 `DynamicLibrary.open('libfluxdown_ffi.so')`，仍需在 arm64 设备上验证加载，host 测试不能替代这一步。
 
 ### iOS 静态链接
 

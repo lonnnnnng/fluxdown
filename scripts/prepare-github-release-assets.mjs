@@ -130,7 +130,7 @@ ${changelog}
 
 [Windows x64 ZIP](${download(`fluxdown-${version}-windows-x86_64.zip`)}) · [macOS ARM64 TAR.GZ](${download(`fluxdown-${version}-macos-aarch64.tar.gz`)}) · [Linux x64 TAR.GZ](${download(`fluxdown-${version}-linux-amd64.tar.gz`)})
 
-CLI 解压后运行其中的 fluxdown/fluxdown.exe；压缩包包含许可证，Unix 可执行权限已保留。Android APK 仍兼容 arm64-v8a、armeabi-v7a 和 x86_64，没有为了减包移除架构。
+CLI 解压后运行其中的 fluxdown/fluxdown.exe；压缩包包含许可证，Unix 可执行权限已保留。Android Release APK/AAB 仅提供 arm64-v8a，以减少重复携带 Rust 原生库；历史版本的 ABI 范围以对应发行说明为准。
 
 ## 资产说明
 

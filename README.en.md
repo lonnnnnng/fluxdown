@@ -120,7 +120,9 @@ cd apps/mobile
 flutter analyze
 flutter test
 flutter build apk --debug
-flutter build apk --release
+flutter build apk --release --split-per-abi --target-platform android-arm64
+cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk build/app/outputs/flutter-apk/app-release.apk
+flutter build appbundle --release
 ```
 
 These Flutter commands do not compile Android Rust libraries. Follow [mobile FFI builds](docs/build-release.md#移动端-rust-ffi) to populate `jniLibs` first. Without the library, protocol detection falls back to Dart; a working app alone does not prove FFI works.
@@ -149,7 +151,7 @@ Releases `v1.0.16` and `v1.0.17` contain 11 uploaded files. Starting with `v1.0.
 
 Debug APK, AAB, iOS validation bundles, MSI, raw desktop binaries, and the macOS App directory remain in the corresponding Actions Artifacts, outside the end-user download list. See the [release notes](docs/releases/1.0.27.md) for signing and verification limits. The manifest remains an internal CI check and is not shown as a checksum table on the release page.
 
-Extract the CLI archive and run `fluxdown` / `fluxdown.exe`; Unix executable permissions are retained. Android still includes arm64-v8a, armeabi-v7a, and x86_64. Release uses R8; Dart symbols and R8 mapping are retained separately in Actions Artifacts.
+Extract the CLI archive and run `fluxdown` / `fluxdown.exe`; Unix executable permissions are retained. Future Android Release APK/AAB artifacts provide `arm64-v8a` only, avoiding three copies of the Rust native library; historical releases keep the ABI range documented in their release notes. Release uses R8; Dart symbols and R8 mapping are retained separately in Actions Artifacts.
 
 Release page: [FluxDown 1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27).
 

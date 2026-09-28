@@ -235,6 +235,33 @@ function verifyIosFfiSymbols(relativeAppPath) {
   }
 }
 
+function verifyAndroidArchiveAbi(relativePath) {
+  const archivePath = resolve(root, relativePath)
+  if (!existsSync(archivePath)) return
+  const knownAbis = ['arm64-v8a', 'armeabi-v7a', 'x86_64']
+  try {
+    const entries = execFileSync('unzip', ['-Z1', archivePath], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+      .split('\n')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+    const includedAbis = new Set(
+      entries.flatMap((entry) => knownAbis.filter((abi) => entry.includes(`/${abi}/`))),
+    )
+    if (!includedAbis.has('arm64-v8a')) {
+      fail(`${relativePath} does not contain arm64-v8a native libraries`)
+      return
+    }
+    const unexpected = [...includedAbis].filter((abi) => abi !== 'arm64-v8a')
+    if (unexpected.length > 0) {
+      fail(`${relativePath} contains unexpected Android ABIs: ${unexpected.join(', ')}`)
+      return
+    }
+    console.log(`ok abi   ${relativePath} (arm64-v8a only)`)
+  } catch (error) {
+    fail(`cannot inspect Android ABI contents: ${relativePath}: ${error.message}`)
+  }
+}
+
 function verifyCiConfig() {
   const workflow = readFileSync(resolve(root, '.github/workflows/build.yml'), 'utf8')
   const onBlock = extractTopLevelBlock(workflow, 'on')
@@ -309,6 +336,14 @@ if (profile === 'file') {
   }
   if (profile === 'ios-simulator' || profile === 'ios-device-unsigned') {
     verifyIosFfiSymbols(profiles[profile][0][1])
+  }
+  if (profile === 'android' || profile === 'local') {
+    verifyAndroidArchiveAbi('apps/mobile/build/app/outputs/flutter-apk/app-release.apk')
+    verifyAndroidArchiveAbi('apps/mobile/build/app/outputs/bundle/release/app-release.aab')
+  }
+  if (profile === 'release') {
+    verifyAndroidArchiveAbi(`${releaseDir}/mobile/android/${androidApkName}`)
+    verifyAndroidArchiveAbi(`${releaseDir}/mobile/android/${androidAabName}`)
   }
 } else {
   console.error(`unknown artifact verification profile: ${profile}`)

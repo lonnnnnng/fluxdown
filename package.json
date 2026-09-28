@@ -15,7 +15,7 @@
     "mobile:analyze": "cd apps/mobile && flutter analyze",
     "mobile:test": "cd apps/mobile && flutter test",
     "mobile:android": "cd apps/mobile && flutter build apk --debug",
-    "mobile:android:release": "cd apps/mobile && flutter build apk --release --split-debug-info=build/symbols/android",
+    "mobile:android:release": "cd apps/mobile && flutter build apk --release --split-per-abi --target-platform android-arm64 --split-debug-info=build/symbols/android && cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk build/app/outputs/flutter-apk/app-release.apk",
     "mobile:android:aab": "cd apps/mobile && flutter build appbundle --release --split-debug-info=build/symbols/android",
     "mobile:ios:simulator": "cd apps/mobile && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios --simulator",
     "mobile:ios:prepare": "bash scripts/prepare-ios-libtorrent-simulator.sh",

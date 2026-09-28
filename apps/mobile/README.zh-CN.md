@@ -18,7 +18,8 @@ App 保存本地 JSON 队列，按设置的并发数自动调度排队任务。�
 flutter analyze
 flutter test
 flutter build apk --debug
-flutter build apk --release
+flutter build apk --release --split-per-abi --target-platform android-arm64
+cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk build/app/outputs/flutter-apk/app-release.apk
 flutter build appbundle --release
 flutter build ios --simulator
 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 flutter build ios-framework --no-profile --no-release
@@ -36,8 +37,7 @@ npm run mobile:ios:verify
 直接运行 `flutter test` 会跳过 4 项原生库测试。按构建文档传入 `FLUXDOWN_FFI_TEST_LIBRARY` 才会调用真实 host Rust 库；host 测试不能替代 Android/iOS 原生设备验证。
 
 Android debug APK 会写入 `build/app/outputs/flutter-apk/app-debug.apk`。
-Android release APK 会写入 `build/app/outputs/flutter-apk/app-release.apk`。
-Android App Bundle 会写入 `build/app/outputs/bundle/release/app-release.aab`。
+Android Release APK 只构建 `arm64-v8a`，写入 `build/app/outputs/flutter-apk/app-release.apk`。Android App Bundle 同样通过 Gradle ABI 过滤限制为 `arm64-v8a`，写入 `build/app/outputs/bundle/release/app-release.aab`。
 
 Android 商店签名时，复制 `android/key.properties.example` 为 `android/key.properties`，让 `storeFile` 指向 upload keystore，并填写密码和 alias。真实 `android/key.properties` 和 keystore 文件会被 git 忽略。如果 `android/key.properties` 不存在，release 构建会回退到 debug signing，用于安装和打包检查。
 

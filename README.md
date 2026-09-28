@@ -60,7 +60,7 @@ FluxDown 是一款面向桌面端和移动端的多协议下载器。当前版�
 
 ### 1.0.16 更新（2026-09-08）
 
-iOS FFI 链接、移动端 JSON 解码/内存释放、桌面 Torrent 分文件进度及队列跨进程写入竞态已修复。公开 Assets 精简为 11 个上传文件，加源码包共 13 项；新增保守的二进制裁剪、Dart 符号分离与安装包压缩，保留全部协议和 Android 三种架构。详见 [发行说明](docs/releases/1.0.16.md)、[包体优化记录](docs/release-size-optimization.md) 和 [修复验证报告](docs/bugfix-verification-20260908.md)。
+iOS FFI 链接、移动端 JSON 解码/内存释放、桌面 Torrent 分文件进度及队列跨进程写入竞态已修复。公开 Assets 精简为 11 个上传文件，加源码包共 13 项；新增保守的二进制裁剪、Dart 符号分离与安装包压缩，`1.0.16` 历史包保留当时的 Android 三种架构。详见 [发行说明](docs/releases/1.0.16.md)、[包体优化记录](docs/release-size-optimization.md) 和 [修复验证报告](docs/bugfix-verification-20260908.md)。
 
 ## 界面截图
 
@@ -128,7 +128,9 @@ cd apps/mobile
 flutter analyze
 flutter test
 flutter build apk --debug
-flutter build apk --release
+flutter build apk --release --split-per-abi --target-platform android-arm64
+cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk build/app/outputs/flutter-apk/app-release.apk
+flutter build appbundle --release
 ```
 
 上述 Flutter 命令不会自动编译 Android Rust 库。要验证 FFI 路径，先按 [移动端 FFI 构建](docs/build-release.md#移动端-rust-ffi) 生成 `jniLibs`；未打包时协议识别回退 Dart，不能据此判定 FFI 可用。
@@ -159,7 +161,7 @@ Debug APK、AAB、iOS 验证包、MSI、裸桌面程序和 macOS App 目录继�
 
 发布 manifest 继续在流水线内部生成和校验，但不再作为公开附件或展示在 Release 页面；三个 ZIP/TAR.GZ 是独立 CLI 版本，不是桌面安装包的重复副本。
 
-CLI 解压后运行 `fluxdown` / `fluxdown.exe`，Unix 可执行权限已保留。Android APK 仍包含 arm64-v8a、armeabi-v7a、x86_64；Release 启用 R8，Dart 符号和 R8 mapping 单独保存在 Actions Artifacts，不是从 App 删除功能。
+CLI 解压后运行 `fluxdown` / `fluxdown.exe`，Unix 可执行权限已保留。后续 Android Release APK/AAB 仅提供 `arm64-v8a`，以避免重复携带三套 Rust 原生库；Release 启用 R8，Dart 符号和 R8 mapping 单独保存在 Actions Artifacts，不是从 App 删除功能。历史版本的 ABI 范围以对应发行说明为准。
 
 Release 页面：[FluxDown 1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27)。
 
