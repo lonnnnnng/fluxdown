@@ -4,7 +4,7 @@
 
 P2-01 至 P2-05 已按当前产品边界完成代码收口，逐项说明见 [P2 阶段完成记录](p2-completion-20260927.md)。本轮明确区分：
 
-- 移动端 Rust 队列已覆盖 HTTP/HLS 和完成 metadata 选择的 Torrent/Magnet；metadata 获取、SFTP 私钥和 ed2k 外部移交仍由端侧适配器承担。
+- 移动端 Rust 队列已覆盖 HTTP/HLS 和完成 metadata 选择的 Torrent/Magnet；Torrent/Magnet metadata 预览统一走 Rust FFI，失败时新建任务直接报错，SFTP 私钥和 ed2k 外部移交仍由端侧适配器承担。
 - Android 前台服务和 iOS 短时后台窗口只提供平台允许的后台能力；进程被系统回收后依靠启动恢复，不承诺永久后台。
 - ed2k 的 `handed-off` 只表示外部客户端接收链接，FluxDown 不掌控第三方进度、完成回调和最终路径。
 - 移动端密码凭据只通过 Rust FFI/Dart 运行时临时使用，任务 JSON 只保存引用；私钥、ssh-agent、跳板机的支持边界保持显式。

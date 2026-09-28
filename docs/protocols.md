@@ -125,16 +125,17 @@
 
 ### BitTorrent 和 Magnet
 
-- 使用 `libtorrent_flutter`。
-- 支持 `.torrent` 文件和 Magnet 链接。
-- `.torrent` URL 会先下载到临时文件再添加到引擎。
-- 拿到 libtorrent metadata 后会读取真实文件列表，卡片名从 `.torrent`
-  文件名或临时 magnet 名称更新为真实下载文件名。
-- 单文件种子会自动选择该文件；多文件种子会弹出文件列表供用户选择，
-  并把未选文件的 libtorrent priority 设为 0。
+- 下载执行仍使用 `libtorrent_flutter`，但 metadata 获取和文件树选择统一通过 Rust FFI 的
+  `fluxdown_torrent_details_async` 完成。
+- 支持 `.torrent` 文件和 Magnet 链接；`.torrent` URL 由 Rust 读取，Magnet 由 Rust 等待
+  tracker/DHT metadata。
+- Rust 返回 metadata 后读取真实文件列表，卡片名从 `.torrent` 文件名或临时 magnet 名称更新为
+  真实下载文件名。
+- 单文件种子会自动选择该文件；多文件种子会弹出文件列表供用户选择，并将选择结果写入任务，
+  再交给移动 Rust 队列下载。
 - 任务 JSON 会保存 `torrentName`、`torrentFiles` 和
   `selectedTorrentFileIndexes`，用于恢复展示、打开和分享。
-- 用户确认文件选择后，移动 Rust native 队列会接管已完成 metadata 的 Torrent/Magnet 下载；metadata 获取、二次确认和 libtorrent 文件树仍由 Dart 适配器负责，native 库缺失时回退 Dart。
+- 用户确认文件选择后，移动 Rust native 队列会接管已完成 metadata 的 Torrent/Magnet 下载；metadata 获取统一由 Rust FFI 完成，native 库缺失或调用失败时新建任务直接报错。
 - 文件夹详情支持查看文件清单和预览已落盘文件。当前 `libtorrent_flutter 2.0.0` 只提供整体任务进度；下载中逐文件完成量显示未知，尚无真实逐文件速度，不能视为与桌面详情完全对齐。
 - 该依赖带有 GPL 原生组件，正式分发前必须审查许可证义务。
 

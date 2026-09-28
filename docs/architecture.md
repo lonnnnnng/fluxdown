@@ -162,7 +162,7 @@ Tauri commands 包括：
 
 ## 移动端
 
-Flutter 当前部分复用 Rust core：协议识别走 `protocol.dart` → `FluxDownCoreBridge` → `FluxDownCoreFfi`；加载失败或调用异常回退 Dart。native 库可用时，移动正式入口优先让 HTTP/HTTPS/WebDAV(S)/HLS 和已完成 metadata 选择的 Torrent/Magnet 走 Rust 队列，metadata 获取、私钥 SFTP、ed2k 外部移交和回退路径保留 Dart/移动原生适配器：
+Flutter 当前部分复用 Rust core：协议识别和 Torrent/Magnet metadata 预览走 `protocol.dart`/`mobile_torrent.dart` → `FluxDownCoreBridge` → `FluxDownCoreFfi`；协议识别异常可回退 Dart，metadata 异常直接阻止新建 Torrent/Magnet 任务。native 库可用时，移动正式入口优先让 HTTP/HTTPS/WebDAV(S)/HLS 和已完成 metadata 选择的 Torrent/Magnet 走 Rust 队列，私钥 SFTP、ed2k 外部移交和旧任务执行回退路径保留 Dart/移动原生适配器：
 
 - `protocol.dart`：协议识别和移动端支持说明。
 - `core_bridge.dart` / `ffi/fluxdown_ffi.dart`：加载 ABI 1、UTF-8 JSON 信封解码与结果释放。Android 打包 `.so`；iOS Runner 构建时静态链接，使用 `DynamicLibrary.process()`。
@@ -181,7 +181,7 @@ Flutter 当前部分复用 Rust core：协议识别走 `protocol.dart` → `Flux
 - 移动端 torrent 依赖 `libtorrent_flutter` 原生组件。
 - 移动端已接入新建弹框扫码/剪切板与可选 SHA-256 文件校验；这些 UI 能力不依赖 Rust 下载控制器。
 
-FFI 保留同步 `queueRun` 兼容旧测试，同时新增非阻塞单任务/队列运行、状态轮询、暂停、继续、重置、删除、句柄回收和队列设置透传接口；实时进度、速度、错误、真实文件名和 Rust 时间戳通过 `queueList` 读取 canonical 快照。Flutter 的 `RustQueueBackend` 在迁移提交后停止双写，仅把 `handedOff` 保存到移动投影；初始化/入队失败时仍回退 Dart，Dart 也能直接读取 Rust canonical 文件。Torrent/Magnet 的 metadata 选择、ed2k 外部移交和 SFTP 私钥属于明确的移动适配边界，不冒充 Rust 已接管；构建细节见 [移动端 Rust FFI](build-release.md#移动端-rust-ffi)。
+FFI 保留同步 `queueRun` 兼容旧测试，同时新增非阻塞单任务/队列运行、状态轮询、暂停、继续、重置、删除、句柄回收、Torrent/Magnet metadata 异步读取和队列设置透传接口；实时进度、速度、错误、真实文件名和 Rust 时间戳通过 `queueList` 读取 canonical 快照。Flutter 的 `RustQueueBackend` 在迁移提交后停止双写，仅把 `handedOff` 保存到移动投影；初始化/入队失败时旧任务仍可回退 Dart，新建 Torrent/Magnet metadata 失败则直接报错。Torrent/Magnet 的下载执行回退、ed2k 外部移交和 SFTP 私钥属于明确的移动适配边界；metadata 预览已统一到 Rust，不冒充所有端均已去除 libtorrent；构建细节见 [移动端 Rust FFI](build-release.md#移动端-rust-ffi)。
 
 ## 数据流
 

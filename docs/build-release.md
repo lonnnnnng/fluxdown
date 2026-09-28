@@ -179,7 +179,7 @@ CI 的 Windows CLI 与桌面产物支持 Authenticode 签名（SHA-256 摘要 + 
 
 ## 移动端 Rust FFI
 
-`crates/fluxdown-ffi` 提供 ABI 1 的协议识别、支持状态与队列 C 接口。Flutter 下载控制器在 native 库可用时已将 HTTP/HTTPS/WebDAV(S)/HLS，以及完成 metadata 文件选择的 Torrent/Magnet 优先交给 Rust；密码凭据从 Android Keystore/iOS Keychain 取出后只通过本次 FFI 运行参数临时注入，不写入 Rust queue JSON。SFTP 私钥仍由 Dart 适配器在握手期间加载，Torrent/Magnet metadata 获取、ed2k 外部移交和 native 库不可用时仍由 Dart/移动原生适配器负责。请求字段与返回值见 [任务模型与 FFI](task-schema.md)。
+`crates/fluxdown-ffi` 提供 ABI 1 的协议识别、支持状态、Torrent/Magnet metadata 异步读取与队列 C 接口。Flutter 下载控制器在 native 库可用时已将 HTTP/HTTPS/WebDAV(S)/HLS，以及完成 metadata 文件选择的 Torrent/Magnet 优先交给 Rust；密码凭据从 Android Keystore/iOS Keychain 取出后只通过本次 FFI 运行参数临时注入，不写入 Rust queue JSON。SFTP 私钥和 ed2k 外部移交仍由 Dart/移动原生适配器负责；native metadata 调用失败会直接阻止新建 Torrent/Magnet 任务。请求字段与返回值见 [任务模型与 FFI](task-schema.md)。
 
 ### Android 原生库
 
@@ -209,7 +209,7 @@ bash scripts/build-ios-ffi.sh
 - 脚本默认构建真机 arm64 静态库；Runner 的 `Build FluxDown FFI` 阶段会根据 `PLATFORM_NAME` / `ARCHS` 构建真机或模拟器库，多模拟器架构使用 `lipo` 合并。
 - Rust 与 C 依赖共用 `IPHONEOS_DEPLOYMENT_TARGET=15.0`，与 Runner 对齐。不要让 Rust 默认部署目标与 Xcode SDK/Runner 目标分离。
 - 产物分别位于 `target/ffi-ios/iphoneos/libfluxdown_ffi.a` 和 `target/ffi-ios/iphonesimulator/libfluxdown_ffi.a`，不能因为两者都是 arm64 就混用。
-- `ios/Flutter/FluxDownFfi.xcconfig` 链入静态库和系统依赖，并保留当前 17 个 C ABI 导出（含异步运行与队列控制），避免 Release dead-strip 后 `DynamicLibrary.process()` 找不到符号。Debug/Release 配置均包含该文件。
+- `ios/Flutter/FluxDownFfi.xcconfig` 链入静态库和系统依赖，并保留当前 18 个 C ABI 导出（含 Torrent/Magnet metadata 异步读取、异步运行与队列控制），避免 Release dead-strip 后 `DynamicLibrary.process()` 找不到符号。Debug/Release 配置均包含该文件。
 - 手动 CI 复用同一脚本，并上传真机静态库 `fluxdown-ffi-ios-static`。静态库 artifact 不是可安装 App，也不能单独证明 Runner 已正确链接。
 
 ### FFI 回归测试
@@ -226,7 +226,7 @@ Linux 库为 `target/debug/libfluxdown_ffi.so`，Windows 为 `target/debug/fluxd
 
 `test/core_ffi_test.dart` 覆盖信封解析、ABI/版本、12 类协议识别、Unicode 队列、错误透传、非阻塞运行句柄、真实本地 HTTP 下载，以及 RustQueueBackend 的单任务/队列运行、时间戳回写和暂停/继续/重置/删除同步。不传该参数时原生库相关用例会跳过，仅跑 Dart 信封测试；不能把这一结果写成 FFI 验证通过。
 
-`queueRun` 仍是同步兼容调用；迁移验证可使用 `queueRunAsync`、带设置透传的 `queueRunWithOptionsAsync` 或 `queueRunQueuedAsync` 获取运行句柄，再用 `queueRunStatus` 查询结束结果、`queueList` 读取实时任务进度，并用 `queuePause`/`queueResume`/`queueReset`/`queueRemove` 控制任务。句柄完成后调用 `queueRunForget` 回收。移动正式入口目前将 HTTP/HTTPS/WebDAV(S)/HLS 和已选 metadata 的 Torrent/Magnet 优先交给 Rust，metadata 选择、私钥 SFTP、ed2k 外部移交和其他回退路径保留 Dart/原生适配器；测试把 HTTP/HLS 服务放在独立 isolate，避免服务端与同步兼容调用互相阻塞。
+`queueRun` 仍是同步兼容调用；迁移验证可使用 `torrentDetailsAsync`、`queueRunAsync`、带设置透传的 `queueRunWithOptionsAsync` 或 `queueRunQueuedAsync` 获取运行句柄，再用 `queueRunStatus` 查询结束结果、`queueList` 读取实时任务进度，并用 `queuePause`/`queueResume`/`queueReset`/`queueRemove` 控制任务。句柄完成后调用 `queueRunForget` 回收。移动正式入口目前将 Torrent/Magnet metadata 预览、HTTP/HTTPS/WebDAV(S)/HLS 和已选 metadata 的 Torrent/Magnet 优先交给 Rust；私钥 SFTP、ed2k 外部移交和其他旧任务执行回退路径保留 Dart/原生适配器，native metadata 调用失败直接阻止新建任务；测试把 HTTP/HLS 服务放在独立 isolate，避免服务端与同步兼容调用互相阻塞。
 
 Android 真机还需要验证打进 APK 的目标 ABI，而不是只运行 host FFI 测试。确认设备 serial 后执行：
 
@@ -263,7 +263,7 @@ npm run mobile:ios:simulator:verify
 npm run mobile:ios:verify
 ```
 
-这两个入口检查 App 内 `Runner` / `Runner.debug.dylib` 的当前 17 个 FFI 导出符号。符号检查和 unsigned 构建不代替 iOS App 运行验证或签名验证。
+这两个入口检查 App 内 `Runner` / `Runner.debug.dylib` 的当前 18 个 FFI 导出符号。符号检查和 unsigned 构建不代替 iOS App 运行验证或签名验证。
 
 iOS framework 验证：
 

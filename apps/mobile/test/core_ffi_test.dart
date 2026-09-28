@@ -158,6 +158,37 @@ void main() {
         },
       );
 
+      test(
+        'reads Torrent metadata and file selection data through Rust FFI',
+        () async {
+          final torrentFile = File('${directory.path}/metadata.torrent');
+          await torrentFile.writeAsString(
+            [
+              'd4:info',
+              'd5:files',
+              'l',
+              'd6:lengthi3e4:pathl4:a.ts',
+              'ee', // 作者: long：关闭文件路径列表和文件字典。
+              'e', // 作者: long：关闭多文件列表。
+              '4:name4:demo',
+              'ee', // 作者: long：关闭 info 字典和种子顶层字典。
+            ].join(),
+          );
+          final details = await FluxDownCoreBridge.inspectTorrentMetadata(
+            torrentFile.path,
+            core: core,
+            timeout: const Duration(seconds: 5),
+          );
+
+          expect(details?['name'], 'demo');
+          final files = (details?['files'] as List).cast<Map>();
+          expect(files, hasLength(1));
+          expect(files.single['index'], 0);
+          expect(files.single['path'], 'a.ts');
+          expect(files.single['size'], 3);
+        },
+      );
+
       test('adds and lists a task with unicode and native field names', () {
         final task = core.queueAdd(storePath, {
           'source': 'https://example.com/test.zip',

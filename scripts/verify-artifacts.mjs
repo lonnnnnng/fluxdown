@@ -210,6 +210,7 @@ function verifyIosFfiSymbols(relativeAppPath) {
       'version',
       'detect',
       'support',
+      'torrent_details_async',
       'queue_list',
       'queue_add',
       'queue_run',

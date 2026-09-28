@@ -28,8 +28,7 @@ class RustQueueBackend {
   bool supportsTask(DownloadTask task) {
     // 作者: long
     // Rust 队列覆盖 HTTP/WebDAV 家族、HLS VOD，以及已经完成 metadata 选择的
-    // Torrent/Magnet。移动端仍用 libtorrent 负责二次确认和文件树选择，确认结果写入任务后
-    // 再交给 Rust 执行，避免在 metadata 选择完成前改变用户行为。
+    // Torrent/Magnet。metadata 预览统一由 Rust FFI 提供；native 不可用或解析失败时新建任务直接报错。
     return switch (task.protocol) {
       'http' ||
       'https' ||

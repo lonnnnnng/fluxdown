@@ -43,7 +43,7 @@ FluxDown 是一个跨平台下载器工作区：
 - 桌面端：Windows、macOS、Linux，包含 CLI 和 Tauri + React GUI。
 - 移动端：Android 和 iPhone，使用 Flutter App。
 - 共享核心：Rust core crate 提供协议检测、任务模型、任务存储、队列运行器和桌面下载执行能力。
-- 移动 FFI：协议识别优先复用 Rust；native 库可用时 HTTP/HTTPS/WebDAV(S)/HLS 和完成 metadata 选择的 Torrent/Magnet 优先由 Rust 队列执行，metadata 获取、SFTP 私钥和 ed2k 仍由 Dart/移动原生适配器执行。
+- 移动 FFI：协议识别和 Torrent/Magnet metadata 预览统一复用 Rust；native metadata 不可用或失败时直接阻止新建 Torrent/Magnet 任务。native 库可用时 HTTP/HTTPS/WebDAV(S)/HLS 和完成 metadata 选择的 Torrent/Magnet 优先由 Rust 队列执行，SFTP 私钥和 ed2k 仍由 Dart/移动原生适配器执行。
 
 当前版本号为 `1.0.27`，补齐移动端输入校验、启动恢复竞态、iOS Simulator UI smoke 和 Torrent/Magnet 详情指标修复。公开 Assets 精简为 12 项（10 个上传文件与 2 个自动源码包），内部 manifest 继续做上传前校验，但不再在 Release Notes 展示文件校验表格。内部调试、商店和 iOS 验证产物仍保留在 Actions Artifacts。发布流水线只允许手动选择 `run_mode=package` 或 `run_mode=release`，普通代码推送和 `v*` 标签推送都不会自动执行。各次构建与运行证据见 [下载验证状态](download-verification.md)。
 

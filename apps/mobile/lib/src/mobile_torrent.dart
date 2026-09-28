@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:libtorrent_flutter/libtorrent_flutter.dart';
 import 'package:path/path.dart' as p;
 
+import 'core_bridge.dart';
 import 'download_task.dart';
 import 'transfer_metrics.dart';
 
@@ -600,84 +601,58 @@ Future<TorrentMetadata?> inspectTorrentMetadataFromSource(
   Duration magnetMetadataTimeout = const Duration(minutes: 3),
 }) async {
   final normalized = source.trim();
-  if (Uri.tryParse(normalized)?.scheme.toLowerCase() == 'magnet') {
-    return _inspectMagnetMetadata(normalized, timeout: magnetMetadataTimeout);
+  // 作者: long
+  // 元数据预览统一走 Rust librqbit，和桌面端共享同一套文件索引与 UTF-8 解析；
+  // Rust 动态库不可用、网络超时或文件列表为空时直接失败，避免移动端维护第二套选择语义。
+  final rustDetails = await FluxDownCoreBridge.inspectTorrentMetadata(
+    normalized,
+    timeout: magnetMetadataTimeout,
+  );
+  final rustMetadata = _metadataFromRustDetails(rustDetails);
+  if (rustMetadata == null) {
+    throw const FormatException('Rust Torrent/Magnet metadata 未返回可下载文件');
   }
-  final bytes = await _readTorrentBytesFromSource(source, client: client);
-  if (bytes == null) {
-    return null;
-  }
-  return parseTorrentMetadataBytes(bytes);
+  return rustMetadata;
 }
 
-Future<TorrentMetadata?> _inspectMagnetMetadata(
-  String source, {
-  required Duration timeout,
-}) async {
-  if (source.isEmpty) return null;
-
-  final tempDirectory = await Directory.systemTemp.createTemp(
-    'fluxdown_magnet_metadata_',
+TorrentMetadata? _metadataFromRustDetails(Map<String, Object?>? details) {
+  if (details == null) return null;
+  final rawFiles = details['files'];
+  if (rawFiles is! List) return null;
+  final files = rawFiles
+      .whereType<Map>()
+      .map((raw) {
+        final value = Map<String, Object?>.from(raw);
+        final path = value['path'] as String? ?? '';
+        final name = (value['name'] as String?)?.trim().isNotEmpty == true
+            ? (value['name'] as String).trim()
+            : p.basename(path);
+        return TorrentFileEntry(
+          index: _jsonInt(value['index']) ?? 0,
+          path: path,
+          name: name,
+          size: _jsonInt(value['size']) ?? 0,
+          isStreamable:
+              value['is_streamable'] as bool? ??
+              value['isStreamable'] as bool? ??
+              _isStreamable(path),
+        );
+      })
+      .where((file) => file.path.trim().isNotEmpty && file.size >= 0)
+      .toList();
+  if (files.isEmpty) return null;
+  files.sort((left, right) => left.index.compareTo(right.index));
+  final name = (details['name'] as String?)?.trim();
+  return TorrentMetadata(
+    name: name == null || name.isEmpty ? 'torrent-download' : name,
+    files: List.unmodifiable(files),
   );
-  StreamSubscription<Map<int, TorrentInfo>>? subscription;
-  int? torrentId;
-  try {
-    await LibtorrentFlutter.init(
-      // 作者: long
-      // metadata 预览与正式下载共用 IPv4 监听策略，避免预览阶段因 IPv6 路由不可用而拿不到 metadata。
-      listenInterface: '0.0.0.0:0',
-      defaultSavePath: tempDirectory.path,
-      pollInterval: const Duration(milliseconds: 500),
-    );
-    final engine = LibtorrentFlutter.instance;
-    torrentId = engine.addMagnet(
-      await _prepareMagnetSource(source),
-      tempDirectory.path,
-      true,
-    );
-    final metadata = Completer<TorrentMetadata>();
+}
 
-    void inspectSnapshot(Map<int, TorrentInfo> snapshot) {
-      if (metadata.isCompleted) return;
-      final info = snapshot[torrentId];
-      if (info == null || !info.hasMetadata) return;
-      final files = engine.getFiles(torrentId!);
-      if (files.isEmpty) return;
-      metadata.complete(_metadataFromLibtorrent(info.name, files));
-    }
-
-    subscription = engine.torrentUpdates.listen(
-      inspectSnapshot,
-      onError: (Object error, StackTrace stackTrace) {
-        if (!metadata.isCompleted) {
-          metadata.completeError(error, stackTrace);
-        }
-      },
-    );
-    inspectSnapshot(engine.torrents);
-
-    // 作者: long
-    // Magnet 必须先通过 DHT/Tracker 取回 metadata 才能让用户选文件；预览使用临时目录且禁止后台下载，确认前不会创建任务或留下业务文件。
-    return await metadata.future.timeout(timeout);
-  } finally {
-    await subscription?.cancel();
-    if (torrentId != null && LibtorrentFlutter.isInitialized) {
-      try {
-        LibtorrentFlutter.instance.removeTorrent(torrentId, deleteFiles: true);
-      } catch (_) {
-        // 作者: long
-        // metadata 获取的临时 torrent 可能已由底层移除，清理失败不应覆盖真实的解析结果。
-      }
-    }
-    try {
-      if (await tempDirectory.exists()) {
-        await tempDirectory.delete(recursive: true);
-      }
-    } catch (_) {
-      // 作者: long
-      // 系统临时目录由操作系统兜底清理，不因收尾失败阻断用户创建任务。
-    }
-  }
+int? _jsonInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
 }
 
 Future<String> _prepareMagnetSource(String source) async {
@@ -767,41 +742,6 @@ String torrentDisplayName(
       ? 'torrent-download'
       : metadata.name.trim();
   return normalizeFileName(baseName);
-}
-
-Future<List<int>?> _readTorrentBytesFromSource(
-  String source, {
-  http.Client? client,
-}) async {
-  final normalized = source.trim();
-  if (normalized.isEmpty) {
-    return null;
-  }
-  final uri = Uri.tryParse(normalized);
-  if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
-    final ownedClient = client == null;
-    final effectiveClient = client ?? http.Client();
-    try {
-      final response = await effectiveClient.get(uri);
-      if (response.statusCode != HttpStatus.ok) {
-        throw HttpException('HTTP ${response.statusCode}', uri: uri);
-      }
-      return response.bodyBytes;
-    } finally {
-      if (ownedClient) {
-        effectiveClient.close();
-      }
-    }
-  }
-
-  final path = uri != null && uri.scheme == 'file'
-      ? uri.toFilePath()
-      : normalized;
-  final file = File(path);
-  if (!await file.exists()) {
-    return null;
-  }
-  return file.readAsBytes();
 }
 
 TorrentMetadata _metadataFromLibtorrent(String name, List<FileInfo> files) {

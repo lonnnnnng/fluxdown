@@ -6,6 +6,8 @@
 // 动态库由 CI 的 Android 构建打进 jniLibs（libfluxdown_ffi.so），
 // iOS 静态库产物见 docs/build-release.md 的 FFI 章节。
 
+import 'dart:async';
+
 import 'ffi/fluxdown_ffi.dart';
 
 class FluxDownCoreBridge {
@@ -53,6 +55,58 @@ class FluxDownCoreBridge {
       return null;
     } catch (_) {
       return null;
+    }
+  }
+
+  /// 异步读取 Torrent/Magnet 元数据；Rust 失败时直接抛出，让新建任务显示明确错误。
+  static Future<Map<String, Object?>?> inspectTorrentMetadata(
+    String source, {
+    String? taskId,
+    Duration timeout = const Duration(minutes: 3),
+    Duration pollInterval = const Duration(milliseconds: 200),
+    FluxDownCoreFfi? core,
+  }) async {
+    final engine = core ?? _ffi;
+    if (engine == null) return null;
+
+    final start = engine.torrentDetailsAsync(source, taskId: taskId);
+    final runId = start['runId'];
+    if (runId is! String || runId.trim().isEmpty) return null;
+
+    final deadline = DateTime.now().add(timeout);
+    var terminal = false;
+    try {
+      while (DateTime.now().isBefore(deadline)) {
+        final status = engine.queueRunStatus(runId);
+        final state = status['state'] as String?;
+        if (state == 'finished') {
+          terminal = true;
+          final report = status['report'];
+          return report is Map<String, Object?>
+              ? Map<String, Object?>.from(report)
+              : report is Map
+              ? Map<String, Object?>.from(report)
+              : null;
+        }
+        if (state == 'failed') {
+          terminal = true;
+          throw FluxDownCoreException(
+            status['error'] as String? ?? 'Rust Torrent/Magnet metadata 解析失败',
+          );
+        }
+        await Future<void>.delayed(pollInterval);
+      }
+      return null;
+    } finally {
+      // 作者: long
+      // 仅回收已结束的句柄；超时期间 Rust 仍可能在等待 tracker，不能误删运行态记录。
+      if (terminal) {
+        try {
+          engine.queueRunForget(runId);
+        } on Object {
+          // 句柄回收失败不改变已经得到的 metadata 结果；下次进程启动时由 Rust 注册表兜底释放。
+        }
+      }
     }
   }
 }

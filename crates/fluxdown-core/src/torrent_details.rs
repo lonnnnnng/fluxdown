@@ -201,7 +201,9 @@ fn static_details_from_torrent_bytes(bytes: &[u8]) -> Result<TorrentDetails, Dow
     let info = top.get(b"info".as_slice());
     let name = info
         .and_then(|value| match value {
-            BencodeValue::Dict(info) => info.get(b"name".as_slice()),
+            BencodeValue::Dict(info) => info
+                .get(b"name.utf-8".as_slice())
+                .or_else(|| info.get(b"name".as_slice())),
             _ => None,
         })
         .or_else(|| top.get(b"name".as_slice()))
@@ -241,7 +243,10 @@ fn static_details_from_torrent_bytes(bytes: &[u8]) -> Result<TorrentDetails, Dow
                             Some(BencodeValue::Integer(length)) => (*length).max(0) as u64,
                             _ => 0,
                         };
-                        let path = match entry.get(b"path".as_slice()) {
+                        let path = match entry
+                            .get(b"path.utf-8".as_slice())
+                            .or_else(|| entry.get(b"path".as_slice()))
+                        {
                             Some(BencodeValue::List(parts)) => parts
                                 .iter()
                                 .filter_map(|part| match part {
@@ -426,6 +431,10 @@ d6:lengthi2e4:pathl4:b.tsee\
 e4:name4:demoe\
 e";
 
+    const UTF8_TORRENT: &[u8] = b"d4:infod5:filesl\
+    d6:lengthi10e10:path.utf-8l10:\xe8\xa7\x86\xe9\xa2\x91.mp4eee10:name.utf-8\
+12:\xe6\xb5\x8b\xe8\xaf\x95\xe8\xb5\x84\xe6\xba\x90ee";
+
     #[test]
     fn parses_static_torrent_files_and_trackers() {
         let details = static_details_from_torrent_bytes(SAMPLE_TORRENT).unwrap();
@@ -457,5 +466,15 @@ e";
         );
         assert!(details.files.is_empty());
         assert!(details.error.is_some());
+    }
+
+    #[test]
+    fn parses_utf8_name_and_path_keys() {
+        let details = static_details_from_torrent_bytes(UTF8_TORRENT).unwrap();
+
+        assert_eq!(details.name.as_deref(), Some("测试资源"));
+        assert_eq!(details.files.len(), 1);
+        assert_eq!(details.files[0].path, "视频.mp4");
+        assert_eq!(details.files[0].name, "视频.mp4");
     }
 }

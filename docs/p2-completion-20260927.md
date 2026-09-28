@@ -6,7 +6,7 @@
 
 | 项目 | 结论 | 关键证据与边界 |
 | --- | --- | --- |
-| P2-01 Rust 移动下载引擎 | 已完成（混合边界） | Rust FFI 已支持异步单任务/队列、暂停/继续/重置/删除、并发/线程/重试/限速、HTTP/HLS 与已完成 metadata 选择的 Torrent/Magnet；Android 三 ABI 真机 HTTP/HLS 队列与 HLS variant/fMP4 通过。Torrent/Magnet metadata 获取、文件选择、SFTP 私钥和 ed2k 外部移交仍由端侧适配器负责。 |
+| P2-01 Rust 移动下载引擎 | 已完成（混合边界） | Rust FFI 已支持异步单任务/队列、Torrent/Magnet metadata 异步读取、暂停/继续/重置/删除、并发/线程/重试/限速、HTTP/HLS 与已完成 metadata 选择的 Torrent/Magnet；Android 三 ABI 真机 HTTP/HLS 队列与 HLS variant/fMP4 通过。metadata 失败直接阻止新建任务，旧任务执行回退、SFTP 私钥和 ed2k 外部移交仍由端侧适配器负责。 |
 | P2-02 系统后台下载 | 已完成（平台边界） | Android 前台服务负责存活优先级、通知 channel 和进度；iOS 使用系统允许的短时 `beginBackgroundTask`。进程被回收后由启动恢复逻辑接管，不能承诺 iOS 永久后台或 force-stop 后继续下载。 |
 | P2-03 队列格式演进 | 已完成 | Rust canonical schema v2、tombstone、旁路锁、原子写、迁移快照、事务 marker、启动恢复和按更新时间冲突合并均已实现，并由 core/FFI/Flutter 回归覆盖。未知 schema/状态不会静默降级。 |
 | P2-04 ed2k 外部客户端 | 已完成（移交通路边界） | 桌面/CLI 优先 aMule CLI、缺失时系统 URL handler；移动端使用 `url_launcher`。任务保存 `handed-off`/`handedOff`、后端和移交时间，不冒充 `finished`。第三方客户端的进度、完成回传、最终路径和客户端选择没有稳定通用 API，FluxDown 不宣称已掌控。 |

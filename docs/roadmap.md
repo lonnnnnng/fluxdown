@@ -38,7 +38,7 @@
 
 ### 工程与发行
 
-- **共享边界已明确**：桌面 GUI/CLI 共用 Rust core。移动端协议识别 FFI 优先、Dart 回退；native 库可用时 HTTP/HTTPS/WebDAV(S)/HLS 和已完成 metadata 选择的 Torrent/Magnet 优先走 Rust 队列，metadata 获取、SFTP 私钥和 ed2k 外部移交仍由 Dart/移动原生适配器执行。C ABI、JSON 解码、内存释放、iOS Runner 链接和运行时密码凭据透传已落地。
+- **共享边界已明确**：桌面 GUI/CLI 共用 Rust core。移动端协议识别和 Torrent/Magnet metadata 预览统一走 Rust FFI，metadata 失败直接阻止新建任务；native 库可用时 HTTP/HTTPS/WebDAV(S)/HLS 和已完成 metadata 选择的 Torrent/Magnet 优先走 Rust 队列，SFTP 私钥和 ed2k 外部移交仍由 Dart/移动原生适配器执行。C ABI、JSON 解码、内存释放、iOS Runner 链接和运行时密码凭据透传已落地。
 - **本地数据可靠性**：桌面使用平台原生数据目录，兼容 macOS 旧队列路径；Rust canonical 队列使用跨进程旁路锁、原子替换和 `deleted_task_ids` tombstone，Flutter 仅保存 `handedOff` 投影。旧双队列迁移有前快照、pending journal 恢复和按任务时间戳合并；P2-03 的单一活动队列收敛已完成。
 - **输出安全**：CLI/桌面已做文件名规范化及 URL 凭据展示脱敏；桌面/CLI 已支持 OS 系统凭据库引用，移动端也已通过 Keystore/Keychain 保存引用对应的凭据。使用引用的任务只在队列保存 `credential_ref`，移动端密码凭据通过 Rust FFI 或 Dart 运行时临时使用，私钥仍只在 Dart SFTP 握手期间加载；旧 URL 凭据任务仍保留真实链接用于下载和复制。
 - **测试基础**：已有 Rust core/CLI 队列与协议测试、Flutter 控制器/UI/FFI 测试、桌面隔离 UI 回归、跨平台 HTTP/Range smoke、可复用协议资源和真机报告。后续按平台与异常场景缺口补充用例。
@@ -76,7 +76,7 @@
 
 | 编号 | 方向 | 交付条件 |
 | --- | --- | --- |
-| P2-01 | 移动下载引擎逐步收敛到 Rust | **已完成（混合边界）**：非阻塞单任务/队列运行句柄、状态轮询、暂停/继续/重置/删除、句柄回收、并发/线程/重试/限速透传、canonical schema v2、tombstone、Dart 回退和运行时密码凭据均已落地。native 库可用时 HTTP/HTTPS/WebDAV(S)/HLS 与完成 metadata 选择的 Torrent/Magnet 走 Rust；metadata 获取、文件选择、SFTP 私钥和 ed2k 外部移交保留端侧适配器。Rust/FFI/Flutter 回归及 Android 三 ABI 真机 HTTP/HLS 队列验证通过。 |
+| P2-01 | 移动下载引擎逐步收敛到 Rust | **已完成（混合边界）**：非阻塞单任务/队列运行句柄、状态轮询、Torrent/Magnet metadata 异步读取、暂停/继续/重置/删除、句柄回收、并发/线程/重试/限速透传、canonical schema v2、tombstone、旧任务执行回退和运行时密码凭据均已落地。native 库可用时 HTTP/HTTPS/WebDAV(S)/HLS 与完成 metadata 选择的 Torrent/Magnet 走 Rust；metadata 失败直接阻止新建任务，SFTP 私钥和 ed2k 外部移交保留端侧适配器。Rust/FFI/Flutter 回归及 Android 三 ABI 真机 HTTP/HLS 队列验证通过。 |
 | P2-02 | 系统后台下载 | **已完成（平台能力边界）**：Android 使用 foreground service、通知 channel、运行统计和进度更新；iOS 使用 `beginBackgroundTask` 提供短时后台窗口。应用被系统回收后，启动恢复会把无句柄的 running 任务转为 paused/queued，不能承诺 iOS 永久后台或被 force-stop 后继续执行。 |
 | P2-03 | 队列格式演进 | **已完成**：Rust canonical schema v2、`deleted_task_ids` tombstone、旁路锁、原子回写、迁移前快照、`.queue-migration/manifest.json` 事务标记、启动恢复、按 `updatedAt` 冲突合并和全量 upsert 均已覆盖；未知状态不会降级成 queued。Rust core/FFI、Flutter analyze/test、canonical 回退读取和 Android 真机迁移/删除 tombstone/HLS 队列回归通过。 |
 | P2-04 | ed2k 外部客户端集成 | **已完成（移交通路边界）**：桌面优先调用 aMule `ed2k` CLI，缺失时使用系统 URL handler；Android/iOS 使用 `url_launcher`。成功移交统一落为 `handed-off`/`handedOff`，保存后端和时间，不冒充 `finished`；无 handler 明确失败，暂停/继续拒绝移交终态，显式重试才清理移交信息。第三方客户端的进度、完成回传、最终路径和客户端选择不在 FluxDown 可控范围内，因此不虚构为已实现。 |

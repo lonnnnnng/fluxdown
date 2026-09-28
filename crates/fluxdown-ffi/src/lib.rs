@@ -22,7 +22,7 @@ use fluxdown_core::{
     DEFAULT_DOWNLOAD_THREAD_COUNT, DEFAULT_QUEUE_CONCURRENCY, DEFAULT_RETRY_ATTEMPTS,
     DownloadOptions, DownloadRequest, DownloadState, QueueRunner, QueueRunnerOptions,
     StoredCredential, TaskStore, TorrentFileMetadata, default_store_path, detect_protocol,
-    runtime_support_status,
+    runtime_support_status, torrent_details,
 };
 use serde_json::json;
 use tokio::{runtime::Runtime, sync::Mutex};
@@ -131,6 +131,51 @@ pub extern "C" fn fluxdown_support(source: *const c_char) -> *mut c_char {
             .unwrap_or(serde_json::Value::Null)
     });
     string_to_cstr(envelope::<serde_json::Value>(Ok(output)))
+}
+
+/// 异步读取 Torrent/Magnet 元数据，不创建业务队列任务。
+///
+/// `task_id` 为空时读取本地/远程种子或通过 Magnet 获取临时 metadata；
+/// 非空时优先读取 Rust 队列中正在运行任务的实时详情。返回值只包含异步句柄，
+/// 结果通过现有 `fluxdown_queue_run_status` 的 `report` 字段读取。
+#[unsafe(no_mangle)]
+pub extern "C" fn fluxdown_torrent_details_async(
+    source: *const c_char,
+    task_id: *const c_char,
+) -> *mut c_char {
+    let source = cstr_to_string(source);
+    let task_id = cstr_to_string(task_id);
+    if source.trim().is_empty() {
+        return string_to_cstr(envelope::<serde_json::Value>(Err(
+            "Torrent/Magnet 地址不能为空".to_string(),
+        )));
+    }
+
+    let run_id = next_async_run_id();
+    let state = Arc::new(StdMutex::new(AsyncRunState::Running));
+    {
+        let mut runs = async_runs().lock().expect("async run registry poisoned");
+        runs.insert(run_id.clone(), Arc::clone(&state));
+    }
+
+    runtime().spawn(async move {
+        // 作者: long
+        // 元数据解析可能等待 Magnet 的 tracker/DHT，不能阻塞 Dart UI 线程，统一复用异步句柄轮询模型。
+        let task_id = (!task_id.trim().is_empty()).then_some(task_id);
+        let result = torrent_details(&source, task_id.as_deref())
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|details| serde_json::to_value(details).map_err(|error| error.to_string()));
+        let mut current = state.lock().expect("async run state poisoned");
+        *current = match result {
+            Ok(details) => AsyncRunState::Finished(details),
+            Err(error) => AsyncRunState::Failed(error),
+        };
+    });
+
+    string_to_cstr(envelope::<serde_json::Value>(Ok(
+        json!({ "runId": run_id }),
+    )))
 }
 
 /// 队列列表：`data` 为统一任务 schema 数组（与桌面端 serde JSON 对齐）。
@@ -926,6 +971,67 @@ mod tests {
 
         let _ = fs::remove_dir_all(root);
         panic!("async queue run did not reach a terminal state");
+    }
+
+    #[test]
+    fn async_torrent_details_reads_local_file_metadata() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("fluxdown-ffi-details-{suffix}"));
+        fs::create_dir_all(&root).expect("create temporary details directory");
+        let torrent_path = root.join("测试.torrent");
+        fs::write(
+            &torrent_path,
+            b"d4:infod5:filesld6:lengthi10e10:path.utf-8l10:\xe8\xa7\x86\xe9\xa2\x91.mp4eee10:name.utf-8\
+12:\xe6\xb5\x8b\xe8\xaf\x95\xe8\xb5\x84\xe6\xba\x90ee",
+        )
+        .expect("write torrent fixture");
+        let source = CString::new(torrent_path.to_string_lossy().as_bytes())
+            .expect("source path contains no NUL");
+        let empty_task = CString::new("").expect("empty task id contains no NUL");
+
+        let start = fluxdown_torrent_details_async(source.as_ptr(), empty_task.as_ptr());
+        let start_value = unsafe { CStr::from_ptr(start) }
+            .to_str()
+            .expect("async details response is UTF-8");
+        let start_json: serde_json::Value =
+            serde_json::from_str(start_value).expect("valid async details JSON");
+        let run_id = start_json["data"]["runId"]
+            .as_str()
+            .expect("details run id is present")
+            .to_string();
+        fluxdown_string_free(start);
+
+        let run_id_c = CString::new(run_id).expect("run id contains no NUL");
+        for _ in 0..100 {
+            let status = fluxdown_queue_run_status(run_id_c.as_ptr());
+            let status_value = unsafe { CStr::from_ptr(status) }
+                .to_str()
+                .expect("details status is UTF-8");
+            let status_json: serde_json::Value =
+                serde_json::from_str(status_value).expect("valid details status JSON");
+            fluxdown_string_free(status);
+            match status_json["data"]["state"].as_str() {
+                Some("finished") => {
+                    assert_eq!(status_json["data"]["report"]["name"], "测试资源");
+                    assert_eq!(
+                        status_json["data"]["report"]["files"][0]["path"],
+                        "视频.mp4"
+                    );
+                    let forgotten = fluxdown_queue_run_forget(run_id_c.as_ptr());
+                    fluxdown_string_free(forgotten);
+                    let _ = fs::remove_dir_all(root);
+                    return;
+                }
+                Some("failed") => panic!("metadata details failed: {status_json}"),
+                _ => thread::sleep(std::time::Duration::from_millis(5)),
+            }
+        }
+
+        let _ = fs::remove_dir_all(root);
+        panic!("async torrent details did not reach a terminal state");
     }
 
     #[test]

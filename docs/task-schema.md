@@ -4,7 +4,7 @@
 `crates/fluxdown-core/src/task.rs`、`crates/fluxdown-ffi/src/lib.rs` 和移动端源码。
 Rust core、CLI、桌面 GUI 共用同一模型；移动端 native 可用时以 Rust `rust-queue.json` 作为活动任务的
 canonical 文件，Flutter `queue.json` 只保存 `handedOff` 等移动端专属投影。旧版双队列会在首次启动时
-按任务时间戳合并，迁移事务失败会恢复原始快照；普通 HTTP、HLS 和已经完成 metadata 选择的 Torrent/Magnet 会进入 Rust 下载引擎，metadata 获取、文件选择和 ed2k 外部移交仍保留在移动端适配层。
+按任务时间戳合并，迁移事务失败会恢复原始快照；普通 HTTP、HLS 和已经完成 metadata 选择的 Torrent/Magnet 会进入 Rust 下载引擎，Torrent/Magnet metadata 预览统一走 Rust FFI，metadata 失败直接阻止新建任务，ed2k 外部移交仍保留在移动端适配层。
 
 ## 队列文件版本
 
@@ -69,7 +69,7 @@ Rust 请求包含 `source`、`output_dir`、可选 `file_name`、`credential_ref
 | `hlsVariantIndex` | 否 | HLS master playlist 的 zero-based variant 编号；缺省使用第一个 |
 | `hlsKeepTransportStream` | 否 | 为 true 时保留 HLS TS 原始流，不尝试转封装为 MP4 |
 
-当前 FFI 队列接口会读取并映射 Torrent metadata、`hlsVariantIndex` 与 `hlsKeepTransportStream`；移动端下载器同时通过自己的 camelCase 队列字段执行这些选项。移动正式入口在 native 库可用时优先将 HTTP/HTTPS/WebDAV(S)/HLS，以及已经完成 metadata 选择的 Torrent/Magnet 交给 Rust 队列；metadata 获取、文件选择和 ed2k 外部移交仍由 Dart/原生适配器执行。库缺失、私钥凭据或初始化失败时自动回退 Dart。
+当前 FFI 队列接口会读取并映射 Torrent metadata、`hlsVariantIndex` 与 `hlsKeepTransportStream`；另有 `fluxdown_torrent_details_async` 提供 metadata 预览。移动端下载器同时通过自己的 camelCase 队列字段执行这些选项。移动正式入口在 native 库可用时优先将 HTTP/HTTPS/WebDAV(S)/HLS，以及已经完成 metadata 选择的 Torrent/Magnet 交给 Rust 队列；metadata 调用失败时新建 Torrent/Magnet 任务直接报错，ed2k 外部移交仍由 Dart/原生适配器执行。库缺失、私钥凭据或初始化失败时普通下载自动回退 Dart，metadata 不回退。
 
 `fluxdown_queue_upsert(store_path, task_json)` 用于移动端迁移已有任务。它同时接受 camelCase 与 Rust snake_case 字段，按 `taskId`/`id` 幂等插入或更新任务，并保留状态、进度、错误、时间戳、Torrent 文件树、限速、HLS 选项和移交字段。`handedOff` 可以被结构化导入为 Rust 的 `handed-off` 终态，但运行器不会把它当作内建下载完成；移动端仍把外部移交投影保存在 Flutter 侧，避免 native 回写覆盖移交语义。
 
@@ -84,7 +84,7 @@ Rust 请求包含 `source`、`output_dir`、可选 `file_name`、`credential_ref
 - `options_json` 支持 `concurrency`（1-30）、`threadCount`（1-32）、`retryAttempts`（0-10）和 `speedLimitKbps`（KiB/s 字节限速，0/缺省不限速），边界由 Rust 核心统一收敛。
 - `fluxdown_queue_pause` / `fluxdown_queue_resume` 通过任务状态控制运行器，`fluxdown_queue_reset` 清理断点并重新进入 `queued`，`fluxdown_queue_remove` 删除 native 任务，`fluxdown_queue_run_forget` 回收完成句柄。异步运行不持有 FFI 全局锁，暂停请求可以在下载期间落盘。
 - 同一个 Rust 队列文件同时只允许一个 `fluxdown_queue_run_queued_async` 调度句柄，避免两个调用方重复启动同一批 queued 任务；单任务句柄仍由核心状态机防止 running 任务重复执行。
-- `RustQueueBackend` 已接入移动正式入口的 HTTP/HTTPS/WebDAV(S)/HLS，以及已完成 metadata 选择的 Torrent/Magnet，按任务 ID、完整任务字段、进度、速度、错误和 Rust 毫秒时间戳回写 Flutter；已覆盖幂等 upsert、单任务 start/pause/resume/reset/remove、队列运行和初始化/入队失败回退 Dart。Torrent/Magnet 的 metadata 选择仍由 Dart/libtorrent 负责；ed2k 的 `handedOff` 由移动原生适配器维护。
+- `RustQueueBackend` 已接入移动正式入口的 HTTP/HTTPS/WebDAV(S)/HLS，以及已完成 metadata 选择的 Torrent/Magnet，按任务 ID、完整任务字段、进度、速度、错误和 Rust 毫秒时间戳回写 Flutter；已覆盖幂等 upsert、单任务 start/pause/resume/reset/remove、队列运行和初始化/入队失败回退 Dart。Torrent/Magnet 的 metadata 预览已由 Rust FFI 统一提供，失败时新建任务直接报错；ed2k 的 `handedOff` 由移动原生适配器维护。
 
 ## 移动端（Flutter）映射
 

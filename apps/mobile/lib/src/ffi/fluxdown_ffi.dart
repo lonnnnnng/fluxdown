@@ -7,9 +7,9 @@
 //    - iOS: Runner 构建阶段执行 scripts/build-ios-ffi.sh，按目标架构链接静态库。
 // 2. 加载：Android 上 DynamicLibrary.open('libfluxdown_ffi.so')；iOS 上
 //    DynamicLibrary.process()（静态链接）。[FluxDownCoreFfi.open] 已按平台处理。
-// 3. 协议识别接入默认产品调用链；native 库可用时 HTTP/HTTPS/WebDAV(S)/HLS，以及已经完成
-//    metadata 文件选择的 Torrent/Magnet 由 RustQueueBackend 优先执行。Torrent/Magnet 的
-//    metadata 获取和二次确认仍由 Dart/libtorrent 负责，ed2k 仍走外部应用移交。queueRun 保留同步兼容入口。
+// 3. 协议识别、Torrent/Magnet metadata 获取和已完成文件选择的下载都优先复用 Rust；
+//    Rust metadata 接口不可用或解析失败时，新建 Torrent/Magnet 任务直接报错，避免维护两套选择语义；
+//    ed2k 仍走外部应用移交。queueRun 保留同步兼容入口。
 //
 // 协议与队列调用返回统一信封 {ok, data, error}；ABI/版本是独立标量。
 // 任务 JSON 与桌面端 serde schema 对齐（见 docs/task-schema.md）。
@@ -254,6 +254,10 @@ class FluxDownCoreFfi {
     _support = _lib.lookupFunction<_StringInNative, _StringInDart>(
       'fluxdown_support',
     );
+    _torrentDetailsAsync = _lib
+        .lookupFunction<_TwoStringsNative, _TwoStringsDart>(
+          'fluxdown_torrent_details_async',
+        );
     _queueList = _lib.lookupFunction<_StringInNative, _StringInDart>(
       'fluxdown_queue_list',
     );
@@ -317,6 +321,7 @@ class FluxDownCoreFfi {
   late final _VersionDart _version;
   late final _StringInDart _detect;
   late final _StringInDart _support;
+  late final _TwoStringsDart _torrentDetailsAsync;
   late final _StringInDart _queueList;
   late final _TwoStringsDart _queueAdd;
   late final _TwoStringsDart _queueUpsert;
@@ -341,6 +346,9 @@ class FluxDownCoreFfi {
 
   Map<String, Object?> support(String source) =>
       _unwrapMap(_call(_support, source));
+
+  Map<String, Object?> torrentDetailsAsync(String source, {String? taskId}) =>
+      _unwrapMap(_callTwo(_torrentDetailsAsync, source, taskId ?? ''));
 
   List<FluxDownCoreTask> queueList(String storePath) {
     final data = _unwrap(_call(_queueList, storePath));
