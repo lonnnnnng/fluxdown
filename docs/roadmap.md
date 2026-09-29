@@ -1,6 +1,6 @@
 # 路线图
 
-核对日期：2026-09-28。源码基线：`main` / 当前工作树（P2-05 凭据与连接安全，桌面端与移动端 SFTP known_hosts 配置入口已补齐）；当前源码版本：[`1.0.28-alpha.1`](releases/1.0.28-alpha.1)，桌面稳定版为 `1.0.27`。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
+核对日期：2026-09-29。源码基线：`main` / 当前工作树（P2-05 凭据与连接安全，桌面端与移动端 SFTP known_hosts 配置入口已补齐）；当前源码版本：[`1.0.28-alpha.1`](releases/1.0.28-alpha.1)，桌面稳定版为 `1.0.27`。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
 
 状态口径：**已实现**表示有实际代码和入口；**部分实现**表示仍有端侧差异或功能缺口；**待验证**表示缺少目标版本、目标设备的运行证据；**规划**表示尚未交付。构建成功、模拟数据 UI 测试、历史真机通过不能互相替代。
 
@@ -74,10 +74,14 @@
 
 ## 中期建设
 
+### Android Kotlin 重写（进行中）
+
+第一阶段已建立 `apps/android` 原生 Compose 宿主和 Rust JNI bridge，现阶段与 Flutter 并存，使用独立包名和 arm64-only 构建。当前已接通 Rust 异步队列运行、状态轮询、并发/线程/重试/限速透传、真实 HTTP/Torrent 下载、暂停/继续和 Torrent 多文件选择；已在 Redmi 真机完成本地 HTTP、局域网 Peer 资源和 Android SAF 目录复制验证。已完成任务操作面板、FileProvider 本地文件打开/分享、SAF `content://` 文件打开/分享，以及 HLS variant 编号/保留 TS 参数透传和持久化。扫码页面已接入 CameraX + ML Kit，并完成真机权限和相机预览验证，识别回填仍待补证；前台服务已完成通知权限、后台保活和队列摘要通知验证。后续按“任务/设置 → 扫码/凭据 → HLS 详情 → 磁力与完整协议验收”的顺序迁移；在真实设备验收完成前，不把 Kotlin 预览包当作正式 Android Release。
+
 | 编号 | 方向 | 交付条件 |
 | --- | --- | --- |
-| P2-01 | 移动下载引擎逐步收敛到 Rust | **已完成（混合边界）**：非阻塞单任务/队列运行句柄、状态轮询、Torrent/Magnet metadata 异步读取、暂停/继续/重置/删除、句柄回收、并发/线程/重试/限速透传、canonical schema v2、tombstone、旧任务执行回退和运行时密码凭据均已落地。native 库可用时 HTTP/HTTPS/WebDAV(S)/HLS 与完成 metadata 选择的 Torrent/Magnet 走 Rust；metadata 失败直接阻止新建任务，SFTP 私钥和 ed2k 外部移交保留端侧适配器。Rust/FFI/Flutter 回归及 Android 三 ABI 真机 HTTP/HLS 队列验证通过。 |
-| P2-02 | 系统后台下载 | **已完成（平台能力边界）**：Android 使用 foreground service、通知 channel、运行统计和进度更新；iOS 使用 `beginBackgroundTask` 提供短时后台窗口。应用被系统回收后，启动恢复会把无句柄的 running 任务转为 paused/queued，不能承诺 iOS 永久后台或被 force-stop 后继续执行。 |
+| P2-01 | 移动下载引擎逐步收敛到 Rust | **已完成（混合边界）**：非阻塞单任务/队列运行句柄、状态轮询、Torrent/Magnet metadata 异步读取、暂停/继续/重置/删除、句柄回收、并发/线程/重试/限速透传、canonical schema v2、tombstone、旧任务执行回退和运行时密码凭据均已落地。native 库可用时 HTTP/HTTPS/WebDAV(S)/HLS 与完成 metadata 选择的 Torrent/Magnet 走 Rust；metadata 失败直接阻止新建任务，SFTP 私钥和 ed2k 外部移交保留端侧适配器。Rust/FFI/Flutter 回归及 Flutter Android 三 ABI 真机 HTTP/HLS 队列验证通过；Kotlin 预览另有 arm64 真机 HTTP 和局域网 Torrent 多文件选择/下载证据。 |
+| P2-02 | 系统后台下载 | **已完成（平台能力边界）**：Flutter Android/iOS 原有后台通道保持不变；Kotlin 预览新增 `dataSync` foreground service、通知 channel、队列摘要和真机切后台保活验证。应用被系统回收后，启动恢复会把无句柄的 running 任务转为 paused/queued，不能承诺 Kotlin 预览或 iOS 永久后台、force-stop 后继续执行。 |
 | P2-03 | 队列格式演进 | **已完成**：Rust canonical schema v2、`deleted_task_ids` tombstone、旁路锁、原子回写、迁移前快照、`.queue-migration/manifest.json` 事务标记、启动恢复、按 `updatedAt` 冲突合并和全量 upsert 均已覆盖；未知状态不会降级成 queued。Rust core/FFI、Flutter analyze/test、canonical 回退读取和 Android 真机迁移/删除 tombstone/HLS 队列回归通过。 |
 | P2-04 | ed2k 外部客户端集成 | **已完成（移交通路边界）**：桌面优先调用 aMule `ed2k` CLI，缺失时使用系统 URL handler；Android/iOS 使用 `url_launcher`。成功移交统一落为 `handed-off`/`handedOff`，保存后端和时间，不冒充 `finished`；无 handler 明确失败，暂停/继续拒绝移交终态，显式重试才清理移交信息。第三方客户端的进度、完成回传、最终路径和客户端选择不在 FluxDown 可控范围内，因此不虚构为已实现。 |
 | P2-05 | 凭据与连接安全 | **已完成（支持边界）**：桌面/CLI 使用系统凭据库引用，支持 HTTP/HTTPS、WebDAV(S)、FTP(S)、SFTP、SMB；SFTP 支持 known_hosts、SSH agent 和单跳跳板，错误指纹不自动重试。移动端使用 Android Keystore/iOS Keychain 保存密码、SFTP 私钥和口令；密码凭据可通过 Rust FFI 运行时参数或 Dart 请求临时使用，私钥固定走 Dart SFTP 握手，任务 JSON 只保存引用。Android 真机和 iOS simulator 的私钥、known_hosts、错误指纹回归通过；移动端 ssh-agent、跳板机及 iOS 物理真机仍明确不支持/待环境补验。 |

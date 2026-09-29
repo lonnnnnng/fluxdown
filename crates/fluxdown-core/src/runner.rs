@@ -293,9 +293,10 @@ async fn run_one(
             let mut last_speed_sample_bytes = 0_u64;
             while let Some(progress) = progress_rx.recv().await {
                 progress_task.set_progress(progress.downloaded_bytes, progress.total_bytes);
-                if progress.downloaded_bytes == 0 {
-                    continue;
-                }
+                // 作者: long
+                // Torrent/Magnet 在等待首个 Peer 时通常会先拿到总大小但仍是 0 字节；
+                // 这次快照也要落盘，否则移动端只能显示“0 B/未知”，用户无法区分
+                // 正在等待节点和元数据尚未解析完成。
                 if last_persist.elapsed() < Duration::from_millis(250) {
                     continue;
                 }

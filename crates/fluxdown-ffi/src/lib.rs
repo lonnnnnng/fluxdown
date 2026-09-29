@@ -122,6 +122,22 @@ pub extern "C" fn fluxdown_detect(source: *const c_char) -> *mut c_char {
     string_to_cstr(envelope::<serde_json::Value>(Ok(output)))
 }
 
+/// 读取 HLS master playlist 的清晰度列表，供原生移动端在新建任务时选择 variant。
+///
+/// 作者: long
+/// 该接口只读取 playlist，不创建队列任务；media playlist 返回空数组，避免把普通分片地址误报成可切换清晰度。
+#[unsafe(no_mangle)]
+pub extern "C" fn fluxdown_hls_variants(source: *const c_char) -> *mut c_char {
+    let source = cstr_to_string(source);
+    let output = runtime().block_on(async {
+        let variants = fluxdown_core::hls_variants(&source)
+            .await
+            .map_err(|error| error.to_string())?;
+        serde_json::to_value(variants).map_err(|error| error.to_string())
+    });
+    string_to_cstr(envelope(output))
+}
+
 /// 协议运行时支持状态。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxdown_support(source: *const c_char) -> *mut c_char {
@@ -191,6 +207,30 @@ pub extern "C" fn fluxdown_queue_list(store_path: *const c_char) -> *mut c_char 
             .map_err(|error| error.to_string())?;
         let tasks = store.list().await.map_err(|error| error.to_string())?;
         serde_json::to_value(tasks).map_err(|error| error.to_string())
+    });
+    string_to_cstr(envelope::<serde_json::Value>(output))
+}
+
+/// 将进程退出时遗留的 running 任务标记为已中断，返回需要由端侧重新排队的任务 ID。
+///
+/// Android Kotlin 在新进程第一次打开队列时调用它；暂停状态保留断点和可解释的中断原因，
+/// 端侧随后显式 resume，避免把仍在旧进程中的活跃任务误判为中断任务。
+#[unsafe(no_mangle)]
+pub extern "C" fn fluxdown_queue_recover_interrupted(store_path: *const c_char) -> *mut c_char {
+    let store_path = cstr_to_string(store_path);
+    let output = runtime().block_on(async {
+        let recovered = open_store(&store_path)
+            .recover_interrupted_running()
+            .await
+            .map_err(|error| error.to_string())?;
+        let task_ids = recovered
+            .iter()
+            .map(|task| task.id.clone())
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "count": task_ids.len(),
+            "taskIds": task_ids,
+        }))
     });
     string_to_cstr(envelope::<serde_json::Value>(output))
 }
@@ -505,6 +545,34 @@ pub extern "C" fn fluxdown_queue_reset(
     string_to_cstr(envelope::<serde_json::Value>(output))
 }
 
+/// 将 Android/iOS 已成功交给系统外部客户端的 ed2k 任务记为 handed-off。
+///
+/// 作者: long
+/// 外部客户端的实际下载进度不由 FluxDown 控制；端侧先完成系统 Intent 移交，再调用此接口
+/// 持久化可审计的移交状态，避免 Rust 队列把外部任务误报为 finished。
+#[unsafe(no_mangle)]
+pub extern "C" fn fluxdown_queue_mark_handed_off(
+    store_path: *const c_char,
+    task_id: *const c_char,
+) -> *mut c_char {
+    let store_path = cstr_to_string(store_path);
+    let task_id = cstr_to_string(task_id);
+    let output = runtime().block_on(async {
+        let store = open_store(&store_path);
+        let mut task = store
+            .get(&task_id)
+            .await
+            .map_err(|error| error.to_string())?;
+        task.mark_handed_off(fluxdown_core::Backend::SystemHandoff);
+        store
+            .update(task)
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|task| serde_json::to_value(task).map_err(|error| error.to_string()))
+    });
+    string_to_cstr(envelope::<serde_json::Value>(output))
+}
+
 fn open_store(store_path: &str) -> TaskStore {
     let trimmed = store_path.trim();
     if trimmed.is_empty() {
@@ -750,17 +818,29 @@ fn queue_options_from_json(raw: &str) -> Result<(usize, QueueRunnerOptions), Str
                 .filter_map(|(task_id, value)| {
                     let value = value.as_object()?;
                     let username = value.get("username")?.as_str()?.trim();
-                    let password = value.get("password")?.as_str()?;
                     if username.is_empty() {
                         return None;
                     }
-                    Some((
-                        task_id.clone(),
-                        StoredCredential {
-                            username: username.to_string(),
-                            password: password.to_string(),
-                        },
-                    ))
+                    let credential = if value.get("authType").and_then(serde_json::Value::as_str)
+                        == Some("privateKey")
+                    {
+                        let private_key = value.get("privateKeyPem")?.as_str()?.trim();
+                        if private_key.is_empty() {
+                            return None;
+                        }
+                        StoredCredential::private_key(
+                            username,
+                            private_key,
+                            value
+                                .get("passphrase")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_string),
+                        )
+                    } else {
+                        let password = value.get("password")?.as_str()?;
+                        StoredCredential::password(username, password)
+                    };
+                    Some((task_id.clone(), credential))
                 })
                 .collect()
         })
@@ -1017,6 +1097,12 @@ mod tests {
                 Some("finished") => {
                     assert_eq!(status_json["data"]["report"]["name"], "测试资源");
                     assert_eq!(
+                        status_json["data"]["report"]["info_hash"]
+                            .as_str()
+                            .map(str::len),
+                        Some(40)
+                    );
+                    assert_eq!(
                         status_json["data"]["report"]["files"][0]["path"],
                         "视频.mp4"
                     );
@@ -1032,6 +1118,103 @@ mod tests {
 
         let _ = fs::remove_dir_all(root);
         panic!("async torrent details did not reach a terminal state");
+    }
+
+    #[test]
+    fn torrent_preview_only_enqueues_after_file_selection_confirmation() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("fluxdown-ffi-selection-{suffix}"));
+        fs::create_dir_all(&root).expect("create temporary selection directory");
+        let torrent_path = root.join("bundle.torrent");
+        fs::write(
+            &torrent_path,
+            b"d4:infod5:filesld6:lengthi3e4:pathl5:a.mp4eed6:lengthi2e4:pathl5:b.txteee4:name4:demoee",
+        )
+        .expect("write two-file torrent fixture");
+        let source = CString::new(torrent_path.to_string_lossy().as_bytes()).unwrap();
+        let empty_task = CString::new("").unwrap();
+        let store = CString::new(root.join("queue.json").to_string_lossy().as_bytes()).unwrap();
+
+        // 作者: long
+        // metadata 预览与业务队列分离；用户取消选择时无需补建“已暂停”任务，也无需删除孤儿任务。
+        let start = fluxdown_torrent_details_async(source.as_ptr(), empty_task.as_ptr());
+        let start_json: serde_json::Value = serde_json::from_str(
+            unsafe { CStr::from_ptr(start) }
+                .to_str()
+                .expect("start response UTF-8"),
+        )
+        .expect("valid preview JSON");
+        let run_id = start_json["data"]["runId"].as_str().expect("run id");
+        let run_id_c = CString::new(run_id).unwrap();
+        fluxdown_string_free(start);
+
+        let mut details = None;
+        for _ in 0..100 {
+            let status = fluxdown_queue_run_status(run_id_c.as_ptr());
+            let status_json: serde_json::Value = serde_json::from_str(
+                unsafe { CStr::from_ptr(status) }
+                    .to_str()
+                    .expect("status response UTF-8"),
+            )
+            .expect("valid status JSON");
+            fluxdown_string_free(status);
+            match status_json["data"]["state"].as_str() {
+                Some("finished") => {
+                    details = status_json["data"]["report"].as_object().cloned();
+                    break;
+                }
+                Some("failed") => panic!("preview failed: {status_json}"),
+                _ => thread::sleep(std::time::Duration::from_millis(5)),
+            }
+        }
+        let details = details.expect("metadata preview completed");
+        let forgotten = fluxdown_queue_run_forget(run_id_c.as_ptr());
+        fluxdown_string_free(forgotten);
+        assert_eq!(details["name"], "demo");
+        assert_eq!(details["files"].as_array().map(Vec::len), Some(2));
+        assert_eq!(details["files"][1]["path"], "b.txt");
+
+        let listed_before = fluxdown_queue_list(store.as_ptr());
+        let before: serde_json::Value = serde_json::from_str(
+            unsafe { CStr::from_ptr(listed_before) }
+                .to_str()
+                .expect("queue response UTF-8"),
+        )
+        .expect("valid queue JSON");
+        fluxdown_string_free(listed_before);
+        assert_eq!(before["data"].as_array().map(Vec::len), Some(0));
+
+        let request = CString::new(
+            serde_json::json!({
+                "source": torrent_path.to_string_lossy(),
+                "outputDir": root.to_string_lossy(),
+                "fileName": "demo",
+                "torrentName": "demo",
+                "torrentFileIndices": [1],
+                "torrentFiles": details["files"],
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let added = fluxdown_queue_add(store.as_ptr(), request.as_ptr());
+        let task: serde_json::Value = serde_json::from_str(
+            unsafe { CStr::from_ptr(added) }
+                .to_str()
+                .expect("add response UTF-8"),
+        )
+        .expect("valid task JSON");
+        fluxdown_string_free(added);
+        assert_eq!(task["ok"], true);
+        assert_eq!(task["data"]["torrent_file_indices"], serde_json::json!([1]));
+        assert_eq!(
+            task["data"]["torrent_files"].as_array().map(Vec::len),
+            Some(2)
+        );
+        assert_eq!(task["data"]["torrent_files"][1]["path"], "b.txt");
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1137,6 +1320,44 @@ mod tests {
     }
 
     #[test]
+    fn queue_mark_handed_off_persists_external_handoff_state() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("fluxdown-ffi-handoff-mark-{suffix}"));
+        fs::create_dir_all(&root).expect("create temporary queue directory");
+        let store = CString::new(root.join("queue.json").to_string_lossy().as_bytes())
+            .expect("queue path contains no NUL");
+        let payload = CString::new(format!(
+            r#"{{"source":"ed2k://|file|fixture.bin|12|0123456789ABCDEF0123456789ABCDEF|/","outputDir":"{}"}}"#,
+            root.to_string_lossy()
+        ))
+        .expect("payload contains no NUL");
+        let added = fluxdown_queue_add(store.as_ptr(), payload.as_ptr());
+        let added_json: serde_json::Value = serde_json::from_str(
+            unsafe { CStr::from_ptr(added) }
+                .to_str()
+                .expect("add response is UTF-8"),
+        )
+        .expect("valid add JSON");
+        let task_id = CString::new(added_json["data"]["id"].as_str().expect("task id")).unwrap();
+        fluxdown_string_free(added);
+
+        let marked = fluxdown_queue_mark_handed_off(store.as_ptr(), task_id.as_ptr());
+        let marked_json: serde_json::Value = serde_json::from_str(
+            unsafe { CStr::from_ptr(marked) }
+                .to_str()
+                .expect("handoff response is UTF-8"),
+        )
+        .expect("valid handoff JSON");
+        assert_eq!(marked_json["data"]["state"], "handed-off");
+        assert_eq!(marked_json["data"]["handoff_backend"], "system-handoff");
+        fluxdown_string_free(marked);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn queue_options_parse_mobile_settings_with_bounds() {
         let (concurrency, options) = queue_options_from_json(
             r#"{"concurrency":99,"threadCount":0,"retryAttempts":99,"speedLimitKbps":2.5}"#,
@@ -1163,6 +1384,24 @@ mod tests {
         assert_eq!(credential.password, "secret-pass");
         let serialized = serde_json::to_string(&options.download).unwrap();
         assert!(!serialized.contains("secret-pass"));
+    }
+
+    #[test]
+    fn queue_options_parse_mobile_private_key_credentials_transiently() {
+        let (_, options) = queue_options_from_json(
+            r#"{"runtimeCredentials":{"task-1":{"username":"alice","authType":"privateKey","privateKeyPem":"-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----","passphrase":"unlock"}}}"#,
+        )
+        .unwrap();
+        let credential = options
+            .download
+            .runtime_credentials
+            .get("task-1")
+            .expect("runtime private-key credential");
+        assert_eq!(credential.username, "alice");
+        assert!(credential.uses_private_key());
+        assert_eq!(credential.passphrase.as_deref(), Some("unlock"));
+        let serialized = serde_json::to_string(&options.download).unwrap();
+        assert!(!serialized.contains("BEGIN PRIVATE KEY"));
     }
 
     #[test]

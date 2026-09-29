@@ -10,6 +10,40 @@ const MAX_CREDENTIAL_REF_LENGTH: usize = 128;
 pub struct StoredCredential {
     pub username: String,
     pub password: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_key_pem: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passphrase: Option<String>,
+}
+
+impl StoredCredential {
+    pub fn password(username: impl Into<String>, password: impl Into<String>) -> Self {
+        Self {
+            username: username.into(),
+            password: password.into(),
+            private_key_pem: None,
+            passphrase: None,
+        }
+    }
+
+    pub fn private_key(
+        username: impl Into<String>,
+        private_key_pem: impl Into<String>,
+        passphrase: Option<String>,
+    ) -> Self {
+        Self {
+            username: username.into(),
+            password: String::new(),
+            private_key_pem: Some(private_key_pem.into()),
+            passphrase,
+        }
+    }
+
+    pub fn uses_private_key(&self) -> bool {
+        self.private_key_pem
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+    }
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -48,11 +82,8 @@ pub fn set_credential(
     if username.trim().is_empty() {
         return Err(CredentialStoreError::InvalidPayload);
     }
-    let payload = serde_json::to_string(&StoredCredential {
-        username: username.to_string(),
-        password: password.to_string(),
-    })
-    .map_err(|_| CredentialStoreError::InvalidPayload)?;
+    let payload = serde_json::to_string(&StoredCredential::password(username, password))
+        .map_err(|_| CredentialStoreError::InvalidPayload)?;
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {

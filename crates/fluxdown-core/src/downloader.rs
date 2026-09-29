@@ -1402,7 +1402,8 @@ impl DownloadEngine {
         fs::create_dir_all(&request.output_dir).await?;
         let url = Url::parse(&request.source)
             .map_err(|_| DownloadError::InvalidSftpUrl(request.source.clone()))?;
-        let spec = SftpDownloadSpec::from_url(&url, request.file_name.clone())?;
+        let spec = SftpDownloadSpec::from_url(&url, request.file_name.clone())?
+            .with_runtime_credential(options.runtime_credential.as_ref());
         let output_dir = request.output_dir.clone();
         let cancel_for_task = cancel.clone();
         let progress_for_task = progress.clone();
@@ -2495,6 +2496,9 @@ fn request_with_credentials(
     ) {
         return Err(DownloadError::CredentialUnsupportedProtocol(protocol));
     }
+    if credential_store_uses_private_key(runtime_credential) && protocol != Protocol::Sftp {
+        return Err(DownloadError::CredentialUnsupportedProtocol(protocol));
+    }
 
     let mut url = Url::parse(&request.source)
         .map_err(|_| DownloadError::InvalidUrl(request.source.clone()))?;
@@ -2515,15 +2519,21 @@ fn request_with_credentials(
             reference: reference.clone(),
             reason: "用户名无法编码到下载地址".to_string(),
         })?;
-    url.set_password(Some(&credential.password)).map_err(|_| {
-        DownloadError::CredentialUnavailable {
-            reference: reference.clone(),
-            reason: "密码无法编码到下载地址".to_string(),
-        }
-    })?;
+    if !credential.uses_private_key() {
+        url.set_password(Some(&credential.password)).map_err(|_| {
+            DownloadError::CredentialUnavailable {
+                reference: reference.clone(),
+                reason: "密码无法编码到下载地址".to_string(),
+            }
+        })?;
+    }
     request.source = url.to_string();
     request.credential_ref = Some(reference);
     Ok(request)
+}
+
+fn credential_store_uses_private_key(credential: Option<&StoredCredential>) -> bool {
+    credential.is_some_and(StoredCredential::uses_private_key)
 }
 
 fn credential_store_error_reason(error: CredentialStoreError) -> String {
@@ -2844,7 +2854,7 @@ fn download_sftp_blocking(
         if let Some(path) = jump.known_hosts.as_deref() {
             verify_sftp_host_key(&session, &jump.host, jump.port, path)?;
         }
-        authenticate_sftp_session(&session, &jump.username, jump.password.as_deref())?;
+        authenticate_sftp_session(&session, &jump.username, jump.password.as_deref(), None)?;
         let channel = session.channel_direct_tcpip(&spec.host, spec.port, None)?;
         // 作者: long
         // ssh2 的同一会话共享内部锁，桥接阶段改用非阻塞单线程轮询，避免读操作长期占锁后阻塞写操作。
@@ -2863,7 +2873,14 @@ fn download_sftp_blocking(
     if let Some(path) = known_hosts_path.as_deref() {
         verify_sftp_host_key(&session, &spec.host, spec.port, path)?;
     }
-    authenticate_sftp_session(&session, &spec.username, spec.password.as_deref())?;
+    authenticate_sftp_session(
+        &session,
+        &spec.username,
+        spec.password.as_deref(),
+        spec.private_key_pem
+            .as_deref()
+            .map(|pem| (pem, spec.passphrase.as_deref())),
+    )?;
     let sftp = session.sftp()?;
     let total_bytes = sftp.stat(Path::new(&spec.remote_path))?.size;
     let mut remote = sftp.open(Path::new(&spec.remote_path))?;
@@ -2926,12 +2943,18 @@ fn authenticate_sftp_session(
     session: &SshSession,
     username: &str,
     password: Option<&str>,
+    private_key: Option<(&str, Option<&str>)>,
 ) -> Result<(), DownloadError> {
     // 作者: long
-    // 省略密码时只尝试当前进程的 SSH agent；显式密码仅用于本次握手，不写入队列。
-    match password {
-        Some(password) => session.userauth_password(username, password)?,
-        None => session.userauth_agent(username)?,
+    // Android 凭据只在本次握手内存中使用；私钥认证优先于密码和 SSH agent，避免私钥任务误走空密码分支。
+    match private_key {
+        Some((pem, passphrase)) => {
+            session.userauth_pubkey_memory(username, None, pem, passphrase)?
+        }
+        None => match password {
+            Some(password) => session.userauth_password(username, password)?,
+            None => session.userauth_agent(username)?,
+        },
     }
     Ok(())
 }
@@ -3114,6 +3137,8 @@ struct SftpDownloadSpec {
     username: String,
     /// 缺少密码表示请求使用当前环境的 SSH agent，而不是尝试空密码登录。
     password: Option<String>,
+    private_key_pem: Option<String>,
+    passphrase: Option<String>,
     remote_path: String,
     file_name: String,
 }
@@ -3156,9 +3181,23 @@ impl SftpDownloadSpec {
             port,
             username: percent_decode(url.username()),
             password,
+            private_key_pem: None,
+            passphrase: None,
             remote_path: percent_decode(path),
             file_name,
         })
+    }
+
+    fn with_runtime_credential(mut self, credential: Option<&StoredCredential>) -> Self {
+        if let Some(credential) = credential {
+            self.username = credential.username.clone();
+            if credential.uses_private_key() {
+                self.password = None;
+                self.private_key_pem = credential.private_key_pem.clone();
+                self.passphrase = credential.passphrase.clone();
+            }
+        }
+        self
     }
 }
 
@@ -3944,10 +3983,7 @@ fn main() {{
     fn runtime_mobile_credential_is_injected_without_serializing_secret_options() {
         let mut request = DownloadRequest::new("https://example.com/private.bin", "/tmp");
         request.credential_ref = Some("office-http".to_string());
-        let credential = StoredCredential {
-            username: "alice".to_string(),
-            password: "secret-pass".to_string(),
-        };
+        let credential = StoredCredential::password("alice", "secret-pass");
         let resolved = request_with_credentials(request, Some(&credential)).unwrap();
         assert!(resolved.source.contains("alice"));
         assert!(resolved.source.contains("secret-pass"));

@@ -1564,6 +1564,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fluxdown-android"
+version = "1.0.28-alpha.1"
+dependencies = [
+ "fluxdown-ffi",
+ "jni",
+]
+
+[[package]]
 name = "fluxdown-cli"
 version = "1.0.28-alpha.1"
 dependencies = [

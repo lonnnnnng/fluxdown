@@ -6,7 +6,8 @@ FluxDown 是一个多语言 monorepo：
 
 - Rust workspace：共享下载核心、任务队列、CLI 和 C ABI 桥接库。
 - Tauri + React：桌面 GUI，调用 Rust core 暴露的 Tauri commands。
-- Flutter：Android/iOS App，协议识别优先经 FFI 调用 Rust；本地队列与下载调度仍使用 Dart 和移动原生适配器。
+- Flutter：现有 Android/iOS App，协议识别优先经 FFI 调用 Rust；本地队列与下载调度仍使用 Dart 和移动原生适配器。
+- Kotlin Android 迁移预览：`apps/android` 使用 Compose + JNI 调用相同 Rust ABI，和 Flutter 并行构建，直到原生功能达到切换门槛。
 - Node scripts：构建、验证、打包、Release staging 和 manifest 生成。
 - GitHub Actions：多平台 CI 构建和 GitHub Release 发布。
 
@@ -43,9 +44,10 @@ flowchart TD
 | --- | --- |
 | `crates/fluxdown-core` | Rust 核心库：协议检测、支持状态、任务模型、任务存储、队列运行器、桌面下载引擎。 |
 | `crates/fluxdown-cli` | CLI 入口，基于 `clap` 暴露检测、诊断、下载和队列命令。 |
-| `crates/fluxdown-ffi` | ABI 1：协议识别/支持、原生队列 add/list/run、运行时凭据参数和 UTF-8 结果释放；移动产品已接入混合 Rust 队列。 |
+| `crates/fluxdown-ffi` | ABI 1：协议识别/支持、HLS master variant 查询、Torrent/Magnet metadata、原生队列 add/list/run、运行时凭据参数和 UTF-8 结果释放；Flutter 与 Android Kotlin 均通过该边界接入混合 Rust 队列。 |
 | `apps/desktop` | Tauri + React 桌面 GUI。前端在 `src`，Rust Tauri 入口在 `src-tauri`。 |
 | `apps/mobile` | Flutter Android/iOS App。下载调度和协议适配在 `lib/src`。 |
+| `apps/android` | Kotlin + Compose Android 迁移预览。通过 `crates/fluxdown-android` JNI 壳复用 Rust ABI，不与 Flutter 包名或队列实现分叉。 |
 | `scripts` | 本地构建、Docker 交叉构建、产物校验、发布 staging 和 manifest 脚本。 |
 | `.github/workflows/build.yml` | 仅手动触发的多端打包/发布流水线，普通 push/tag 不触发。 |
 | `docs` | 产品、业务、技术、发布和运维文档。 |

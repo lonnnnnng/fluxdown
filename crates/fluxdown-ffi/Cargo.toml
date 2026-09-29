@@ -4,9 +4,17 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+# 作者: long
+# Kotlin JNI 壳与 Flutter Android 构建都需要在目标平台自包含 OpenSSL，统一向 core 转发开关。
+vendored-openssl = ["fluxdown-core/vendored-openssl"]
+
 [lib]
 name = "fluxdown_ffi"
-crate-type = ["cdylib", "staticlib"]
+# 作者: long
+# 额外保留 rlib 供 Kotlin JNI 壳静态链接既有 C ABI；对现有 Dart/iOS 的 cdylib/staticlib 产物没有改变。
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 fluxdown-core = { path = "../fluxdown-core" }

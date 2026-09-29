@@ -1,0 +1,16 @@
+[package]
+name = "fluxdown-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+vendored-openssl = ["fluxdown-ffi/vendored-openssl"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fluxdown-ffi = { path = "../fluxdown-ffi" }
+jni.workspace = true

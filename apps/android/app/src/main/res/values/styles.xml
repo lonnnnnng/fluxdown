@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.FluxDownKotlin" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#2B8FD8</item>
+        <item name="android:navigationBarColor">#F4F8FC</item>
+        <item name="android:statusBarColor">#F4F8FC</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

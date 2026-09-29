@@ -40,6 +40,10 @@ fn is_streamable_path(path: &str) -> bool {
     )
 }
 
+fn format_info_hash(digest: [u8; 20]) -> String {
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct TorrentDetailsFile {
     pub index: usize,
@@ -183,10 +187,23 @@ fn runtime_details(task_id: &str) -> Option<TorrentDetails> {
 /// 静态解析 .torrent 的名称、文件列表和 tracker（本地文件或 URL 下载的字节）。
 fn static_details_from_torrent_bytes(bytes: &[u8]) -> Result<TorrentDetails, DownloadError> {
     use librqbit_bencode::BencodeValue;
+    use serde::Deserialize;
 
-    let value = librqbit_bencode::dyn_from_bytes::<Vec<u8>>(bytes).map_err(|error| {
-        DownloadError::TorrentSourceUnreadable(format!("种子文件不是有效的 bencode: {error}"))
-    })?;
+    // 作者: long
+    // info-hash 是种子 info 字典原始 bencode 的 SHA-1，不是文件名或整份种子字节的摘要。
+    // 使用 bencode 解码器内置的 info 字典边界，避免重新编码时字典顺序变化导致 hash 错误。
+    let mut deserializer = librqbit_bencode::BencodeDeserializer::new_from_buf(bytes);
+    deserializer.is_torrent_info = true;
+    let value: BencodeValue<Vec<u8>> =
+        Deserialize::deserialize(&mut deserializer).map_err(|error| {
+            DownloadError::TorrentSourceUnreadable(format!("种子文件不是有效的 bencode: {error}"))
+        })?;
+    let info_hash = deserializer.torrent_info_digest.map(format_info_hash);
+    if !deserializer.into_remaining().is_empty() {
+        return Err(DownloadError::TorrentSourceUnreadable(
+            "种子文件包含未解析的 bencode 数据".into(),
+        ));
+    }
     let BencodeValue::Dict(top) = &value else {
         return Err(DownloadError::TorrentSourceUnreadable(
             "种子顶层必须是字典".into(),
@@ -289,7 +306,7 @@ fn static_details_from_torrent_bytes(bytes: &[u8]) -> Result<TorrentDetails, Dow
     Ok(TorrentDetails {
         runtime: false,
         name,
-        info_hash: None,
+        info_hash,
         files,
         trackers,
         total_bytes: if total_bytes > 0 {
@@ -441,6 +458,12 @@ e";
 
         assert!(!details.runtime);
         assert_eq!(details.name.as_deref(), Some("demo"));
+        assert!(
+            details
+                .info_hash
+                .as_deref()
+                .is_some_and(|value| value.len() == 40)
+        );
         assert_eq!(
             details.trackers,
             vec!["http://tracker.example/announce".to_string()]

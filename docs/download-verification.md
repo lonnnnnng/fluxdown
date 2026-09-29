@@ -1,5 +1,39 @@
 # 下载验证状态
 
+## 2026-09-29 Android Kotlin arm64 全协议迁移验收（工作树）
+
+设备：Redmi Note 8 Pro，adb serial `wsvwypiz7xwslvl7`；应用包名
+`dev.fluxdown.mobile.kotlin`，源码版本 `1.0.28-kotlin-alpha.1`。本轮使用正常前台
+Compose App，新建任务和队列执行均通过 Kotlin → JNI → Rust 链路完成，不使用隐藏
+Flutter 自检页面。
+
+| 协议 | 真机结果 | 迁移边界 |
+| --- | --- | --- |
+| HTTP / HTTPS | 通过；本地资源真实落盘，任务进入 `finished` | Rust 内建下载 |
+| WebDAV / WebDAVS | 通过；通过 HTTP(S) transport 真实落盘 | Rust 内建下载 |
+| FTP | 通过；局域网资源真实落盘并显示 `已完成` | Rust 内建下载 |
+| FTPS | 失败；已登录后立即断开，服务端未出现 `RETR`，任务进入失败 | Rust 内建下载；当前 Kotlin 真机存在 FTPS 兼容性缺口 |
+| SFTP | 通过；局域网服务真实落盘 | Rust 内建下载；私钥/known_hosts 仍受移动端凭据边界约束 |
+| SMB | 通过；局域网共享真实落盘 | Rust 内建下载 |
+| HLS / m3u8 | `http://127.0.0.1:8765/hls/kotlin-small.m3u8` 完成，输出 `kotlin-small.ts`，`1,495,352 B`；设备端 SHA-256 `3b7db768fabf91c1eb4d704bd96af8fa5cf189b655cff0df9628f8d87ec6fc62` | Rust 内建分片下载；本轮选择保留 TS |
+| Torrent | 通过；本地多文件种子完成 metadata 选择和 Peer 下载，选中文件 `64.0 KB/64.0 KB` | Rust metadata + 内建 P2P |
+| Magnet | 通过；唯一夹具完成 metadata 选择和 Peer 下载，任务列表显示资源目录，点击目录后查看 `magnet-peer.txt`、`30 B/30 B`、`已完成` | Rust metadata + 内建 P2P |
+| ed2k | 无 Android handler 时任务总数不增加，提示“没有可处理 ed2k 链接的应用” | Kotlin `ACTION_VIEW` 外部移交；不虚构为内建下载 |
+
+结论：Android Kotlin 端已完成当前 12 类协议入口迁移。本轮真机结果为：10 类内建
+协议真实下载通过，FTPS 真实下载失败，ed2k 验证了无 handler 时不创建假任务并提示
+外部移交边界。FTPS 不能沿用历史版本的通过结论；ed2k 的第三方下载进度、完成回调
+和最终路径不属于 FluxDown 可控范围，因此该协议的“通过”仅指移交边界通过。
+
+本轮 FTPS 失败证据：真实 Kotlin UI 创建任务使用
+`ftps://flux:fluxpass@127.0.0.1:21215/readme.txt?allowBadCertificate=true`，服务端日志只出现
+`USER 'flux' logged in` 后立即断开，没有 `RETR`，队列失败数增加 1。该结果记录为当前
+兼容性缺口，待修复后重新进行真机验收。
+
+构建与自动化门禁：`cargo fmt --all -- --check` 通过；
+`cargo test --locked -p fluxdown-core -p fluxdown-ffi` 通过（core 106 项、ffi 14 项）；
+`scripts/build-kotlin-android.sh` 通过并生成 arm64-v8a APK。
+
 ## 2026-09-27 P2 阶段收口说明
 
 P2-01 至 P2-05 已按当前产品边界完成代码收口，逐项说明见 [P2 阶段完成记录](p2-completion-20260927.md)。本轮明确区分：
@@ -380,7 +414,7 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 | macOS GUI | 2026-08-05 已通过真实 Tauri 前台窗口逐项验证 12 类任务：HTTP、HTTPS、WebDAV transport、WebDAVS transport、FTP、FTPS、SFTP、SMB、m3u8/HLS、Torrent、Magnet 均完成真实落盘和 SHA-256 校验；ed2k 完成向迅雷的系统移交，但占位 hash 资源未下载。 | 部分完成 |
 | Windows CLI/GUI | 已在 Windows 开发机完成本机 release 构建，生成 `target/release/fluxdown-desktop.exe`、MSI 和 NSIS installer；CLI 已完成当前支持的 12 种协议真实用例验证；原生 Tauri GUI 前台也已完成 HTTP/HTTPS/WebDAV/WebDAVS/FTP/FTPS/m3u8/SFTP/SMB/Torrent/Magnet 真实落盘和 SHA-256 校验，ed2k 完成系统移交通路验证；设置页六个菜单和主要设置项已通过前台操作验证。 | 部分完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
-| Android App | 已在 Redmi Note 8 Pro 真机安装并通过正常 App 队列完成本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及 2026-06-14 媒体级 HLS、单文件 torrent、单文件 magnet、多文件 torrent 和多文件 magnet 选择下载验证。 | 部分完成 |
+| Android App | Flutter 历史版本曾完成本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单文件/多文件 torrent 和 magnet 选择下载；本次 Kotlin `1.0.28-kotlin-alpha.1` 真机复测中，HTTP/HTTPS/WebDAV/WebDAVS/FTP/SFTP/SMB/HLS/Torrent/Magnet 通过，FTPS 失败，ed2k 仅通过外部移交边界。 | 部分完成；Kotlin FTPS 待修复 |
 | iOS App | 已有 iOS simulator 截图；2026-06-23 在 Flutter 3.41.9 / Xcode 16.2 上通过 `flutter analyze`、`flutter test`、simulator build、unsigned device build、artifact 校验和 URL scheme 配置验证；同日通过 iOS simulator App 内 HTTP、fMP4 HLS、fMP4 BYTERANGE HLS 和 TS HLS 下载 smoke。当前真机 `LMY` 在 `xcdevice` 中为 unavailable；签名 IPA 自动化缺少证书、profile、Team ID 和 keychain 密码输入。 | 部分完成 |
 
 ## 分协议结论
