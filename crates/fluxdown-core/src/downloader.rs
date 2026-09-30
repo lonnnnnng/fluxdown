@@ -1250,11 +1250,13 @@ impl DownloadEngine {
         };
 
         let initial_stats = handle.stats();
-        emit_progress(
-            &progress,
+        let (initial_progress, initial_total) = torrent_progress_for_request(
+            &request,
+            &initial_stats.file_progress,
             initial_stats.progress_bytes,
-            Some(initial_stats.total_bytes),
+            initial_stats.total_bytes,
         );
+        emit_progress(&progress, initial_progress, Some(initial_total));
         // 作者: long
         // 下载运行期间把会话句柄注册到详情注册表，GUI 才能展示文件列表、peer 与速率；
         // 任何退出路径都必须注销，避免句柄泄漏导致任务结束后仍显示“运行中”。
@@ -1264,7 +1266,7 @@ impl DownloadEngine {
         let runtime_registered = request.task_id.is_some();
         let runtime_task_id = request.task_id.clone();
         let mut last_progress_at = Instant::now();
-        let mut last_progress_bytes = initial_stats.progress_bytes;
+        let mut last_progress_bytes = initial_progress;
 
         let wait_handle = handle.clone();
         let mut wait_task = tokio::spawn(async move { wait_handle.wait_until_completed().await });
@@ -1311,12 +1313,18 @@ impl DownloadEngine {
                 }
                 _ = interval.tick() => {
                     let stats = handle.stats();
-                    emit_progress(&progress, stats.progress_bytes, Some(stats.total_bytes));
-                    if stats.progress_bytes > last_progress_bytes {
+                    let (progress_bytes, total_bytes) = torrent_progress_for_request(
+                        &request,
+                        &stats.file_progress,
+                        stats.progress_bytes,
+                        stats.total_bytes,
+                    );
+                    emit_progress(&progress, progress_bytes, Some(total_bytes));
+                    if progress_bytes > last_progress_bytes {
                         last_progress_at = Instant::now();
-                        last_progress_bytes = stats.progress_bytes;
-                    } else if stats.total_bytes > 0
-                        && stats.progress_bytes < stats.total_bytes
+                        last_progress_bytes = progress_bytes;
+                    } else if total_bytes > 0
+                        && progress_bytes < total_bytes
                         && last_progress_at.elapsed() >= TORRENT_STALL_TIMEOUT
                     {
                         if runtime_registered {
@@ -1327,8 +1335,8 @@ impl DownloadEngine {
                         wait_task.abort();
                         session.stop().await;
                         return Err(DownloadError::TorrentStalled {
-                            downloaded_bytes: stats.progress_bytes,
-                            total_bytes: stats.total_bytes,
+                            downloaded_bytes: progress_bytes,
+                            total_bytes,
                             elapsed_secs: last_progress_at.elapsed().as_secs(),
                         });
                     }
@@ -1337,11 +1345,13 @@ impl DownloadEngine {
         }
 
         let final_stats = handle.stats();
-        emit_progress(
-            &progress,
+        let (final_progress, final_total) = torrent_progress_for_request(
+            &request,
+            &final_stats.file_progress,
             final_stats.progress_bytes,
-            Some(final_stats.total_bytes),
+            final_stats.total_bytes,
         );
+        emit_progress(&progress, final_progress, Some(final_total));
         let details_result = handle.with_metadata(|metadata| {
             let payload_file_count = metadata
                 .file_infos
@@ -1372,11 +1382,7 @@ impl DownloadEngine {
             );
         }
         session.stop().await;
-        ensure_transfer_complete(
-            protocol,
-            final_stats.progress_bytes,
-            Some(final_stats.total_bytes),
-        )?;
+        ensure_transfer_complete(protocol, final_progress, Some(final_total))?;
         let (output_path, display_name) = details_result?;
 
         Ok(DownloadSummary {
@@ -1384,9 +1390,9 @@ impl DownloadEngine {
             backend: Backend::BuiltIn,
             output_path,
             display_name,
-            bytes_written: final_stats.progress_bytes,
+            bytes_written: final_progress,
             resumed_from: 0,
-            total_bytes: Some(final_stats.total_bytes),
+            total_bytes: Some(final_total),
             segments_written: None,
             sha256: None,
         })
@@ -1481,6 +1487,7 @@ impl DownloadEngine {
                 }
             }
         };
+        ensure_hls_media_has_segments(&media_playlist)?;
 
         let file_name = request
             .file_name
@@ -2086,6 +2093,17 @@ fn hls_byte_range_for_segment(
     Ok(Some(range))
 }
 
+fn ensure_hls_media_has_segments(playlist: &m3u8_rs::MediaPlaylist) -> Result<(), DownloadError> {
+    // 作者: long
+    // 空媒体播放列表或只有初始化段的 fMP4 不能生成有效下载文件；提前失败，避免把 0 字节
+    // 临时文件改名成“成功”的 TS/MP4 任务，也避免 Android 后处理误判为可播放资源。
+    if playlist.segments.is_empty() {
+        Err(DownloadError::InvalidM3u8)
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 struct DownloadSpeedLimiter {
     inner: Option<Arc<Mutex<SpeedLimiterState>>>,
@@ -2188,6 +2206,48 @@ fn torrent_only_files(request: &DownloadRequest) -> Option<Vec<usize>> {
     // 作者: long
     // 空选择表示下载整个种子；只有用户明确选择文件时才传给 librqbit，保持旧任务和单文件种子的默认行为不变。
     (!request.torrent_file_indices.is_empty()).then(|| request.torrent_file_indices.clone())
+}
+
+fn torrent_progress_for_request(
+    request: &DownloadRequest,
+    file_progress: &[u64],
+    aggregate_progress: u64,
+    aggregate_total: u64,
+) -> (u64, u64) {
+    // 作者: long
+    // librqbit 的总进度包含整个 metadata；用户只确认部分文件时，任务卡和队列状态必须
+    // 使用同一组选中文件的大小与已写入字节，否则未选择文件会把任务显示成“43/43”一类的假完成。
+    if request.torrent_file_indices.is_empty() || request.torrent_files.is_empty() {
+        return (aggregate_progress, aggregate_total);
+    }
+
+    let selected = request
+        .torrent_file_indices
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    let selected_total = request
+        .torrent_files
+        .iter()
+        .filter(|file| selected.contains(&file.index))
+        .map(|file| file.size)
+        .sum::<u64>();
+    if selected_total == 0 {
+        return (aggregate_progress, aggregate_total);
+    }
+
+    let selected_progress = if file_progress.is_empty() {
+        aggregate_progress.min(selected_total)
+    } else {
+        request
+            .torrent_file_indices
+            .iter()
+            .filter_map(|index| file_progress.get(*index))
+            .copied()
+            .sum::<u64>()
+            .min(selected_total)
+    };
+    (selected_progress, selected_total)
 }
 
 pub(crate) fn torrent_session_options(speed_limit_bps: Option<u64>) -> SessionOptions {
@@ -3473,6 +3533,7 @@ fn range_temp_output_path(output_path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TorrentFileMetadata;
     use aes::cipher::{BlockEncryptMut, block_padding::Pkcs7};
     use std::fs as std_fs;
     use std::sync::{
@@ -3645,6 +3706,40 @@ mod tests {
 
         assert_eq!(output_path, metadata_dir);
         assert_eq!(display_name.as_deref(), Some("loose-files"));
+    }
+
+    #[test]
+    fn torrent_progress_only_counts_confirmed_files() {
+        let mut request = DownloadRequest::new("magnet:?xt=urn:btih:test", "/tmp");
+        request.torrent_file_indices = vec![1];
+        request.torrent_files = vec![
+            TorrentFileMetadata {
+                index: 0,
+                path: "bundle/skipped.txt".to_string(),
+                name: "skipped.txt".to_string(),
+                size: 21,
+                is_streamable: false,
+            },
+            TorrentFileMetadata {
+                index: 1,
+                path: "bundle/selected.txt".to_string(),
+                name: "selected.txt".to_string(),
+                size: 22,
+                is_streamable: false,
+            },
+        ];
+
+        let (downloaded, total) = torrent_progress_for_request(&request, &[21, 22], 43, 43);
+        assert_eq!((downloaded, total), (22, 22));
+    }
+
+    #[test]
+    fn torrent_progress_preserves_whole_resource_without_selection() {
+        let request = DownloadRequest::new("magnet:?xt=urn:btih:test", "/tmp");
+        assert_eq!(
+            torrent_progress_for_request(&request, &[21, 22], 43, 43),
+            (43, 43)
+        );
     }
 
     #[test]
@@ -4273,6 +4368,19 @@ fn main() {{
         let decrypted = decrypt_hls_aes128(&ciphertext, key, iv).unwrap();
 
         assert_eq!(decrypted, plain);
+    }
+
+    #[test]
+    fn rejects_empty_hls_media_playlist() {
+        let playlist = m3u8_rs::parse_playlist_res(b"#EXTM3U\n#EXT-X-ENDLIST\n").unwrap();
+        let m3u8_rs::Playlist::MediaPlaylist(media) = playlist else {
+            panic!("expected media playlist");
+        };
+
+        assert!(matches!(
+            ensure_hls_media_has_segments(&media),
+            Err(DownloadError::InvalidM3u8)
+        ));
     }
 
     #[test]

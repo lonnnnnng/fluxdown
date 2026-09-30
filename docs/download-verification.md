@@ -1,9 +1,9 @@
 # 下载验证状态
 
-## 2026-09-29 Android Kotlin arm64 全协议迁移验收（工作树）
+## 2026-09-30 Android Kotlin arm64 协议缺口复验（工作树）
 
 设备：Redmi Note 8 Pro，adb serial `wsvwypiz7xwslvl7`；应用包名
-`dev.fluxdown.mobile.kotlin`，源码版本 `1.0.28-kotlin-alpha.1`。本轮使用正常前台
+`dev.fluxdown.mobile.kotlin`，源码版本 `1.0.28-kotlin-alpha.2`。本轮使用正常前台
 Compose App，新建任务和队列执行均通过 Kotlin → JNI → Rust 链路完成，不使用隐藏
 Flutter 自检页面。
 
@@ -12,27 +12,68 @@ Flutter 自检页面。
 | HTTP / HTTPS | 通过；本地资源真实落盘，任务进入 `finished` | Rust 内建下载 |
 | WebDAV / WebDAVS | 通过；通过 HTTP(S) transport 真实落盘 | Rust 内建下载 |
 | FTP | 通过；局域网资源真实落盘并显示 `已完成` | Rust 内建下载 |
-| FTPS | 失败；已登录后立即断开，服务端未出现 `RETR`，任务进入失败 | Rust 内建下载；当前 Kotlin 真机存在 FTPS 兼容性缺口 |
-| SFTP | 通过；局域网服务真实落盘 | Rust 内建下载；私钥/known_hosts 仍受移动端凭据边界约束 |
+| FTPS | 通过；使用局域网地址真实落盘 `22 B/22 B` 并进入 `finished` | Rust 内建下载；FTPS 数据通道需使用设备可达的被动端口 |
+| SFTP | 通过；使用 `sftp-key4` 凭据引用和匹配 `known_hosts` 下载 `41 B` 文件并完成；伪造指纹在传输前失败 | Rust 内建下载；URL 用户名与凭据引用互斥，远程绝对路径按用户主目录解析 |
 | SMB | 通过；局域网共享真实落盘 | Rust 内建下载 |
-| HLS / m3u8 | `http://127.0.0.1:8765/hls/kotlin-small.m3u8` 完成，输出 `kotlin-small.ts`，`1,495,352 B`；设备端 SHA-256 `3b7db768fabf91c1eb4d704bd96af8fa5cf189b655cff0df9628f8d87ec6fc62` | Rust 内建分片下载；本轮选择保留 TS |
-| Torrent | 通过；本地多文件种子完成 metadata 选择和 Peer 下载，选中文件 `64.0 KB/64.0 KB` | Rust metadata + 内建 P2P |
-| Magnet | 通过；唯一夹具完成 metadata 选择和 Peer 下载，任务列表显示资源目录，点击目录后查看 `magnet-peer.txt`、`30 B/30 B`、`已完成` | Rust metadata + 内建 P2P |
+| HTTP + Keystore 凭据 | 通过；Kotlin 设置保存 `auth-basic` 引用，新建任务选择引用访问 Basic Auth 夹具，`auth.txt` 完成并显示 `28 B/28 B` | Android Keystore 临时解密后注入 Rust runtimeCredentials；任务 JSON 不保存密码 |
+| HLS / m3u8 | 传统 TS playlist `http://127.0.0.1:8765/kotlin-small.m3u8` 完成并输出 `kotlin-small.ts`（`1.4 MB`）；同一 Redmi 真机再用 `http://127.0.0.1:8765/index.m3u8` 完成原生 TS→MP4，任务显示 `ts-remux-test-2.mp4`、`79.1 KB/79.1 KB`；带 `#EXT-X-MAP` 的 fMP4 playlist `http://127.0.0.1:8766/index.m3u8` 完成并直出 `index.mp4`（`62.6 KB`） | Rust 内建分片下载；Android 通过 `MediaExtractor/MediaMuxer` 在确认 MP4 非空后删除 TS，失败仍保留 TS；fMP4 直接保留 MP4 容器 |
+| Torrent | 通过；局域网 Tracker/Transmission 双文件夹具中取消 `b-skipped.bin` 后只下载 `a-selected.bin`，任务列表显示目录 `kotlin-p2p-bundle`、`64.0 KB/64.0 KB`，详情只显示已确认文件 | Rust metadata + 内建 P2P |
+| Magnet | 通过；同一局域网夹具完成 metadata 选择和 Peer 下载，任务列表显示目录 `kotlin-p2p-bundle`、`64.0 KB/64.0 KB`，详情只显示 `a-selected.bin` | Rust metadata + 内建 P2P |
 | ed2k | 无 Android handler 时任务总数不增加，提示“没有可处理 ed2k 链接的应用” | Kotlin `ACTION_VIEW` 外部移交；不虚构为内建下载 |
 
-结论：Android Kotlin 端已完成当前 12 类协议入口迁移。本轮真机结果为：10 类内建
-协议真实下载通过，FTPS 真实下载失败，ed2k 验证了无 handler 时不创建假任务并提示
-外部移交边界。FTPS 不能沿用历史版本的通过结论；ed2k 的第三方下载进度、完成回调
-和最终路径不属于 FluxDown 可控范围，因此该协议的“通过”仅指移交边界通过。
+结论：Android Kotlin 端当前 12 类协议入口均已迁移；11 类内建协议真实下载通过，ed2k
+仍按外部客户端移交边界处理。FTPS 的复验使用
+`ftps://flux:fluxpass@192.168.1.8:21216/ftps-sample.txt?allowBadCertificate=true`，
+控制连接、EPSV 动态数据连接、TLS 数据连接和 `RETR` 均完成，任务显示 `22 B/22 B`。
 
-本轮 FTPS 失败证据：真实 Kotlin UI 创建任务使用
-`ftps://flux:fluxpass@127.0.0.1:21215/readme.txt?allowBadCertificate=true`，服务端日志只出现
-`USER 'flux' logged in` 后立即断开，没有 `RETR`，队列失败数增加 1。该结果记录为当前
-兼容性缺口，待修复后重新进行真机验收。
+HLS 转封装补充：2026-09-30 使用 `http://127.0.0.1:8765/index.m3u8` 在同一真机创建
+`ts-remux-test-2` 任务，任务完成后列表显示 `ts-remux-test-2.mp4` 和 `79.1 KB/79.1 KB`。
+该结果来自真实输出文件探测，不是仅修改扩展名；`AndroidHlsRemuxer` 只有在
+`MediaExtractor/MediaMuxer` 成功写出非空 MP4 后才删除原始 TS。
+
+HLS/扫码边界加固：修复 Android 多轨 TS 切换时未重置 `MediaExtractor` 游标的问题；重新安装
+arm64 Debug APK 后再次创建 `ts-remux-test-3`，任务显示 `ts-remux-test-3.mp4` 和
+`79.1 KB/79.1 KB`，logcat 未发现 `FATAL EXCEPTION`。扫码识别同时兼容 ML Kit 的
+`displayValue`，并在异步 CameraX provider 回调绑定前检查对话框释放状态。当前 Android 工程
+尚无媒体栈自动化测试目录，因此多轨、损坏 TS 和仅音频/仅视频输入仍需后续夹具补测。
+
+生命周期与扫码补充：2026-09-30 在同一 Redmi 真机使用慢速 Range HTTP 资源
+`http://127.0.0.1:8771/lifecycle.bin`（经 `adb reverse`）进行强停恢复。强停前真实进度为
+`24.1 MB/64.0 MB`，重新启动应用后恢复到 `43.7 MB/64.0 MB` 并最终完成
+`64.0 MB/64.0 MB`，未生成重复任务。扫码入口已通过相机权限和 CameraX 预览回归；本轮没有
+可控的实体二维码画面，因此“实拍识别并回填链接”仍保持待验证，不用预览结果冒充识别成功。
+
+扫码边界补充：新建任务弹框打开扫码入口后，CameraX 取景框稳定显示，退出扫码能回到下载链接
+输入框且无崩溃；识别结果现在必须返回明确的 Rust 协议名，普通文本或空协议不会被回填。
+
+返回行为补充：2026-09-30 安装本轮 arm64 debug APK 后，在任务首页按系统返回键出现“退出
+FluxDown”确认框，点击取消后仍停留在任务页；确认文案说明已入队任务继续由后台服务运行。
+
+补充边界：之前使用 `127.0.0.1 + adb reverse` 的 FTPS 地址只能转发控制端口，服务端
+通过 `EPSV` 返回的动态数据端口没有同步反向转发，因此会出现登录后数据连接失败；这
+属于测试拓扑限制，不是 Android Rust 下载引擎兼容性结论。Android FTPS 验证应使用局域网
+地址，或为被动端口范围建立完整转发。
+
+Torrent/Magnet 统计复验：2026-09-30 使用同一局域网 Tracker/Transmission 夹具（Tracker
+`192.168.1.8:18691`、HTTP 种子分发 `192.168.1.8:18694`、Info hash
+`b3f6920b5ee2f3948ed26b7fcf62bd13eaf1b0a5`）。`.torrent` 与 Magnet 均在 metadata 页面取消
+`b-skipped.bin` 后确认加入，任务卡最终显示资源目录 `kotlin-p2p-bundle`、`64.0 KB/64.0 KB`，
+点击进入详情后只显示 `a-selected.bin` 和 `64.0 KB / 64.0 KB`。未选文件未进入任务，证明
+Rust 进度回调和 Kotlin 兼容解析已统一使用确认文件集合。
+
+SFTP 细节复验：2026-09-30 使用临时局域网服务 `192.168.1.8:2222` 和文件
+`/Downloads/fluxdown-kotlin-sftp.txt`。匹配的 `known_hosts` 通过后任务真实落盘 `41 B`；替换为
+伪造主机指纹后，任务在认证/传输前失败并提示“`SFTP 主机身份校验失败，请检查 known_hosts 中的主机指纹和端口。`”，没有创建输出文件。另验证了带用户名的 SFTP URL 不能再叠加凭据引用，以及服务端路径以远程用户主目录为根的路径语义。
+
+凭据失效重试复验：删除 Android Keystore 中的 `auth-basic` 引用后，从已完成的 `auth.txt` 任务
+长按菜单选择“重新下载”，任务先进入 `queued`，随后进入 `failed`，错误为“`下载凭据不可用，请检查系统凭据库中的引用和权限。`”，没有伪造完成状态。
 
 构建与自动化门禁：`cargo fmt --all -- --check` 通过；
-`cargo test --locked -p fluxdown-core -p fluxdown-ffi` 通过（core 106 项、ffi 14 项）；
+`cargo test --locked -p fluxdown-core -p fluxdown-ffi` 通过（core 109 项、ffi 14 项）；
 `scripts/build-kotlin-android.sh` 通过并生成 arm64-v8a APK。
+
+HLS 输入护栏：Rust 对空媒体 playlist（包括只有初始化段、没有实际媒体分片的 playlist）直接
+返回 `InvalidM3u8`，新增单测通过，不再把 0 字节临时文件当作成功下载。
 
 ## 2026-09-27 P2 阶段收口说明
 
@@ -414,7 +455,7 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 | macOS GUI | 2026-08-05 已通过真实 Tauri 前台窗口逐项验证 12 类任务：HTTP、HTTPS、WebDAV transport、WebDAVS transport、FTP、FTPS、SFTP、SMB、m3u8/HLS、Torrent、Magnet 均完成真实落盘和 SHA-256 校验；ed2k 完成向迅雷的系统移交，但占位 hash 资源未下载。 | 部分完成 |
 | Windows CLI/GUI | 已在 Windows 开发机完成本机 release 构建，生成 `target/release/fluxdown-desktop.exe`、MSI 和 NSIS installer；CLI 已完成当前支持的 12 种协议真实用例验证；原生 Tauri GUI 前台也已完成 HTTP/HTTPS/WebDAV/WebDAVS/FTP/FTPS/m3u8/SFTP/SMB/Torrent/Magnet 真实落盘和 SHA-256 校验，ed2k 完成系统移交通路验证；设置页六个菜单和主要设置项已通过前台操作验证。 | 部分完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
-| Android App | Flutter 历史版本曾完成本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单文件/多文件 torrent 和 magnet 选择下载；本次 Kotlin `1.0.28-kotlin-alpha.1` 真机复测中，HTTP/HTTPS/WebDAV/WebDAVS/FTP/SFTP/SMB/HLS/Torrent/Magnet 通过，FTPS 失败，ed2k 仅通过外部移交边界。 | 部分完成；Kotlin FTPS 待修复 |
+| Android App | Flutter 历史版本曾完成本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单文件/多文件 torrent 和 magnet 选择下载；本次 Kotlin `1.0.28-kotlin-alpha.2` 真机复测中，HTTP/HTTPS/WebDAV/WebDAVS/FTP/FTPS/SFTP/SMB/HLS/Torrent/Magnet 均通过，ed2k 仅通过外部移交边界。 | 部分完成；二维码实拍识别、删除凭据后再次运行的失败提示和更复杂 HLS 媒体回归仍待补 |
 | iOS App | 已有 iOS simulator 截图；2026-06-23 在 Flutter 3.41.9 / Xcode 16.2 上通过 `flutter analyze`、`flutter test`、simulator build、unsigned device build、artifact 校验和 URL scheme 配置验证；同日通过 iOS simulator App 内 HTTP、fMP4 HLS、fMP4 BYTERANGE HLS 和 TS HLS 下载 smoke。当前真机 `LMY` 在 `xcdevice` 中为 unavailable；签名 IPA 自动化缺少证书、profile、Team ID 和 keychain 密码输入。 | 部分完成 |
 
 ## 分协议结论

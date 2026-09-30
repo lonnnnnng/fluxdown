@@ -13,10 +13,12 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.StatFs
 import android.os.storage.StorageManager
+import android.util.Log
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -166,7 +168,7 @@ import com.google.mlkit.vision.common.InputImage
 // 作者: long
 // Activity 重建不会重复恢复队列；只有新进程第一次创建 ViewModel 时，才把旧进程遗留的 running 任务重新排队。
 private val PROCESS_RECOVERY_HANDLED = AtomicBoolean(false)
-private const val KOTLIN_APP_VERSION = "1.0.28-kotlin-alpha.1"
+private const val KOTLIN_APP_VERSION = "1.0.28-kotlin-alpha.2"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -197,6 +199,7 @@ private data class QueueTask(
     val torrentFileIndices: Set<Int>,
     val hlsVariantIndex: Int?,
     val hlsKeepTransportStream: Boolean,
+    val hlsRemuxedToMp4: Boolean,
     val credentialRef: String?,
 ) {
     // 作者: long
@@ -205,7 +208,11 @@ private data class QueueTask(
         get() = torrentFiles.isNotEmpty() || torrentName != null
 
     val displayName: String
-        get() = if (isTorrentResource) torrentName?.takeIf { it.isNotBlank() } ?: "Torrent 资源" else name
+        get() = when {
+            isTorrentResource -> torrentName?.takeIf { it.isNotBlank() } ?: "Torrent 资源"
+            hlsRemuxedToMp4 && name.endsWith(".ts", ignoreCase = true) -> name.dropLast(3) + ".mp4"
+            else -> name
+        }
 
     val progress: Float
         get() = if (totalBytes == null || totalBytes <= 0) 0f
@@ -417,6 +424,7 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
     private val safStagingRoot = File(context.filesDir, "fluxdown/saf-staging").apply { mkdirs() }
     private val knownHostsRoot = File(context.filesDir, "fluxdown/security").apply { mkdirs() }
     private val safCopyInFlight = ConcurrentHashMap.newKeySet<String>()
+    private val hlsRemuxInFlight = ConcurrentHashMap.newKeySet<String>()
     private val activeRunId = AtomicReference<String?>(null)
     private val _state = MutableStateFlow(
         NativeUiState(
@@ -1209,7 +1217,10 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
             }
             if (message == null) onSuccess()
             refreshOnce()
-            if (message == null && task.state != "finished") ensureQueueRunning()
+            // 作者: long
+            // reset 会把已完成任务重新置为 queued，不能用变更前的 finished 状态阻止调度器启动；
+            // 其他操作没有待运行任务时 ensureQueueRunning 会立即返回，不会重复创建运行句柄。
+            if (message == null) ensureQueueRunning()
         }
     }
 
@@ -1220,6 +1231,7 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
     private suspend fun refreshOnce() {
         val result = RustCoreBridge.queueList(storePath)
         val tasks = parseTasks(result)
+        postProcessFinishedHls(tasks)
         scheduleSafCopies(tasks)
         val version = if (RustCoreBridge.isLoaded) RustCoreBridge.version() else "未加载"
         val abi = if (RustCoreBridge.isLoaded) RustCoreBridge.abi() else "-"
@@ -1232,6 +1244,37 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
                 rustVersion = version,
                 rustAbi = abi,
             )
+        }
+    }
+
+    /**
+     * 作者: long
+     * Android arm64 包不携带 ffmpeg，传统 HLS 由 Rust 保留为 TS 后在这里尝试系统级转封装；
+     * 只有实际生成非空 MP4 后才把 TS 删除，失败路径继续保留可播放的原始 TS。
+     */
+    private suspend fun postProcessFinishedHls(tasks: List<QueueTask>) {
+        tasks.filter { task ->
+            task.state == "finished" &&
+                task.source.substringBefore('?').substringBefore('#').endsWith(".m3u8", ignoreCase = true) &&
+                !task.hlsKeepTransportStream &&
+                !task.hlsRemuxedToMp4
+        }.forEach { task ->
+            if (!hlsRemuxInFlight.add(task.id)) return@forEach
+            try {
+                val source = File(task.outputDir, task.name)
+                if (!source.isFile || !source.name.endsWith(".ts", ignoreCase = true)) return@forEach
+                val target = File(source.parentFile, source.name.dropLast(3) + ".mp4")
+                val result = withContext(Dispatchers.IO) {
+                    AndroidHlsRemuxer.remuxTransportStream(source, target)
+                }
+                if (result.isSuccess && target.isFile && target.length() > 0L) {
+                    runCatching { source.delete() }
+                } else {
+                    Log.w("FluxDownHlsRemux", "传统 HLS TS 转 MP4 失败: ${result.exceptionOrNull()?.message ?: "未知错误"}")
+                }
+            } finally {
+                hlsRemuxInFlight.remove(task.id)
+            }
         }
     }
 
@@ -1445,7 +1488,14 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
 @Composable
 private fun FluxDownApp(model: NativeViewModel) {
     val state by model.state.collectAsStateCompat()
+    val context = LocalContext.current
     var showNewTask by rememberSaveable { mutableStateOf(false) }
+    var showExitConfirm by rememberSaveable { mutableStateOf(false) }
+    // 作者: long
+    // 一级页面返回只退出当前 Activity；Rust 队列和前台服务继续负责已入队任务，避免用户误触返回键时中断下载。
+    BackHandler {
+        showExitConfirm = true
+    }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         model.clearNotificationPermissionRequest()
     }
@@ -1591,6 +1641,25 @@ private fun FluxDownApp(model: NativeViewModel) {
                 if (task.isTorrentResource) model.showTorrentDetails(task)
             },
             onRemove = { model.closeTaskActions(); model.remove(task) },
+        )
+    }
+
+    if (showExitConfirm) {
+        AlertDialog(
+            onDismissRequest = { showExitConfirm = false },
+            title = { Text("退出 FluxDown", fontSize = 16.sp) },
+            text = { Text("退出当前界面？已加入队列的下载会继续在后台运行。", fontSize = 13.sp) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showExitConfirm = false
+                        (context as? ComponentActivity)?.finish()
+                    },
+                ) { Text("退出") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitConfirm = false }) { Text("取消") }
+            },
         )
     }
 }
@@ -1887,6 +1956,10 @@ private fun TaskActionsDialog(
                 }
                 if (task.state == "failed") {
                     TaskActionButton(Icons.Default.Refresh, "重试", onRetry)
+                } else if (task.state == "finished") {
+                    // 作者: long
+                    // 完成任务重新运行需要清理旧断点并重新请求源文件；单独使用“重新下载”文案，避免和失败任务的“重试”混淆。
+                    TaskActionButton(Icons.Default.Refresh, "重新下载", onRetry)
                 }
                 val selectedTorrentFiles = task.torrentFiles.count {
                     task.torrentFileIndices.isEmpty() || it.index in task.torrentFileIndices
@@ -2623,6 +2696,10 @@ private fun QrScannerDialog(
                         val listener = Runnable {
                             runCatching {
                                 val provider = cameraProviderFuture.get()
+                                // 作者: long
+                                // 用户快速关闭扫码弹框时，异步 provider 回调仍可能晚到；在绑定生命周期前再次检查，
+                                // 防止已经释放的分析器被重新绑定到相机。
+                                if (disposed.get()) return@runCatching
                                 val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
                                 val analysis = ImageAnalysis.Builder()
                                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -2640,9 +2717,12 @@ private fun QrScannerDialog(
                                         .addOnSuccessListener { barcodes ->
                                             if (handled.get() || disposed.get()) return@addOnSuccessListener
                                             val value = barcodes.asSequence()
-                                                .mapNotNull { it.rawValue?.trim() }
+                                                .mapNotNull { (it.rawValue ?: it.displayValue)?.trim() }
                                                 .firstOrNull { it.isNotEmpty() && it.length <= 8192 }
-                                            if (value != null && parseDataString(RustCoreBridge.detect(value), "protocol") != "unknown") {
+                                            val protocol = value?.let { parseDataString(RustCoreBridge.detect(it), "protocol") }
+                                            // 作者: long
+                                            // ML Kit 可能识别出普通文本；只有 Rust 返回明确协议时才回填，避免 null 被误判为可下载链接。
+                                            if (value != null && protocol != null && protocol != "unknown") {
                                                 if (!handled.compareAndSet(false, true)) return@addOnSuccessListener
                                                 mainExecutor.execute { onResult(value) }
                                             } else if (value != null) {
@@ -2853,22 +2933,65 @@ private fun parseTasks(envelope: String): List<QueueTask> = runCatching {
         for (index in 0 until data.length()) {
             val task = data.optJSONObject(index) ?: continue
             val total = if (task.isNull("total_bytes")) null else task.optLong("total_bytes", 0L)
+            val rawFileName = task.optString("file_name").ifBlank { task.optString("source") }
+            val rawOutputDir = task.optString("output_dir").ifBlank { task.optString("outputDir") }
+            val rawSource = task.optString("source")
+            val rawKeepTs = task.optBoolean("hls_keep_transport_stream", false)
+            val hlsRemuxedToMp4 = if (
+                rawSource.substringBefore('?').substringBefore('#').endsWith(".m3u8", ignoreCase = true) &&
+                !rawKeepTs &&
+                rawFileName.endsWith(".ts", ignoreCase = true)
+            ) {
+                val transport = File(rawOutputDir, rawFileName)
+                val mp4 = File(rawOutputDir, rawFileName.dropLast(3) + ".mp4")
+                // 作者: long
+                // 多个 HLS 任务可能共用保存目录和文件名；只有 MP4 比当前 TS 更新，
+                // 或 TS 已被删除且 MP4 仍存在时，才把它认作本任务的转封装结果。
+                mp4.isFile && (!transport.isFile || mp4.lastModified() >= transport.lastModified())
+            } else {
+                false
+            }
+            val torrentFiles = parseTorrentFiles(task.optJSONArray("torrent_files"))
+            val torrentFileIndices = parseTorrentIndices(task.optJSONArray("torrent_file_indices"))
+            val selectedTorrentFiles = torrentFiles.filter { file ->
+                torrentFileIndices.isNotEmpty() && file.index in torrentFileIndices
+            }
+            // 作者: long
+            // 队列卡片只统计用户确认过的 Torrent/Magnet 文件；Rust 新版本会直接写入选中进度，
+            // 这里再按 metadata 做一次兼容收口，避免旧队列把未选择文件混进总量。
+            val displayTotal = selectedTorrentFiles
+                .takeIf { it.isNotEmpty() }
+                ?.sumOf { it.size }
+                ?: total
+            val rawDownloaded = task.optLong("downloaded_bytes", 0L)
+            val displayDownloaded = selectedTorrentFiles
+                .takeIf { it.isNotEmpty() }
+                ?.let { files ->
+                    val fileProgress = files.mapNotNull { it.progressBytes }
+                    when {
+                        task.optString("state") == "finished" -> files.sumOf { it.size }
+                        fileProgress.isNotEmpty() -> fileProgress.sum().coerceAtMost(files.sumOf { it.size })
+                        else -> rawDownloaded.coerceAtMost(files.sumOf { it.size })
+                    }
+                }
+                ?: rawDownloaded
             add(
                 QueueTask(
                     id = task.optString("id"),
-                    name = task.optString("file_name").ifBlank { task.optString("source") },
-                    source = task.optString("source"),
+                    name = rawFileName,
+                    source = rawSource,
                     state = task.optString("state", "queued"),
-                    downloadedBytes = task.optLong("downloaded_bytes", 0L),
-                    totalBytes = total,
+                    downloadedBytes = displayDownloaded,
+                    totalBytes = displayTotal,
                     speedBytesPerSecond = task.optLong("current_speed_bytes_per_second", 0L),
                     error = task.optString("error").ifBlank { null },
-                    outputDir = task.optString("output_dir").ifBlank { task.optString("outputDir") },
+                    outputDir = rawOutputDir,
                     torrentName = task.optString("torrent_name").ifBlank { null },
-                    torrentFiles = parseTorrentFiles(task.optJSONArray("torrent_files")),
-                    torrentFileIndices = parseTorrentIndices(task.optJSONArray("torrent_file_indices")),
+                    torrentFiles = torrentFiles,
+                    torrentFileIndices = torrentFileIndices,
                     hlsVariantIndex = if (task.isNull("hls_variant_index")) null else task.optInt("hls_variant_index", -1).takeIf { it >= 0 },
-                    hlsKeepTransportStream = task.optBoolean("hls_keep_transport_stream", false),
+                    hlsKeepTransportStream = rawKeepTs,
+                    hlsRemuxedToMp4 = hlsRemuxedToMp4,
                     credentialRef = task.optString("credential_ref").ifBlank { null },
                 ),
             )

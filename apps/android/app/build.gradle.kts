@@ -12,8 +12,8 @@ android {
         applicationId = "dev.fluxdown.mobile.kotlin"
         minSdk = 24
         targetSdk = 36
-        versionCode = 2029
-        versionName = "1.0.28-kotlin-alpha.1"
+        versionCode = 2030
+        versionName = "1.0.28-kotlin-alpha.2"
 
         ndk {
             // 作者: long

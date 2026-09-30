@@ -33,7 +33,7 @@
 | 数量与速度设置 | 数字输入配置并发、线程、重试、限速并持久化。 | 数字输入配置并发、线程、重试、限速并持久化。 | 由命令参数配置；默认值和参数范围不应直接等同 GUI。 |
 | Torrent 多文件选择 | metadata 解析后在新建弹框展示文件树并支持多选，保存文件编号；详情支持已落盘文件打开。 | metadata 解析后弹出多文件选择，保存选择结果，支持文件夹详情与已落盘文件预览。 | 重复传入 `--torrent-file-index` 选择文件。 |
 | Torrent 详情 | 文件清单、逐文件已下载量/百分比、tracker、peer、会话速度/ETA；运行中逐文件速度按轮询样本计算，静态 metadata 进度和速度显示未知。 | 文件清单与任务总进度；下载中逐文件完成字节未知，尚无真实逐文件速度。 | 当前以任务级输出为主，无对应详情命令。 |
-| HLS | 清晰度 variant 选择、分片缓存恢复、可选保留 TS；默认尝试 FFmpeg 转 MP4，失败保留 TS。 | VOD、AES-128、fMP4、BYTERANGE、TS 转 MP4；移动端新建任务可指定 variant/保留 TS。 | CLI、Rust FFI 和移动端已共享 HLS 字段；native 库可用时移动队列走 Rust，Android Redmi 真机已完成本地 HLS TS 与 variant/fMP4 输出验证；iPhone 真机和更长/复杂媒体矩阵仍待目标环境。 |
+| HLS | 清晰度 variant 选择、分片缓存恢复、可选保留 TS；默认尝试 FFmpeg 转 MP4，失败保留 TS。 | VOD、AES-128、fMP4、BYTERANGE、TS 转 MP4；移动端新建任务可指定 variant/保留 TS，Android arm64 通过 `MediaExtractor/MediaMuxer` 完成传统 TS→MP4，并在切换多轨前重置 extractor；空 playlist 会直接失败。 | CLI、Rust FFI 和移动端已共享 HLS 字段；native 库可用时移动队列走 Rust，Android Redmi 真机已完成本地 HLS TS→MP4、variant/fMP4 输出验证；Android 多轨媒体自动化测试、更长/复杂媒体和 iPhone 真机仍待目标环境。 |
 | 平台集成与诊断 | 托盘、关窗驻留、单实例、完成/失败通知、可关闭的剪贴板监听、窗口尺寸恢复、更新检查与安装包下载。 | 有原生扫码、文件选择、打开/分享入口；不等于已有系统级长期后台下载。 | `detect/support/doctor` 用于识别及后端诊断。 |
 
 ### 工程与发行
@@ -76,7 +76,7 @@
 
 ### Android Kotlin 重写（进行中）
 
-第一阶段已建立 `apps/android` 原生 Compose 宿主和 Rust JNI bridge，现阶段与 Flutter 并存，使用独立包名和 arm64-only 构建。当前已接通 Rust 异步队列运行、状态轮询、并发/线程/重试/限速透传、真实 HTTP/Torrent 下载、暂停/继续和 Torrent 多文件选择；已在 Redmi 真机完成本地 HTTP、局域网 Peer 资源和 Android SAF 目录复制验证。已完成任务操作面板、FileProvider 本地文件打开/分享、SAF `content://` 文件打开/分享，以及 HLS variant 编号/保留 TS 参数透传和持久化。扫码页面已接入 CameraX + ML Kit，并完成真机权限和相机预览验证，识别回填仍待补证；前台服务已完成通知权限、后台保活和队列摘要通知验证。后续按“任务/设置 → 扫码/凭据 → HLS 详情 → 磁力与完整协议验收”的顺序迁移；在真实设备验收完成前，不把 Kotlin 预览包当作正式 Android Release。
+第一阶段已建立 `apps/android` 原生 Compose 宿主和 Rust JNI bridge，现阶段与 Flutter 并存，使用独立包名和 arm64-only 构建。当前已接通 Rust 异步队列运行、状态轮询、并发/线程/重试/限速透传、真实 HTTP/Torrent 下载、暂停/继续、失败重试、完成任务重新下载和 Torrent 多文件选择；已在 Redmi 真机完成本地 HTTP、局域网 Peer 资源和 Android SAF 目录复制验证。已完成任务操作面板、FileProvider 本地文件打开/分享、SAF `content://` 文件打开/分享、凭据失效后的可操作失败提示，以及 HLS variant 编号/保留 TS 参数透传和持久化。一级页面系统返回已增加退出确认，扫码页面已接入 CameraX + ML Kit，并完成真机权限和相机预览验证，识别回填仍待补证；前台服务已完成通知权限、后台保活和队列摘要通知验证。后续按“任务/设置 → 扫码/凭据 → HLS 详情 → 磁力与完整协议验收”的顺序迁移；在真实设备验收完成前，不把 Kotlin 预览包当作正式 Android Release。
 
 | 编号 | 方向 | 交付条件 |
 | --- | --- | --- |
