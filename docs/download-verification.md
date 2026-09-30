@@ -3,7 +3,7 @@
 ## 2026-09-30 Android Kotlin arm64 协议缺口复验（工作树）
 
 设备：Redmi Note 8 Pro，adb serial `wsvwypiz7xwslvl7`；应用包名
-`dev.fluxdown.mobile.kotlin`，源码版本 `1.0.28-kotlin-alpha.2`。本轮使用正常前台
+`dev.fluxdown.mobile.kotlin`，源码版本 `1.0.28-kotlin-alpha.3`。本轮使用正常前台
 Compose App，新建任务和队列执行均通过 Kotlin → JNI → Rust 链路完成，不使用隐藏
 Flutter 自检页面。
 
@@ -34,14 +34,16 @@ HLS 转封装补充：2026-09-30 使用 `http://127.0.0.1:8765/index.m3u8` 在�
 HLS/扫码边界加固：修复 Android 多轨 TS 切换时未重置 `MediaExtractor` 游标的问题；重新安装
 arm64 Debug APK 后再次创建 `ts-remux-test-3`，任务显示 `ts-remux-test-3.mp4` 和
 `79.1 KB/79.1 KB`，logcat 未发现 `FATAL EXCEPTION`。扫码识别同时兼容 ML Kit 的
-`displayValue`，并在异步 CameraX provider 回调绑定前检查对话框释放状态。当前 Android 工程
-尚无媒体栈自动化测试目录，因此多轨、损坏 TS 和仅音频/仅视频输入仍需后续夹具补测。
+`displayValue`，并在异步 CameraX provider 回调绑定前检查对话框释放状态。随后新增
+`AndroidHlsRemuxerTest` 真机 instrumentation，已补测双轨、B 帧/多音频、仅音频、仅视频、空 TS
+和损坏 TS；当前 Redmi 的 `MediaExtractor` 对多音频夹具只暴露一条 AAC，因此测试只保证保留系统
+实际解析到的音视频轨，不把它外推成完整多音轨 rendition 选择。
 
 生命周期与扫码补充：2026-09-30 在同一 Redmi 真机使用慢速 Range HTTP 资源
 `http://127.0.0.1:8771/lifecycle.bin`（经 `adb reverse`）进行强停恢复。强停前真实进度为
 `24.1 MB/64.0 MB`，重新启动应用后恢复到 `43.7 MB/64.0 MB` 并最终完成
-`64.0 MB/64.0 MB`，未生成重复任务。扫码入口已通过相机权限和 CameraX 预览回归；本轮没有
-可控的实体二维码画面，因此“实拍识别并回填链接”仍保持待验证，不用预览结果冒充识别成功。
+`64.0 MB/64.0 MB`，未生成重复任务。扫码入口已通过相机权限和 CameraX 预览回归；真实二维码位图交给
+ML Kit 的实体识别已由 `QrScannerInstrumentationTest` 覆盖，用户手持相机实拍也已确认能回填原始下载链接。
 
 扫码边界补充：新建任务弹框打开扫码入口后，CameraX 取景框稳定显示，退出扫码能回到下载链接
 输入框且无崩溃；识别结果现在必须返回明确的 Rust 协议名，普通文本或空协议不会被回填。
@@ -69,11 +71,44 @@ SFTP 细节复验：2026-09-30 使用临时局域网服务 `192.168.1.8:2222` �
 长按菜单选择“重新下载”，任务先进入 `queued`，随后进入 `failed`，错误为“`下载凭据不可用，请检查系统凭据库中的引用和权限。`”，没有伪造完成状态。
 
 构建与自动化门禁：`cargo fmt --all -- --check` 通过；
-`cargo test --locked -p fluxdown-core -p fluxdown-ffi` 通过（core 109 项、ffi 14 项）；
+`cargo test --locked -p fluxdown-core -p fluxdown-ffi` 通过（core 112 项、ffi 14 项）；
 `scripts/build-kotlin-android.sh` 通过并生成 arm64-v8a APK。
 
 HLS 输入护栏：Rust 对空媒体 playlist（包括只有初始化段、没有实际媒体分片的 playlist）直接
 返回 `InvalidM3u8`，新增单测通过，不再把 0 字节临时文件当作成功下载。
+
+暂停/继续与重试补充：2026-09-30 在同一 Redmi 真机上使用 Kotlin arm64 Alpha 重新验证。HLS
+`http://127.0.0.1:8765/hls/index.m3u8` 任务在真实分片下载中点击后进入 `已暂停`，再次点击后恢复
+`下载中`，最终 `index.mp4` 显示 `383.2 MB/383.2 MB`、`已完成`。本轮同时修复 Rust 队列收尾竞态，
+避免旧暂停协程覆盖用户已经重新排队的状态。HTTP 瞬态重试夹具在前两次返回 `503`、第三次返回 `200`，
+任务 `flaky.bin` 最终真实落盘 `24 B/24 B`，服务端请求计数为 `3`，对应 Kotlin 设置的自动重试参数。
+
+## 2026-09-30 本轮缺口补齐（工作树）
+
+- 二维码实体识别：`apps/android/app/src/test/.../QrValidationTest.kt` 覆盖
+  `rawValue`、`displayValue` 兜底、普通文本在前而下载链接在后的多候选场景、空值/`unknown`/超长值拒绝。
+  `QrScannerInstrumentationTest` 在 Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）上用 ZXing 生成真实 HTTP
+  下载二维码，再交给 ML Kit QR scanner，识别结果与原始链接一致；这补齐了“实体二维码识别”，不是只验证相机预览。
+- Android 多轨媒体自动化：`AndroidHlsRemuxerTest` 在同一 Redmi 真机上通过真实
+  `MediaExtractor/MediaMuxer` 双轨、B 帧/多音频、仅音频和仅视频 H.264/AAC MPEG-TS 夹具；空 TS、损坏 TS
+  均失败且不残留目标 MP4，损坏源文件保留。复杂多音频夹具在 Redmi 上只被系统暴露为一条 AAC，输出按实际解析到的
+  音视频轨保留。`connectedDebugAndroidTest` 在 Redmi Note 8 Pro 上共 7/7 通过。
+- HLS 缓存完整性：Rust 分片缓存新增 `manifest.json`，只记录 playlist/分片摘要、媒体序号、范围、缓存长度和 SHA-256；
+  播放列表来源变化会清空旧缓存，半写分片使用临时文件改名提交，长度或摘要不匹配会重新下载。新增来源变化和损坏缓存单测，
+  `cargo test --locked -p fluxdown-core` 共 112 项通过。
+- HLS 大媒体内存：并发分片任务只写缓存并返回索引/长度，最终按索引从缓存流式合并；不再将所有分片字节同时保存在
+  `collect` 结果和 `ordered_segments` 中，初始化段写入临时输出后立即释放。现有 HLS、AES-128、BYTERANGE、fMP4 和缓存恢复用例全部通过。
+- HLS 较大媒体确定性回归：新增 `streams_large_hls_playlist_in_order_and_cleans_cache`，本地 fixture 生成 48 个 128 KiB
+  分片（约 6 MiB），以 8 路并发下载后按原始索引合并，校验最终字节顺序、总大小和成功后的缓存目录清理；该测试通过。
+
+本轮 Android 自动化命令：
+
+```zsh
+apps/mobile/android/gradlew -p apps/android test --no-daemon
+apps/mobile/android/gradlew -p apps/android :app:connectedDebugAndroidTest --no-daemon
+```
+
+两条命令均通过；Gradle 仍提示本机 Android SDK XML 版本差异和 Kotlin `jvmTarget` DSL 弃用警告，未阻断构建。
 
 ## 2026-09-27 P2 阶段收口说明
 
@@ -455,7 +490,7 @@ macOS 桌面、macOS CLI 和 iOS 当前目标的短清单见 [Apple 目标验收
 | macOS GUI | 2026-08-05 已通过真实 Tauri 前台窗口逐项验证 12 类任务：HTTP、HTTPS、WebDAV transport、WebDAVS transport、FTP、FTPS、SFTP、SMB、m3u8/HLS、Torrent、Magnet 均完成真实落盘和 SHA-256 校验；ed2k 完成向迅雷的系统移交，但占位 hash 资源未下载。 | 部分完成 |
 | Windows CLI/GUI | 已在 Windows 开发机完成本机 release 构建，生成 `target/release/fluxdown-desktop.exe`、MSI 和 NSIS installer；CLI 已完成当前支持的 12 种协议真实用例验证；原生 Tauri GUI 前台也已完成 HTTP/HTTPS/WebDAV/WebDAVS/FTP/FTPS/m3u8/SFTP/SMB/Torrent/Magnet 真实落盘和 SHA-256 校验，ed2k 完成系统移交通路验证；设置页六个菜单和主要设置项已通过前台操作验证。 | 部分完成 |
 | Linux GUI | 已有 Linux GUI 可执行文件、`.deb`、`.rpm` artifact 检查。没有安装包后通过界面完成下载验证。 | 未完成 |
-| Android App | Flutter 历史版本曾完成本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单文件/多文件 torrent 和 magnet 选择下载；本次 Kotlin `1.0.28-kotlin-alpha.2` 真机复测中，HTTP/HTTPS/WebDAV/WebDAVS/FTP/FTPS/SFTP/SMB/HLS/Torrent/Magnet 均通过，ed2k 仅通过外部移交边界。 | 部分完成；二维码实拍识别、删除凭据后再次运行的失败提示和更复杂 HLS 媒体回归仍待补 |
+| Android App | Flutter 历史版本曾完成本地 HTTP/HTTPS/FTP/FTPS/SFTP/SMB、小 HLS、小 torrent、小 magnet，以及媒体级 HLS、单文件/多文件 torrent 和 magnet 选择下载；本次 Kotlin `1.0.28-kotlin-alpha.2` 真机复测中，HTTP/HTTPS/WebDAV/WebDAVS/FTP/FTPS/SFTP/SMB/HLS/Torrent/Magnet 均通过，ed2k 仅通过外部移交边界；手持相机实拍回填、二维码实体识别、双轨/B 帧/多音频夹具、仅音频/仅视频、空/损坏 TS 均有真机或 connected instrumentation 证据；Rust core 另有约 6 MiB 多分片流式合并回归。 | 部分完成；完整多音轨 rendition、删除凭据后再次运行的失败提示和 Android 真机更大媒体/异常网络长时间边界仍按环境补验 |
 | iOS App | 已有 iOS simulator 截图；2026-06-23 在 Flutter 3.41.9 / Xcode 16.2 上通过 `flutter analyze`、`flutter test`、simulator build、unsigned device build、artifact 校验和 URL scheme 配置验证；同日通过 iOS simulator App 内 HTTP、fMP4 HLS、fMP4 BYTERANGE HLS 和 TS HLS 下载 smoke。当前真机 `LMY` 在 `xcdevice` 中为 unavailable；签名 IPA 自动化缺少证书、profile、Team ID 和 keychain 密码输入。 | 部分完成 |
 
 ## 分协议结论

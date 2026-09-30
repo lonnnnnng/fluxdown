@@ -168,7 +168,7 @@ import com.google.mlkit.vision.common.InputImage
 // 作者: long
 // Activity 重建不会重复恢复队列；只有新进程第一次创建 ViewModel 时，才把旧进程遗留的 running 任务重新排队。
 private val PROCESS_RECOVERY_HANDLED = AtomicBoolean(false)
-private const val KOTLIN_APP_VERSION = "1.0.28-kotlin-alpha.2"
+private const val KOTLIN_APP_VERSION = "1.0.28-kotlin-alpha.3"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -2716,16 +2716,17 @@ private fun QrScannerDialog(
                                     scanner.process(image)
                                         .addOnSuccessListener { barcodes ->
                                             if (handled.get() || disposed.get()) return@addOnSuccessListener
-                                            val value = barcodes.asSequence()
-                                                .mapNotNull { (it.rawValue ?: it.displayValue)?.trim() }
-                                                .firstOrNull { it.isNotEmpty() && it.length <= 8192 }
-                                            val protocol = value?.let { parseDataString(RustCoreBridge.detect(it), "protocol") }
+                                            val value = firstValidatedQrDownloadSource(
+                                                barcodes.map { it.rawValue to it.displayValue },
+                                            ) { candidate ->
+                                                parseDataString(RustCoreBridge.detect(candidate), "protocol")
+                                            }
                                             // 作者: long
                                             // ML Kit 可能识别出普通文本；只有 Rust 返回明确协议时才回填，避免 null 被误判为可下载链接。
-                                            if (value != null && protocol != null && protocol != "unknown") {
+                                            if (value != null) {
                                                 if (!handled.compareAndSet(false, true)) return@addOnSuccessListener
                                                 mainExecutor.execute { onResult(value) }
-                                            } else if (value != null) {
+                                            } else if (barcodes.any { (it.rawValue ?: it.displayValue)?.trim()?.let { value -> value.isNotEmpty() && value.length <= 8192 } == true }) {
                                                 mainExecutor.execute { error = "二维码内容不是可识别的下载链接" }
                                             }
                                         }
@@ -3044,6 +3045,25 @@ private fun parseRecoveredTaskIds(envelope: String): List<String> = runCatching 
         }
     }
 }.getOrDefault(emptyList())
+
+internal fun firstValidatedQrDownloadSource(
+    candidates: Iterable<Pair<String?, String?>>,
+    detectProtocol: (String) -> String?,
+): String? {
+    // 作者: long
+    // 一帧可能同时包含多个二维码；逐个尝试 raw/display 值，避免普通文本二维码排在前面时
+    // 把后面的真实下载链接误判为无效。长度和协议校验都在纯函数内完成，便于 JVM 单测覆盖。
+    candidates.forEach { (rawValue, displayValue) ->
+        sequenceOf(rawValue, displayValue)
+            .mapNotNull { it?.trim() }
+            .filter { it.isNotEmpty() && it.length <= 8192 }
+            .distinct()
+            .forEach { candidate ->
+                if (detectProtocol(candidate)?.let { it != "unknown" } == true) return candidate
+            }
+    }
+    return null
+}
 
 private fun parseDataString(envelope: String, key: String): String? = runCatching {
     val root = JSONObject(envelope)

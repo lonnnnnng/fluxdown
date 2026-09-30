@@ -1,6 +1,6 @@
 # 路线图
 
-核对日期：2026-09-29。源码基线：`main` / 当前工作树（P2-05 凭据与连接安全，桌面端与移动端 SFTP known_hosts 配置入口已补齐）；当前源码版本：[`1.0.28-alpha.1`](releases/1.0.28-alpha.1)，桌面稳定版为 `1.0.27`。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
+核对日期：2026-09-30。源码基线：`android-kotlin-migration` / 当前工作树（P2-05 凭据与连接安全，桌面端与移动端 SFTP known_hosts 配置入口已补齐）；当前 Kotlin 预览源码版本：`1.0.28-kotlin-alpha.3`，桌面稳定版为 `1.0.27`。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
 
 状态口径：**已实现**表示有实际代码和入口；**部分实现**表示仍有端侧差异或功能缺口；**待验证**表示缺少目标版本、目标设备的运行证据；**规划**表示尚未交付。构建成功、模拟数据 UI 测试、历史真机通过不能互相替代。
 
@@ -33,7 +33,7 @@
 | 数量与速度设置 | 数字输入配置并发、线程、重试、限速并持久化。 | 数字输入配置并发、线程、重试、限速并持久化。 | 由命令参数配置；默认值和参数范围不应直接等同 GUI。 |
 | Torrent 多文件选择 | metadata 解析后在新建弹框展示文件树并支持多选，保存文件编号；详情支持已落盘文件打开。 | metadata 解析后弹出多文件选择，保存选择结果，支持文件夹详情与已落盘文件预览。 | 重复传入 `--torrent-file-index` 选择文件。 |
 | Torrent 详情 | 文件清单、逐文件已下载量/百分比、tracker、peer、会话速度/ETA；运行中逐文件速度按轮询样本计算，静态 metadata 进度和速度显示未知。 | 文件清单与任务总进度；下载中逐文件完成字节未知，尚无真实逐文件速度。 | 当前以任务级输出为主，无对应详情命令。 |
-| HLS | 清晰度 variant 选择、分片缓存恢复、可选保留 TS；默认尝试 FFmpeg 转 MP4，失败保留 TS。 | VOD、AES-128、fMP4、BYTERANGE、TS 转 MP4；移动端新建任务可指定 variant/保留 TS，Android arm64 通过 `MediaExtractor/MediaMuxer` 完成传统 TS→MP4，并在切换多轨前重置 extractor；空 playlist 会直接失败。 | CLI、Rust FFI 和移动端已共享 HLS 字段；native 库可用时移动队列走 Rust，Android Redmi 真机已完成本地 HLS TS→MP4、variant/fMP4 输出验证；Android 多轨媒体自动化测试、更长/复杂媒体和 iPhone 真机仍待目标环境。 |
+| HLS | 清晰度 variant 选择、分片缓存恢复、可选保留 TS；默认尝试 FFmpeg 转 MP4，失败保留 TS。 | VOD、AES-128、fMP4、BYTERANGE、TS 转 MP4；移动端新建任务可指定 variant/保留 TS，Android arm64 通过 `MediaExtractor/MediaMuxer` 完成传统 TS→MP4，并在切换多轨前重置 extractor；空 playlist 会直接失败。 | CLI、Rust FFI 和移动端已共享 HLS 字段；Rust 缓存绑定 playlist 来源并校验分片完整性，合并阶段按序流式读取，并通过约 6 MiB 多分片并发流式合并回归；Android Redmi 真机已完成手持二维码实拍回填、双轨/B 帧/多音频夹具、仅音频/仅视频/空/损坏 TS instrumentation、HLS TS→MP4、variant/fMP4 输出验证；完整多音轨 rendition 选择受设备媒体栈轨道暴露能力限制，Android 真机更大媒体/异常网络长时间验证和 iPhone 真机仍待目标环境。 |
 | 平台集成与诊断 | 托盘、关窗驻留、单实例、完成/失败通知、可关闭的剪贴板监听、窗口尺寸恢复、更新检查与安装包下载。 | 有原生扫码、文件选择、打开/分享入口；不等于已有系统级长期后台下载。 | `detect/support/doctor` 用于识别及后端诊断。 |
 
 ### 工程与发行
@@ -52,7 +52,7 @@
 
 | 平台 | 当前源码与既有证据 | 历史运行证据 | 仍待补验 |
 | --- | --- | --- | --- |
-| Android | 上一版 `1.0.26 (27)` Release APK（`144,815,221` bytes，SHA-256 `0fda95829c2f5acfce3462d97b649e9d8b9511ac34cd878a023925aa6c3853fe`）已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）安装并正常启动；Rust FFI 真机 smoke 覆盖 HTTP、HLS TS、master variant/fMP4，四个任务均完成。本版新增的输入校验和启动恢复修复已通过 Flutter 回归。 | 同设备已通过暂停、继续、重启恢复、Torrent/Magnet metadata 多文件选择和任务详情。 | ed2k 仍按外部 handler 边界；扫码、目录权限、长时间后台和正式签名分发按环境补验。 |
+| Android | Kotlin arm64 工作树 `1.0.28-kotlin-alpha.2` 已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）完成 Gradle JVM 单测、7 项 connected instrumentation（真实二维码识别、双轨/B 帧/多音频、仅音频、仅视频、空/损坏 TS）和 Rust HLS 核心回归；手持相机实拍回填也已人工确认；此前 Release APK 的 Flutter/Rust FFI smoke 仍保留。 | 同设备已通过暂停、继续、重启恢复、Torrent/Magnet metadata 多文件选择和任务详情；本轮二维码、媒体轨道保留与 HLS 缓存/流式合并均有自动化证据。 | ed2k 仍按外部 handler 边界；完整多音轨 rendition、长时间后台和正式签名分发按环境补验。 |
 | iOS simulator | `FLUXDOWN_IOS_INCLUDE_TS_HLS=1 FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration` 已通过当前工作树：HTTP、fMP4 HLS、BYTERANGE HLS、TS HLS 均真实落盘；Rust queue integration 的 HTTP/HLS/variant 也通过；`npm run verify:ios:ui` 已真实启动 App 并完成任务页/设置页切换和存储统计检查。 | App 内历史 HTTP、fMP4/BYTERANGE/TS HLS smoke。 | 新建任务表单的 simulator UI 断言、iPhone 真机扫码、目录选择、分享/打开、Torrent/Magnet 仍待签名设备。 |
 | iPhone 真机 | unsigned device app 构建及 FFI 导出检查；没有签名 IPA。 | 尚无完整真机验收。 | 签名安装后扫码、目录选择、打开/分享、HTTP/HLS/Torrent/Magnet 和恢复流程。 |
 | macOS 桌面 | 当前工作树 `.app` 前台 GUI 协议回归通过：HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、HLS、SFTP、SMB、Torrent、Magnet 真实落盘并校验 SHA-256，ed2k 完成系统移交；CLI 队列控制回归也通过。该证据尚未重新打包为 `1.0.27` DMG。 | 2026-08-05 原生 GUI 12 类协议流程。 | 当前版托盘、更新和更多手工交互仍可继续补验；本轮证据见 `docs/artifacts/macos-desktop-gui-protocol-e2e-20260927.json`。 |
@@ -76,7 +76,7 @@
 
 ### Android Kotlin 重写（进行中）
 
-第一阶段已建立 `apps/android` 原生 Compose 宿主和 Rust JNI bridge，现阶段与 Flutter 并存，使用独立包名和 arm64-only 构建。当前已接通 Rust 异步队列运行、状态轮询、并发/线程/重试/限速透传、真实 HTTP/Torrent 下载、暂停/继续、失败重试、完成任务重新下载和 Torrent 多文件选择；已在 Redmi 真机完成本地 HTTP、局域网 Peer 资源和 Android SAF 目录复制验证。已完成任务操作面板、FileProvider 本地文件打开/分享、SAF `content://` 文件打开/分享、凭据失效后的可操作失败提示，以及 HLS variant 编号/保留 TS 参数透传和持久化。一级页面系统返回已增加退出确认，扫码页面已接入 CameraX + ML Kit，并完成真机权限和相机预览验证，识别回填仍待补证；前台服务已完成通知权限、后台保活和队列摘要通知验证。后续按“任务/设置 → 扫码/凭据 → HLS 详情 → 磁力与完整协议验收”的顺序迁移；在真实设备验收完成前，不把 Kotlin 预览包当作正式 Android Release。
+第一阶段已建立 `apps/android` 原生 Compose 宿主和 Rust JNI bridge，现阶段与 Flutter 并存，使用独立包名和 arm64-only 构建。当前已接通 Rust 异步队列运行、状态轮询、并发/线程/重试/限速透传、真实 HTTP/Torrent 下载、暂停/继续、失败重试、完成任务重新下载和 Torrent 多文件选择；已在 Redmi 真机完成本地 HTTP、局域网 Peer 资源和 Android SAF 目录复制验证。已完成任务操作面板、FileProvider 本地文件打开/分享、SAF `content://` 文件打开/分享、凭据失效后的可操作失败提示，以及 HLS variant 编号/保留 TS 参数透传和持久化。一级页面系统返回已增加退出确认，扫码页面已接入 CameraX + ML Kit，并完成真实二维码位图识别、手持相机实拍回填和真机 instrumentation；前台服务已完成通知权限、后台保活和队列摘要通知验证。Rust HLS 分片缓存现已具备来源摘要、长度/SHA-256 完整性校验和临时文件提交，最终合并改为按序流式读取；Android 双轨/B 帧/多音频夹具、仅音频/仅视频、空/损坏 TS 自动化已通过，但完整多音轨选择仍受设备媒体栈能力限制。后续重点是更长/复杂媒体和 iPhone 真机；在正式签名与跨端验收完成前，不把 Kotlin 预览包当作正式 Android Release。
 
 | 编号 | 方向 | 交付条件 |
 | --- | --- | --- |

@@ -378,6 +378,10 @@ async fn run_one(
     let request = request_with_hls_overrides(task.request(), download_options.clone());
 
     let mut retryable = false;
+    // 作者: long
+    // 暂停请求与“继续”可能在同一个下载协程收尾窗口内交错到达；如果用户已经把任务重新排队，
+    // 旧协程不能再把较新的 queued/running 状态覆盖回 paused。
+    let mut preserve_newer_task_state = false;
     let mut summary = match engine
         .download_with_control_and_options(
             request,
@@ -409,9 +413,13 @@ async fn run_one(
             if let Ok(current) = store.get(&task.id).await {
                 task = current;
             }
-            task.set_state(DownloadState::Paused);
-            if let Some(size) = partial_file_size(&task).await {
-                task.set_progress(size, task.total_bytes);
+            if matches!(task.state, DownloadState::Queued | DownloadState::Running) {
+                preserve_newer_task_state = true;
+            } else {
+                task.set_state(DownloadState::Paused);
+                if let Some(size) = partial_file_size(&task).await {
+                    task.set_progress(size, task.total_bytes);
+                }
             }
             task.error = None;
             None
@@ -432,17 +440,23 @@ async fn run_one(
     let _guard = write_lock.lock().await;
     // 作者: long
     // 用户删除运行中任务时，删除动作本身就是取消并移出队列；下载协程收尾不能把任务重新写回，也不能让队列运行因为 NotFound 失败。
-    let task = match store.update(task.clone()).await {
-        Ok(task) => task,
-        Err(TaskStoreError::NotFound(_)) => {
-            // 作者: long
-            // 删除和最后一个下载块可能同时完成；队列已删除时按用户取消收尾，不再计入下载成功。
-            task.set_state(DownloadState::Paused);
-            task.error = None;
-            summary = None;
-            task
+    let task = if preserve_newer_task_state {
+        // 作者: long
+        // 继续操作已经产生了更新快照，直接读取它并交给队列调度器，避免旧暂停协程回写陈旧状态。
+        store.get(&task.id).await.unwrap_or(task)
+    } else {
+        match store.update(task.clone()).await {
+            Ok(task) => task,
+            Err(TaskStoreError::NotFound(_)) => {
+                // 作者: long
+                // 删除和最后一个下载块可能同时完成；队列已删除时按用户取消收尾，不再计入下载成功。
+                task.set_state(DownloadState::Paused);
+                task.error = None;
+                summary = None;
+                task
+            }
+            Err(error) => return Err(error.into()),
         }
-        Err(error) => return Err(error.into()),
     };
     Ok(RunAttemptReport {
         report: TaskRunReport { task, summary },

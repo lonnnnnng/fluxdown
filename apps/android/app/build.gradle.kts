@@ -12,8 +12,9 @@ android {
         applicationId = "dev.fluxdown.mobile.kotlin"
         minSdk = 24
         targetSdk = 36
-        versionCode = 2030
-        versionName = "1.0.28-kotlin-alpha.2"
+        versionCode = 2031
+        versionName = "1.0.28-kotlin-alpha.3"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
             // 作者: long
@@ -72,5 +73,9 @@ dependencies {
     implementation("androidx.compose.foundation:foundation:1.7.5")
     implementation("androidx.compose.material3:material3:1.3.1")
     implementation("androidx.compose.material:material-icons-extended:1.7.5")
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("com.google.zxing:core:3.4.1")
     debugImplementation("androidx.compose.ui:ui-tooling:1.7.5")
 }

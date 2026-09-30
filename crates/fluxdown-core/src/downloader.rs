@@ -1453,8 +1453,10 @@ impl DownloadEngine {
         let playlist = m3u8_rs::parse_playlist_res(playlist_text.as_bytes())
             .map_err(|_| DownloadError::InvalidM3u8)?;
 
-        let (media_playlist, media_playlist_url) = match playlist {
-            m3u8_rs::Playlist::MediaPlaylist(media) => (media, playlist_url.clone()),
+        let (media_playlist, media_playlist_url, media_playlist_text) = match playlist {
+            m3u8_rs::Playlist::MediaPlaylist(media) => {
+                (media, playlist_url.clone(), playlist_text.clone())
+            }
             m3u8_rs::Playlist::MasterPlaylist(master) => {
                 // 作者: long
                 // 支持按清晰度 variant 选择：未指定时保持旧行为取第一个，
@@ -1482,7 +1484,7 @@ impl DownloadEngine {
                 let nested = m3u8_rs::parse_playlist_res(variant_text.as_bytes())
                     .map_err(|_| DownloadError::InvalidM3u8)?;
                 match nested {
-                    m3u8_rs::Playlist::MediaPlaylist(media) => (media, variant_url),
+                    m3u8_rs::Playlist::MediaPlaylist(media) => (media, variant_url, variant_text),
                     _ => return Err(DownloadError::InvalidM3u8),
                 }
             }
@@ -1536,6 +1538,29 @@ impl DownloadEngine {
             });
         }
 
+        // 作者: long
+        // 分片缓存必须绑定最终 media playlist 的来源和正文；同一个输出文件名对应的新播放列表
+        // 不能误复用旧分片，否则会把不同版本的视频拼接到一起。
+        let expected_cache_manifest =
+            hls_cache_manifest(&media_playlist_url, &media_playlist_text, &segment_specs);
+        let segment_cache_manifest_path = hls_segment_cache_manifest_path(&segment_cache_dir);
+        let existing_cache_manifest = fs::read(&segment_cache_manifest_path)
+            .await
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<HlsCacheManifest>(&bytes).ok());
+        let cache_manifest = if existing_cache_manifest.as_ref().is_some_and(|manifest| {
+            hls_cache_manifest_matches_source(manifest, &expected_cache_manifest)
+        }) {
+            existing_cache_manifest.expect("checked above")
+        } else {
+            let _ = fs::remove_dir_all(&segment_cache_dir).await;
+            fs::create_dir_all(&segment_cache_dir).await?;
+            write_hls_cache_manifest(&segment_cache_dir, &expected_cache_manifest).await?;
+            expected_cache_manifest
+        };
+        let cache_manifest = Arc::new(Mutex::new(cache_manifest));
+        let cache_segments = cache_manifest.lock().await.segments.clone();
+
         let limiter = DownloadSpeedLimiter::new(options.speed_limit_bps);
         let init_bytes = if let Some(map) = init_section {
             let init_url = media_playlist_url
@@ -1562,9 +1587,11 @@ impl DownloadEngine {
         if !init_bytes.is_empty() {
             output.write_all(&init_bytes).await?;
         }
+        drop(init_bytes);
         emit_progress(&progress, bytes_written, None);
 
         let downloaded = Arc::new(AtomicU64::new(bytes_written));
+        let segment_count = segment_specs.len();
         let segment_results = stream::iter(segment_specs)
             .map(|segment| {
                 let engine = self.clone();
@@ -1574,19 +1601,27 @@ impl DownloadEngine {
                 let downloaded = Arc::clone(&downloaded);
                 let limiter = limiter.clone();
                 let segment_cache_path = hls_segment_cache_file(&segment_cache_dir, segment.index);
+                let segment_cache_dir = segment_cache_dir.clone();
+                let cache_manifest = Arc::clone(&cache_manifest);
+                let cache_metadata = cache_segments
+                    .iter()
+                    .find(|metadata| metadata.index == segment.index)
+                    .cloned();
                 async move {
                     if is_cancelled(&cancel) {
                         return Err(DownloadError::Paused);
                     }
                     // 作者: long
-                    // 断点恢复：上一次运行留下的分片文件直接复用，不再重复请求网络。
-                    if let Some(cached) = fs::read(&segment_cache_path).await.ok()
-                        && !cached.is_empty()
+                    // 断点恢复只接受 manifest 已登记、长度和 SHA-256 都匹配的分片，避免半写文件或
+                    // 同名资源切换后继续拼接旧内容。
+                    if let Some(cached_length) =
+                        validate_hls_cached_segment(&segment_cache_path, cache_metadata.as_ref())
+                            .await?
                     {
-                        let total = downloaded.fetch_add(cached.len() as u64, Ordering::SeqCst)
-                            + cached.len() as u64;
+                        let total =
+                            downloaded.fetch_add(cached_length, Ordering::SeqCst) + cached_length;
                         emit_progress(&progress, total, None);
-                        return Ok((segment.index, cached));
+                        return Ok((segment.index, cached_length));
                     }
                     let bytes = engine
                         .fetch_hls_segment_with_retry(
@@ -1607,30 +1642,68 @@ impl DownloadEngine {
                             &mut key_cache,
                         )
                         .await?;
-                    fs::write(&segment_cache_path, &segment_bytes).await?;
+                    // 作者: long
+                    // 先写临时文件再改名，暂停或进程崩溃时不会留下可被误认成完整分片的半文件。
+                    let temporary_cache_path = hls_segment_cache_temp_file(&segment_cache_path);
+                    let _ = fs::remove_file(&temporary_cache_path).await;
+                    fs::write(&temporary_cache_path, &segment_bytes).await?;
+                    fs::rename(&temporary_cache_path, &segment_cache_path).await?;
+                    let cached_sha256 = sha256_bytes(&segment_bytes);
+                    {
+                        let mut manifest = cache_manifest.lock().await;
+                        if let Some(metadata) = manifest
+                            .segments
+                            .iter_mut()
+                            .find(|metadata| metadata.index == segment.index)
+                        {
+                            metadata.cached_length = Some(segment_bytes.len() as u64);
+                            metadata.cached_sha256 = Some(cached_sha256);
+                        }
+                        write_hls_cache_manifest(&segment_cache_dir, &manifest).await?;
+                    }
                     let total = downloaded.fetch_add(segment_bytes.len() as u64, Ordering::SeqCst)
                         + segment_bytes.len() as u64;
                     emit_progress(&progress, total, None);
-                    Ok((segment.index, segment_bytes))
+                    Ok((segment.index, segment_bytes.len() as u64))
                 }
             })
             .buffer_unordered(options.thread_count)
             .collect::<Vec<_>>()
             .await;
 
-        let mut ordered_segments = Vec::with_capacity(segment_results.len());
+        let mut segment_lengths = vec![0_u64; segment_count];
         for result in segment_results {
-            ordered_segments.push(result?);
+            let (index, length) = result?;
+            segment_lengths[index] = length;
         }
-        ordered_segments.sort_by_key(|(index, _)| *index);
 
-        for (_, segment_bytes) in ordered_segments {
+        // 作者: long
+        // 并发任务只保留单个分片并写入缓存；最终文件按索引逐个读取，内存峰值与并发分片数相关，
+        // 不再随着整段 HLS 媒体大小线性增长。
+        let mut merge_buffer = vec![0_u8; 64 * 1024];
+        for index in 0..segment_count {
             if is_cancelled(&cancel) {
                 output.flush().await?;
                 return Err(DownloadError::Paused);
             }
-            output.write_all(&segment_bytes).await?;
-            bytes_written += segment_bytes.len() as u64;
+            let segment_path = hls_segment_cache_file(&segment_cache_dir, index);
+            let mut segment_file = File::open(&segment_path).await?;
+            let mut merged_segment_bytes = 0_u64;
+            loop {
+                let read = segment_file.read(&mut merge_buffer).await?;
+                if read == 0 {
+                    break;
+                }
+                output.write_all(&merge_buffer[..read]).await?;
+                merged_segment_bytes += read as u64;
+                bytes_written += read as u64;
+            }
+            if merged_segment_bytes != segment_lengths[index] {
+                return Err(DownloadError::InvalidHlsByteRange(format!(
+                    "cached HLS segment {index} length changed from {} to {}",
+                    segment_lengths[index], merged_segment_bytes
+                )));
+            }
             segments_written += 1;
         }
 
@@ -2003,10 +2076,129 @@ struct HlsSegmentSpec {
     byte_range: Option<HlsByteRange>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct HlsCacheManifest {
+    version: u8,
+    playlist_url_sha256: String,
+    playlist_sha256: String,
+    segments: Vec<HlsCacheSegmentMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct HlsCacheSegmentMetadata {
+    index: usize,
+    url_sha256: String,
+    media_sequence: u64,
+    byte_range: Option<HlsByteRange>,
+    cached_length: Option<u64>,
+    cached_sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 struct HlsByteRange {
     offset: u64,
     length: u64,
+}
+
+const HLS_CACHE_MANIFEST_VERSION: u8 = 1;
+
+fn sha256_bytes(bytes: impl AsRef<[u8]>) -> String {
+    format!("{:x}", Sha256::digest(bytes.as_ref()))
+}
+
+fn hls_cache_manifest(
+    playlist_url: &Url,
+    playlist_text: &str,
+    segment_specs: &[HlsSegmentSpec],
+) -> HlsCacheManifest {
+    HlsCacheManifest {
+        version: HLS_CACHE_MANIFEST_VERSION,
+        // 作者: long
+        // 清单只保留 URL 的摘要，不把可能含用户名/密码的原始地址写入磁盘。
+        playlist_url_sha256: sha256_bytes(playlist_url.as_str()),
+        playlist_sha256: sha256_bytes(playlist_text.as_bytes()),
+        segments: segment_specs
+            .iter()
+            .map(|segment| HlsCacheSegmentMetadata {
+                index: segment.index,
+                url_sha256: sha256_bytes(segment.url.as_str()),
+                media_sequence: segment.media_sequence,
+                byte_range: segment.byte_range,
+                cached_length: None,
+                cached_sha256: None,
+            })
+            .collect(),
+    }
+}
+
+fn hls_cache_manifest_matches_source(
+    actual: &HlsCacheManifest,
+    expected: &HlsCacheManifest,
+) -> bool {
+    actual.version == expected.version
+        && actual.playlist_url_sha256 == expected.playlist_url_sha256
+        && actual.playlist_sha256 == expected.playlist_sha256
+        && actual.segments.len() == expected.segments.len()
+        && actual
+            .segments
+            .iter()
+            .zip(&expected.segments)
+            .all(|(actual, expected)| {
+                actual.index == expected.index
+                    && actual.url_sha256 == expected.url_sha256
+                    && actual.media_sequence == expected.media_sequence
+                    && actual.byte_range == expected.byte_range
+            })
+}
+
+async fn write_hls_cache_manifest(
+    cache_dir: &Path,
+    manifest: &HlsCacheManifest,
+) -> Result<(), DownloadError> {
+    let manifest_path = hls_segment_cache_manifest_path(cache_dir);
+    let temporary_path = hls_segment_cache_manifest_temp_path(cache_dir);
+    let bytes = serde_json::to_vec_pretty(manifest).map_err(|error| {
+        DownloadError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("serialize HLS cache manifest: {error}"),
+        ))
+    })?;
+    let _ = fs::remove_file(&temporary_path).await;
+    fs::write(&temporary_path, bytes).await?;
+    // 作者: long
+    // 清单采用临时文件改名，确保启动恢复时只会读到完整 JSON；Windows 下先删除目标文件。
+    let _ = fs::remove_file(&manifest_path).await;
+    fs::rename(temporary_path, manifest_path).await?;
+    Ok(())
+}
+
+async fn validate_hls_cached_segment(
+    path: &Path,
+    metadata: Option<&HlsCacheSegmentMetadata>,
+) -> Result<Option<u64>, DownloadError> {
+    let Some(metadata) = metadata else {
+        return Ok(None);
+    };
+    let Some(expected_length) = metadata.cached_length else {
+        return Ok(None);
+    };
+    let Some(expected_sha256) = metadata.cached_sha256.as_deref() else {
+        return Ok(None);
+    };
+    let file_metadata = match fs::metadata(path).await {
+        Ok(metadata) if metadata.is_file() => metadata,
+        Ok(_) => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if file_metadata.len() != expected_length {
+        return Ok(None);
+    }
+    let actual_sha256 = sha256_file(path).await?;
+    if actual_sha256 != expected_sha256 {
+        return Ok(None);
+    }
+    Ok(Some(expected_length))
 }
 
 fn hls_map_byte_range(
@@ -2370,6 +2562,21 @@ async fn remove_existing_outputs_for_request(
             Ok(metadata) if metadata.is_file() => {
                 fs::remove_file(path).await?;
             }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    if request.protocol() == Protocol::M3u8 {
+        let file_name = request
+            .file_name
+            .clone()
+            .map(|name| sanitize_download_file_name(&name, "download.bin"))
+            .unwrap_or_else(|| inferred_file_name_from_source(&request.source));
+        let output_path = hls_mp4_output_name(&request.output_dir.join(file_name));
+        let cache_dir = hls_segment_cache_dir(&output_path);
+        match fs::metadata(&cache_dir).await {
+            Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(cache_dir).await?,
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
@@ -3520,6 +3727,18 @@ fn hls_segment_cache_dir(output_mp4: &Path) -> PathBuf {
 
 fn hls_segment_cache_file(cache_dir: &Path, index: usize) -> PathBuf {
     cache_dir.join(format!("{index:08}.ts"))
+}
+
+fn hls_segment_cache_temp_file(cache_file: &Path) -> PathBuf {
+    cache_file.with_extension("ts.tmp")
+}
+
+fn hls_segment_cache_manifest_path(cache_dir: &Path) -> PathBuf {
+    cache_dir.join("manifest.json")
+}
+
+fn hls_segment_cache_manifest_temp_path(cache_dir: &Path) -> PathBuf {
+    cache_dir.join("manifest.json.tmp")
 }
 
 fn range_temp_output_path(output_path: &Path) -> PathBuf {
@@ -4923,9 +5142,103 @@ fn main() {{
     }
 
     #[tokio::test]
+    async fn streams_large_hls_playlist_in_order_and_cleans_cache() {
+        const SEGMENT_COUNT: usize = 48;
+        const SEGMENT_SIZE: usize = 128 * 1024;
+        let segments = Arc::new(
+            (0..SEGMENT_COUNT)
+                .map(|segment_index| {
+                    (0..SEGMENT_SIZE)
+                        .map(|byte_index| {
+                            ((segment_index.wrapping_mul(31) + byte_index) % 251) as u8
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>(),
+        );
+        let playlist = format!(
+            "#EXTM3U\n#EXT-X-VERSION:3\n{}#EXT-X-ENDLIST\n",
+            (0..SEGMENT_COUNT)
+                .map(|index| format!("#EXTINF:1,\nseg-{index}.ts\n"))
+                .collect::<String>()
+        );
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/playlist.m3u8", server.local_addr().unwrap());
+        let server_segments = Arc::clone(&segments);
+        let server_playlist = playlist.clone().into_bytes();
+        let server_task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = server.accept().await else {
+                    return;
+                };
+                let server_segments = Arc::clone(&server_segments);
+                let server_playlist = server_playlist.clone();
+                tokio::spawn(async move {
+                    let mut buffer = [0; 2048];
+                    let Ok(read) = stream.read(&mut buffer).await else {
+                        return;
+                    };
+                    let request = String::from_utf8_lossy(&buffer[..read]);
+                    let path = request
+                        .lines()
+                        .next()
+                        .and_then(|line| line.split_whitespace().nth(1))
+                        .unwrap_or("/");
+                    let body = if path == "/playlist.m3u8" {
+                        server_playlist
+                    } else if let Some(index) = path
+                        .strip_prefix("/seg-")
+                        .and_then(|value| value.strip_suffix(".ts"))
+                        .and_then(|value| value.parse::<usize>().ok())
+                        .filter(|index| *index < server_segments.len())
+                    {
+                        server_segments[index].clone()
+                    } else {
+                        let header = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        let _ = stream.write_all(header).await;
+                        let _ = stream.shutdown().await;
+                        return;
+                    };
+                    let header = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(header.as_bytes()).await;
+                    let _ = stream.write_all(&body).await;
+                    let _ = stream.shutdown().await;
+                });
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut request = DownloadRequest::new(source, temp_dir.path());
+        request.file_name = Some("large-playlist.m3u8".to_string());
+        request.hls_keep_transport_stream = Some(true);
+        let summary = DownloadEngine::new()
+            .download_with_options(request, DownloadOptions::new(8, None))
+            .await
+            .unwrap();
+
+        let mut expected = Vec::with_capacity(SEGMENT_COUNT * SEGMENT_SIZE);
+        for segment in segments.iter() {
+            expected.extend_from_slice(segment);
+        }
+        let output_path = temp_dir.path().join("large-playlist.ts");
+        assert_eq!(summary.segments_written, Some(SEGMENT_COUNT));
+        assert_eq!(summary.bytes_written, expected.len() as u64);
+        assert_eq!(fs::read(&output_path).await.unwrap(), expected);
+        // 作者: long
+        // 成功合并后不保留临时分片目录，避免大媒体缓存长期占用设备空间。
+        assert!(!hls_segment_cache_dir(&hls_mp4_output_name(&output_path)).exists());
+        server_task.abort();
+    }
+
+    #[tokio::test]
     async fn hls_segment_cache_skips_network_for_cached_segments() {
         let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let source = format!("http://{}/playlist.m3u8", server.local_addr().unwrap());
+        let playlist_text = "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1,\nseg-1.ts\n#EXTINF:1,\nseg-2.ts\n#EXT-X-ENDLIST\n";
+        let playlist_text_for_server = playlist_text.to_string();
         let server_task = tokio::spawn(async move {
             loop {
                 let Ok((mut stream, _)) = server.accept().await else {
@@ -4945,8 +5258,7 @@ fn main() {{
                     "/playlist.m3u8" => (
                         "200 OK",
                         "application/vnd.apple.mpegurl",
-                        b"#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1,\nseg-1.ts\n#EXTINF:1,\nseg-2.ts\n#EXT-X-ENDLIST\n"
-                            .to_vec(),
+                        playlist_text_for_server.as_bytes().to_vec(),
                     ),
                     // 作者: long
                     // 断点恢复断言：seg-1 已在缓存目录，服务器不再提供该分片；
@@ -4972,6 +5284,29 @@ fn main() {{
         fs::write(hls_segment_cache_file(&cache_dir, 0), b"first segment")
             .await
             .unwrap();
+        let playlist_url = Url::parse(&source).unwrap();
+        let segment_specs = vec![
+            HlsSegmentSpec {
+                index: 0,
+                url: playlist_url.join("seg-1.ts").unwrap(),
+                media_sequence: 0,
+                key: None,
+                byte_range: None,
+            },
+            HlsSegmentSpec {
+                index: 1,
+                url: playlist_url.join("seg-2.ts").unwrap(),
+                media_sequence: 1,
+                key: None,
+                byte_range: None,
+            },
+        ];
+        let mut cache_manifest = hls_cache_manifest(&playlist_url, playlist_text, &segment_specs);
+        cache_manifest.segments[0].cached_length = Some("first segment".len() as u64);
+        cache_manifest.segments[0].cached_sha256 = Some(sha256_bytes(b"first segment"));
+        write_hls_cache_manifest(&cache_dir, &cache_manifest)
+            .await
+            .unwrap();
 
         let summary = DownloadEngine::new()
             .download(DownloadRequest::new(source, temp_dir.path()))
@@ -4986,5 +5321,53 @@ fn main() {{
         // 成功完成后分片缓存必须被清理。
         assert!(!cache_dir.exists());
         server_task.abort();
+    }
+
+    #[test]
+    fn hls_cache_manifest_rejects_playlist_source_changes() {
+        let playlist_url = Url::parse("https://example.test/video/playlist.m3u8").unwrap();
+        let segment_specs = vec![HlsSegmentSpec {
+            index: 0,
+            url: playlist_url.join("segment.ts").unwrap(),
+            media_sequence: 7,
+            key: None,
+            byte_range: None,
+        }];
+        let original = hls_cache_manifest(&playlist_url, "playlist-v1", &segment_specs);
+        let changed_playlist = hls_cache_manifest(&playlist_url, "playlist-v2", &segment_specs);
+        let changed_url = hls_cache_manifest(
+            &Url::parse("https://example.test/video/other.m3u8").unwrap(),
+            "playlist-v1",
+            &segment_specs,
+        );
+
+        assert!(hls_cache_manifest_matches_source(&original, &original));
+        assert!(!hls_cache_manifest_matches_source(
+            &original,
+            &changed_playlist
+        ));
+        assert!(!hls_cache_manifest_matches_source(&original, &changed_url));
+    }
+
+    #[tokio::test]
+    async fn hls_cache_validation_rejects_corrupted_segment_bytes() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("00000000.ts");
+        fs::write(&path, b"corrupted").await.unwrap();
+        let metadata = HlsCacheSegmentMetadata {
+            index: 0,
+            url_sha256: sha256_bytes("https://example.test/segment.ts"),
+            media_sequence: 0,
+            byte_range: None,
+            cached_length: Some(11),
+            cached_sha256: Some(sha256_bytes(b"expected bytes")),
+        };
+
+        assert_eq!(
+            validate_hls_cached_segment(&path, Some(&metadata))
+                .await
+                .unwrap(),
+            None
+        );
     }
 }
