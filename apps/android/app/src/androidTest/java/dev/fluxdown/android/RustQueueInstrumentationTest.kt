@@ -17,6 +17,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -279,6 +280,124 @@ class RustQueueInstrumentationTest {
     }
 
     @Test
+    fun queueTorrentAndMagnetDuplicateSelectionDoNotCorruptSharedOutput() {
+        val arguments = InstrumentationRegistry.getArguments()
+        val torrentUrl = arguments.getString("p2pTorrentUrl").orEmpty().trim()
+        val infoHash = arguments.getString("p2pInfoHash").orEmpty().trim()
+        val trackerUrl = arguments.getString("p2pTrackerUrl").orEmpty().trim()
+        val expectedSha256 = arguments.getString("p2pSelectedSha256").orEmpty().trim()
+        val expectedBytes = arguments.getString("p2pSelectedBytes")?.toLongOrNull() ?: 0L
+        val directoryName = arguments.getString("p2pDirectoryName")?.trim().orEmpty()
+            .ifBlank { "kotlin-duplicate-bundle" }
+        val selectedPath = arguments.getString("p2pSelectedPath")?.trim().orEmpty()
+            .ifBlank { "$directoryName/selected.bin" }
+        val skippedPath = arguments.getString("p2pSkippedPath")?.trim().orEmpty()
+            .ifBlank { "$directoryName/skipped.bin" }
+
+        // 作者: long
+        // 真实 P2P fixture 由主机脚本提供；普通 connectedDebugAndroidTest 不传这些参数时跳过，
+        // 避免把依赖局域网 Seeder 的长测试误当成基础回归的一部分。
+        assumeTrue(
+            "缺少 p2pTorrentUrl/p2pInfoHash/p2pTrackerUrl，跳过局域网 Torrent/Magnet 压力用例",
+            torrentUrl.isNotBlank() && infoHash.isNotBlank() && trackerUrl.isNotBlank()
+                && expectedSha256.matches(Regex("[0-9a-fA-F]{64}")) && expectedBytes > 0L,
+        )
+
+        val magnet = "magnet:?xt=urn:btih:$infoHash&dn=$directoryName&tr=" +
+            java.net.URLEncoder.encode(trackerUrl, Charsets.UTF_8.name())
+        runDuplicateP2pPair(
+            source = torrentUrl,
+            rootName = "torrent-duplicate",
+            directoryName = directoryName,
+            selectedPath = selectedPath,
+            skippedPath = skippedPath,
+            expectedSha256 = expectedSha256,
+            expectedBytes = expectedBytes,
+        )
+        runDuplicateP2pPair(
+            source = magnet,
+            rootName = "magnet-duplicate",
+            directoryName = directoryName,
+            selectedPath = selectedPath,
+            skippedPath = skippedPath,
+            expectedSha256 = expectedSha256,
+            expectedBytes = expectedBytes,
+        )
+    }
+
+    private fun runDuplicateP2pPair(
+        source: String,
+        rootName: String,
+        directoryName: String,
+        selectedPath: String,
+        skippedPath: String,
+        expectedSha256: String,
+        expectedBytes: Long,
+    ) {
+        val root = File(context.cacheDir, "rust-$rootName-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val output = File(root, "downloads").apply { mkdirs() }
+        var runId: String? = null
+        try {
+            val files = JSONArray()
+                .put(
+                    JSONObject()
+                        .put("index", 0)
+                        .put("path", selectedPath)
+                        .put("name", File(selectedPath).name)
+                        .put("size", expectedBytes)
+                        .put("isStreamable", false),
+                )
+                .put(
+                    JSONObject()
+                        .put("index", 1)
+                        .put("path", skippedPath)
+                        .put("name", File(skippedPath).name)
+                        .put("size", expectedBytes)
+                        .put("isStreamable", false),
+                )
+            val taskIds = (1..2).map { copy ->
+                val add = RustCoreBridge.queueAdd(
+                    store.absolutePath,
+                    JSONObject()
+                        .put("source", source)
+                        .put("outputDir", output.absolutePath)
+                        .put("fileName", "$directoryName-$copy.torrent")
+                        .put("torrentName", directoryName)
+                        .put("torrentFileIndices", JSONArray().put(0))
+                        .put("torrentFiles", files)
+                        .toString(),
+                )
+                assertTrue("重复 $rootName 任务入队失败: $add", parseOk(add))
+                JSONObject(add).getJSONObject("data").getString("id")
+            }
+            runId = startQueue(store, concurrency = 2, threadCount = 1)
+            waitForTaskStates(store, taskIds, "finished", 90_000)
+            waitForRunTerminal(runId, 90_000)
+
+            val selected = File(output, selectedPath)
+            val skipped = File(output, skippedPath)
+            assertTrue("$rootName 选中文件未落盘: ${selected.absolutePath}", selected.isFile)
+            assertEquals("$rootName 最终文件大小不一致", expectedBytes, selected.length())
+            assertEquals("$rootName 重复下载后的文件摘要不一致", expectedSha256.lowercase(), sha256(selected.readBytes()))
+            // 作者: long
+            // librqbit 可能为未选择文件创建零字节占位路径；验收真正关心的是不能把未选文件完整落盘。
+            assertTrue(
+                "$rootName 未选文件不应被完整下载: ${skipped.length()} B",
+                !skipped.exists() || skipped.length() < expectedBytes,
+            )
+            taskIds.forEach { taskId ->
+                val task = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+                assertEquals("$rootName 重复任务未完成", "finished", task.optString("state"))
+                assertEquals("$rootName 重复任务统计大小错误", expectedBytes, task.optLong("downloaded_bytes"))
+            }
+        } finally {
+            runId?.let { forgetRunWhenTerminal(it) }
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun queueResetAndRemoveThroughRustUpdatePersistentQueue() {
         val root = File(context.cacheDir, "rust-reset-remove-${UUID.randomUUID()}").apply { mkdirs() }
         val store = File(root, "queue.json")
@@ -493,6 +612,19 @@ class RustQueueInstrumentationTest {
             task = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
         }
         assertEquals("任务未在 ${timeoutMs}ms 内进入 $expected: $task", expected, task.optString("state"))
+    }
+
+    private fun waitForTaskStates(store: File, taskIds: List<String>, expected: String, timeoutMs: Long) {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        var tasks = taskIds.map { taskId -> queueTask(RustCoreBridge.queueList(store.absolutePath), taskId) }
+        while (System.nanoTime() < deadline && tasks.any { it.optString("state") != expected }) {
+            Thread.sleep(200)
+            tasks = taskIds.map { taskId -> queueTask(RustCoreBridge.queueList(store.absolutePath), taskId) }
+            if (tasks.any { it.optString("state") == "failed" }) break
+        }
+        tasks.forEach { task ->
+            assertEquals("任务未在 ${timeoutMs}ms 内进入 $expected: $task", expected, task.optString("state"))
+        }
     }
 
     private fun waitForDownloadedBytes(store: File, taskId: String, minimum: Long, timeoutMs: Long) {

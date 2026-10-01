@@ -5,6 +5,7 @@
 ## 2026-10-01 队列闭环增量（Kotlin Alpha，未发布）
 
 - 新增 `RustQueueInstrumentationTest` 两项真机回归：Kotlin → JNI → Rust 真实回环 HTTP 下载，以及设备上存在过期残留文件时收到 HTTP 416 后清理残留并重新下载。两项均校验任务最终为 `finished`、字节数和落盘内容，不使用预置假数据。
+- 新增局域网 P2P 重复入队回归 `queueTorrentAndMagnetDuplicateSelectionDoNotCorruptSharedOutput`：在 Redmi Note 8 Pro 上使用主机 `192.168.1.8` 的真实 Tracker/Transmission Seeder，`.torrent` 和 Magnet 各重复入队两份、均只选择 `kotlin-p2p-bundle/a-selected.bin`；四个任务均进入 `finished`，最终 `65,536/65,536 B`，SHA-256 为 `de7129a343e055ff35229d4679eae6a4dc35c6411495afab8a88164d42c0b85c`。未选择文件没有完整落盘；librqbit 可能留下零字节占位路径，因此验收按完整大小判断，不把占位路径误报为下载内容。
 - Rust HTTP 单连接路径补齐 416 处理：只有 `Content-Range` 或额外 `HEAD` 明确证明本地文件已完整时才直接复用；无法证明时删除残留并重新发起无 `Range` 请求，避免截断文件被误判完成或持续卡在 416。
 - Rust 分片 HTTP 路径对 416 做确定性回退：当所有 Range 分片均被服务端拒绝时清理临时文件并回退到单连接下载，保持任务可恢复。
 - Torrent/Magnet 任务卡现在显示资源目录入口：单文件 metadata 名与文件名相同时去掉扩展名作为入口名称，多文件保留 metadata 目录名；完整文件名、格式、大小和逐文件进度仍在“资源详情”中展示。
