@@ -158,6 +158,114 @@ class RustQueueInstrumentationTest {
     }
 
     @Test
+    fun queueRecoversAfterMidTransferNetworkInterruptionThroughRust() {
+        val payload = ByteArray(512 * 1024) { index -> (index * 13 % 251).toByte() }
+        val server = RecoveringTruncatedLoopbackHttpServer(payload, bytesToSendBeforeRecovery = payload.size / 4)
+        val root = File(context.cacheDir, "rust-network-recovery-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val output = File(root, "downloads").apply { mkdirs() }
+        var runId: String? = null
+        try {
+            val add = RustCoreBridge.queueAdd(
+                store.absolutePath,
+                JSONObject()
+                    .put("source", server.url)
+                    .put("outputDir", output.absolutePath)
+                    .put("fileName", "network-recovery.bin")
+                    .toString(),
+            )
+            assertTrue("网络中断恢复测试入队失败: $add", parseOk(add))
+            val taskId = JSONObject(add).getJSONObject("data").getString("id")
+            // 作者: long
+            // 首次响应主动断开连接，第二次响应恢复完整内容；这里验证 Rust 将传输中断归类为可重试错误，
+            // 而不是把部分文件误报为完成，也不是由 Kotlin UI 伪造成功状态。
+            runId = startQueue(store, threadCount = 1, retryAttempts = 2)
+            waitForRunTerminal(runId, 45_000)
+            val finalTask = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+            assertEquals(
+                "传输中断恢复失败 count=${server.requestCount.get()} file=${File(output, "network-recovery.bin").length()} task=$finalTask",
+                "finished",
+                finalTask.optString("state"),
+            )
+            assertEquals(payload.size.toLong(), finalTask.optLong("downloaded_bytes"))
+            assertEquals(payload.toList(), File(output, "network-recovery.bin").readBytes().toList())
+            assertTrue("网络中断后应重新请求资源 count=${server.requestCount.get()}", server.requestCount.get() >= 2)
+        } finally {
+            runId?.let { forgetRunWhenTerminal(it) }
+            server.close()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun queueRecoversAfterWifiToggleThroughRust() {
+        val arguments = InstrumentationRegistry.getArguments()
+        val source = arguments.getString("networkFixtureUrl").orEmpty().trim()
+        val expectedBytes = arguments.getString("networkFixtureBytes")?.toLongOrNull() ?: 0L
+        // 作者: long
+        // 系统 Wi-Fi 开关会改变真机网络状态，默认回归不主动执行；只有显式传入局域网夹具时才运行，
+        // 避免把公网或未授权地址带入设备测试，也避免普通 connected suite 被网络环境拖慢。
+        assumeTrue(
+            "缺少 networkFixtureUrl/networkFixtureBytes，跳过 Wi-Fi 切换真机用例",
+            source.startsWith("http://192.168.") && expectedBytes > 0L,
+        )
+
+        val root = File(context.cacheDir, "rust-wifi-toggle-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val output = File(root, "downloads").apply { mkdirs() }
+        var runId: String? = null
+        try {
+            val add = RustCoreBridge.queueAdd(
+                store.absolutePath,
+                JSONObject()
+                    .put("source", source)
+                    .put("outputDir", output.absolutePath)
+                    .put("fileName", "wifi-toggle.bin")
+                    .toString(),
+            )
+            assertTrue("Wi-Fi 切换测试入队失败: $add", parseOk(add))
+            val taskId = JSONObject(add).getJSONObject("data").getString("id")
+            runId = RustCoreBridge.queueRunQueued(
+                store.absolutePath,
+                JSONObject()
+                    .put("concurrency", 1)
+                    .put("threadCount", 1)
+                    .put("retryAttempts", 6)
+                    .put("speedLimitKbps", 512.0)
+                    .toString(),
+            ).let { envelope ->
+                assertTrue("Wi-Fi 切换测试启动失败: $envelope", parseOk(envelope))
+                JSONObject(envelope).getJSONObject("data").getString("runId")
+            }
+            waitForDownloadedBytes(store, taskId, minOf(expectedBytes / 4, 1024 * 1024L).coerceAtLeast(1L), 60_000)
+
+            // 作者: long
+            // 在已有真实进度后切断 Wi-Fi，再恢复网络；USB 调试链路仍保持可用，便于测试结束时恢复开关并读取队列。
+            InstrumentationRegistry.getInstrumentation().uiAutomation
+                .executeShellCommand("svc wifi disable")
+                .close()
+            Thread.sleep(1_000)
+            InstrumentationRegistry.getInstrumentation().uiAutomation
+                .executeShellCommand("svc wifi enable")
+                .close()
+
+            waitForRunTerminal(runId, 180_000)
+            val finalTask = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+            assertEquals("Wi-Fi 切换后任务未恢复: $finalTask", "finished", finalTask.optString("state"))
+            assertEquals(expectedBytes, finalTask.optLong("downloaded_bytes"))
+            assertEquals(expectedBytes, File(output, "wifi-toggle.bin").length())
+        } finally {
+            // 作者: long
+            // 无论断言或设备网络路径如何失败，都把 Wi-Fi 恢复到开启状态，避免污染后续真机验收。
+            InstrumentationRegistry.getInstrumentation().uiAutomation
+                .executeShellCommand("svc wifi enable")
+                .close()
+            runId?.let { forgetRunWhenTerminal(it) }
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun queueMarksInvalidOutputPathFailed() {
         val root = File(context.cacheDir, "rust-storage-error-${UUID.randomUUID()}").apply { mkdirs() }
         val store = File(root, "queue.json")
@@ -980,6 +1088,54 @@ class RustQueueInstrumentationTest {
                     client.getOutputStream().flush()
                     // 作者: long
                     // 主动关闭连接，模拟 CDN/网络在响应体未完成时断开；客户端应将其判为失败并按配置重试。
+                }
+            }
+        }
+
+        override fun close() {
+            server.close()
+            thread.join(2_000)
+        }
+    }
+
+    private class RecoveringTruncatedLoopbackHttpServer(
+        private val payload: ByteArray,
+        private val bytesToSendBeforeRecovery: Int,
+    ) : AutoCloseable {
+        private val server = ServerSocket(0, 4, java.net.InetAddress.getByName("127.0.0.1"))
+        private val thread = Thread(::serve, "fluxdown-android-test-network-recovery-http")
+        val url = "http://127.0.0.1:${server.localPort}/network-recovery.bin"
+        val requestCount = AtomicInteger(0)
+
+        init { thread.start() }
+
+        private fun serve() {
+            while (!server.isClosed) {
+                runCatching { server.accept() }.getOrNull()?.let { socket ->
+                    Thread({ respond(socket) }, "fluxdown-android-test-network-recovery-client").start()
+                }
+            }
+        }
+
+        private fun respond(socket: Socket) {
+            socket.use { client ->
+                val request = BufferedInputStream(client.getInputStream())
+                readHeaders(request)
+                val attempt = requestCount.incrementAndGet()
+                runCatching {
+                    val writer = client.getOutputStream().bufferedWriter()
+                    writer.write("HTTP/1.1 200 OK\r\nContent-Length: ${payload.size}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n")
+                    writer.flush()
+                    val bytesToSend = if (attempt == 1) {
+                        bytesToSendBeforeRecovery.coerceAtMost(payload.size)
+                    } else {
+                        payload.size
+                    }
+                    client.getOutputStream().write(payload, 0, bytesToSend)
+                    client.getOutputStream().flush()
+                    // 作者: long
+                    // 首次响应在声明的 Content-Length 之前断开，模拟 Wi-Fi/蜂窝网络切换造成的传输中断；
+                    // 后续请求返回完整资源，验证 runner 的瞬态重试和文件恢复边界。
                 }
             }
         }

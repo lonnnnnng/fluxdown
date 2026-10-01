@@ -318,10 +318,21 @@ fn http_error_is_retryable(error: &reqwest::Error) -> bool {
             || status == StatusCode::TOO_MANY_REQUESTS
             || status.is_server_error();
     }
+    // 作者: long
+    // reqwest 在响应体已开始读取后遇到对端断开时，不同 hyper 版本可能分别标记为
+    // body、request 或仅在错误文本中暴露 EOF；这些都属于网络切换/连接重置的瞬态失败，
+    // 必须交给队列重试，不能把已经落盘的部分内容直接定格为最终失败。
+    let detail = error.to_string().to_ascii_lowercase();
     error.is_connect()
         || error.is_timeout()
         || error.is_body()
+        || error.is_decode()
         || (error.is_request() && !error.is_builder())
+        || detail.contains("incomplete")
+        || detail.contains("unexpected end")
+        || detail.contains("connection reset")
+        || detail.contains("connection closed")
+        || detail.contains("broken pipe")
 }
 
 fn http_error_user_message(error: &reqwest::Error) -> String {
