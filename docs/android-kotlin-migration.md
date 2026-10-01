@@ -12,6 +12,7 @@
 - 宿主侧生命周期真机回归：使用全新 `64.0 MiB` Range HTTP 资源 `lifecycle-force-stop-1021.bin`，任务运行到断点后执行 `adb shell am force-stop dev.fluxdown.mobile.kotlin`，再启动 `MainActivity`；目标进程 PID 从 `24185` 变为 `25844`，前台服务在新进程中重新恢复同一队列，最终快照为 `finished`、`67,108,864/67,108,864 B`，无重复任务。该证据覆盖显式强停后的启动恢复，不宣称系统低内存回收或永久后台存活。
 - Kotlin 任务页新增 1 秒快照轮询，并用互斥门避免刷新请求重叠；运行中任务可以持续显示 Rust 持久化的真实进度、下载速度和完成时间，轮询不会重复启动前台服务。
 - 新增 Android 真机队列回归：暂停/继续保留断点、并发数为 1 时第二任务真实排队、失败重试、416 回退、重置/删除、前台服务中断恢复；当前 instrumentation 共 `15/15` 通过（Redmi Note 8 Pro，serial：`wsvwypiz7xwslvl7`）。本轮仍只生成 `arm64-v8a` 预览包，未切换正式包名或商店签名。
+- 新增 Android 压力与异常回归：`16 MiB` HTTP 文件完整落盘并校验 SHA-256；`48` 段、约 `6 MiB` 的 HLS playlist 使用 4 路分片并发完成；服务端提前断开响应体时任务进入 `failed` 且不伪造完成；输出路径被普通文件占用时任务进入 `failed`。完整 instrumentation 已更新为 `19/19` 通过。
 
 ## 当前策略
 
@@ -92,7 +93,7 @@ Android Kotlin 重写采用并行迁移，不立即替换现有 Flutter 包：
 ## 剩余能力缺口
 
 - 凭据设置的真实设备闭环已覆盖添加、加密保存、重启回显、新建任务引用选择、带密码 HTTP 下载、SFTP 私钥/`known_hosts` 命中与拒绝，以及删除凭据后重新下载的失败提示；二维码扫描代码已接入 CameraX + ML Kit，实体二维码 instrumentation 和手持相机实拍回填均已通过。
-- HLS 逐文件实时指标、Android 真机更大文件及异常网络回归仍待补；Rust core 已新增 48 个 128 KiB 分片（约 6 MiB）并发下载、按序流式合并和缓存清理回归。在线 variant 列表、手动 variant 编号、传统 TS→MP4、fMP4 直出 MP4、TS 保留、缓存来源/完整性校验、流式合并，以及 Android 双轨、B 帧/多音频夹具、仅音频/仅视频、空/损坏 TS instrumentation 已完成；完整多音轨 rendition 选择仍受 Android 媒体栈轨道暴露能力限制。
+- HLS 逐文件实时指标、系统级 ENOSPC、长期后台异常网络和真实局域网 Torrent/Magnet 多文件重复下载压力仍待补；本轮已完成 Android 真机 `16 MiB` HTTP、`48 x 128 KiB` HLS 并发分片、响应体断开和无效输出路径回归。Rust core 已有更大 HLS 流式合并和缓存清理回归；在线 variant 列表、手动 variant 编号、传统 TS→MP4、fMP4 直出 MP4、TS 保留、缓存来源/完整性校验、流式合并，以及 Android 双轨、B 帧/多音频夹具、仅音频/仅视频、空/损坏 TS instrumentation 已完成；完整多音轨 rendition 选择仍受 Android 媒体栈轨道暴露能力限制。
 - 后台恢复已覆盖 force-stop 后断点续传和前台服务保活，系统返回退出提示已在真机通过；仍需覆盖系统低内存回收和长时间后台场景。
 - 正式商店签名升级和正式包名切换仍未完成；本次 Alpha 使用本机专用预览签名，仅用于迁移预览和真机安装。
 

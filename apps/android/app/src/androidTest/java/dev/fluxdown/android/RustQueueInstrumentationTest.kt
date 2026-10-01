@@ -77,6 +77,114 @@ class RustQueueInstrumentationTest {
     }
 
     @Test
+    fun queueDownloadsLargeHttpPayloadThroughRust() {
+        val payload = ByteArray(16 * 1024 * 1024) { index -> (index * 31 % 251).toByte() }
+        val server = SlowLoopbackHttpServer(payload, chunkSize = 64 * 1024, chunkDelayMs = 0)
+        try {
+            val result = runQueueTask(server.url, payload, staleBytes = null)
+            assertEquals("finished", result.state)
+            assertEquals(payload.size.toLong(), result.downloadedBytes)
+            assertEquals(sha256(payload), sha256(result.outputBytes))
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun queueStreamsLongHlsPlaylistThroughRust() {
+        val segmentCount = 48
+        val segmentSize = 128 * 1024
+        val server = HlsLoopbackHttpServer(segmentCount, segmentSize, chunkDelayMs = 2)
+        val root = File(context.cacheDir, "rust-hls-stress-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val output = File(root, "downloads").apply { mkdirs() }
+        var runId: String? = null
+        try {
+            val add = RustCoreBridge.queueAdd(
+                store.absolutePath,
+                JSONObject()
+                    .put("source", server.playlistUrl)
+                    .put("outputDir", output.absolutePath)
+                    .put("fileName", "long-hls.ts")
+                    .put("hlsKeepTransportStream", true)
+                    .toString(),
+            )
+            assertTrue("HLS 压力测试入队失败: $add", parseOk(add))
+            val taskId = JSONObject(add).getJSONObject("data").getString("id")
+            runId = startQueue(store, concurrency = 1, threadCount = 4)
+            waitForTaskState(store, taskId, "finished", 60_000)
+            waitForRunTerminal(runId, 60_000)
+            val task = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+            assertEquals(segmentCount.toLong() * segmentSize, task.optLong("downloaded_bytes"))
+            assertEquals(segmentCount.toLong() * segmentSize, File(output, "long-hls.ts").length())
+        } finally {
+            runId?.let { forgetRunWhenTerminal(it) }
+            server.close()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun queueMarksTruncatedHttpResponseFailedWithoutFalseCompletion() {
+        val payload = ByteArray(256 * 1024) { index -> (index % 223).toByte() }
+        val server = TruncatedLoopbackHttpServer(payload, bytesToSend = payload.size / 3)
+        val root = File(context.cacheDir, "rust-truncated-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val output = File(root, "downloads").apply { mkdirs() }
+        var runId: String? = null
+        try {
+            val add = RustCoreBridge.queueAdd(
+                store.absolutePath,
+                JSONObject()
+                    .put("source", server.url)
+                    .put("outputDir", output.absolutePath)
+                    .put("fileName", "truncated.bin")
+                    .toString(),
+            )
+            assertTrue("断流测试入队失败: $add", parseOk(add))
+            val taskId = JSONObject(add).getJSONObject("data").getString("id")
+            runId = startQueue(store, retryAttempts = 1)
+            waitForRunTerminal(runId, 30_000)
+            val finalTask = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+            assertEquals("failed", finalTask.optString("state"))
+            assertTrue("断流请求应至少到达服务端 count=${server.requestCount.get()} task=$finalTask", server.requestCount.get() >= 1)
+            assertTrue(finalTask.optString("error").isNotBlank())
+        } finally {
+            runId?.let { forgetRunWhenTerminal(it) }
+            server.close()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun queueMarksInvalidOutputPathFailed() {
+        val root = File(context.cacheDir, "rust-storage-error-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val outputParent = File(root, "downloads").apply { mkdirs() }
+        val outputFile = File(outputParent, "not-a-directory").apply { writeText("occupied") }
+        var runId: String? = null
+        try {
+            val add = RustCoreBridge.queueAdd(
+                store.absolutePath,
+                JSONObject()
+                    .put("source", "http://127.0.0.1:9/storage-error.bin")
+                    .put("outputDir", outputFile.absolutePath)
+                    .put("fileName", "storage-error.bin")
+                    .toString(),
+            )
+            assertTrue("存储异常测试入队失败: $add", parseOk(add))
+            val taskId = JSONObject(add).getJSONObject("data").getString("id")
+            runId = startQueue(store)
+            waitForTaskState(store, taskId, "failed", 15_000)
+            waitForRunTerminal(runId, 15_000)
+            assertTrue(queueTask(RustCoreBridge.queueList(store.absolutePath), taskId).optString("error").isNotBlank())
+        } finally {
+            runId?.let { forgetRunWhenTerminal(it) }
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun queuePauseResumeThroughRustKeepsPartialProgress() {
         val payload = ByteArray(512 * 1024) { index -> (index % 251).toByte() }
         val server = SlowLoopbackHttpServer(payload, chunkSize = 8 * 1024, chunkDelayMs = 25)
@@ -359,13 +467,18 @@ class RustQueueInstrumentationTest {
         )
     }
 
-    private fun startQueue(store: File, concurrency: Int = 1): String {
+    private fun startQueue(
+        store: File,
+        concurrency: Int = 1,
+        threadCount: Int = 1,
+        retryAttempts: Int = 0,
+    ): String {
         val run = RustCoreBridge.queueRunQueued(
             store.absolutePath,
             JSONObject()
                 .put("concurrency", concurrency)
-                .put("threadCount", 1)
-                .put("retryAttempts", 0)
+                .put("threadCount", threadCount)
+                .put("retryAttempts", retryAttempts)
                 .toString(),
         )
         assertTrue("启动 Rust 队列失败: $run", parseOk(run))
@@ -426,6 +539,11 @@ class RustQueueInstrumentationTest {
 
     private fun parseState(envelope: String): String =
         JSONObject(envelope).optJSONObject("data")?.optString("state").orEmpty()
+
+    private fun sha256(bytes: ByteArray): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+        return digest.joinToString("") { byte -> "%02x".format(byte) }
+    }
 
     private fun queueTask(envelope: String, id: String): JSONObject {
         val tasks = JSONObject(envelope).optJSONArray("data") ?: JSONArray()
@@ -545,6 +663,122 @@ class RustQueueInstrumentationTest {
                         offset = end
                         Thread.sleep(chunkDelayMs)
                     }
+                }
+            }
+        }
+
+        override fun close() {
+            server.close()
+            thread.join(2_000)
+        }
+    }
+
+    private class HlsLoopbackHttpServer(
+        segmentCount: Int,
+        segmentSize: Int,
+        private val chunkDelayMs: Long,
+    ) : AutoCloseable {
+        private val server = ServerSocket(0, 8, java.net.InetAddress.getByName("127.0.0.1"))
+        private val thread = Thread(::serve, "fluxdown-android-test-hls-http")
+        private val segments = List(segmentCount) { index ->
+            ByteArray(segmentSize) { offset -> ((index * 17 + offset) % 251).toByte() }
+        }
+        private val playlist = buildString {
+            append("#EXTM3U\n")
+            append("#EXT-X-TARGETDURATION:1\n")
+            append("#EXT-X-VERSION:3\n")
+            append("#EXT-X-MEDIA-SEQUENCE:0\n")
+            segments.indices.forEach { index ->
+                append("#EXTINF:1.0,\nsegment-$index.ts\n")
+            }
+            append("#EXT-X-ENDLIST\n")
+        }.toByteArray(Charsets.US_ASCII)
+        val playlistUrl = "http://127.0.0.1:${server.localPort}/playlist.m3u8"
+
+        init { thread.start() }
+
+        private fun serve() {
+            while (!server.isClosed) {
+                runCatching { server.accept() }.getOrNull()?.let { socket ->
+                    Thread({ respond(socket) }, "fluxdown-android-test-hls-http-client").start()
+                }
+            }
+        }
+
+        private fun respond(socket: Socket) {
+            socket.use { client ->
+                val request = BufferedInputStream(client.getInputStream())
+                val requestLine = readHeaders(request)
+                val path = requestLine.split(' ').getOrNull(1)?.substringBefore('?') ?: "/"
+                val body = when {
+                    path == "/playlist.m3u8" -> playlist
+                    path.startsWith("/segment-") && path.endsWith(".ts") -> {
+                        path.removePrefix("/segment-").removeSuffix(".ts").toIntOrNull()
+                            ?.let { segments.getOrNull(it) }
+                    }
+                    else -> null
+                }
+                if (body == null) {
+                    client.getOutputStream().bufferedWriter().use { writer ->
+                        writer.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                        writer.flush()
+                    }
+                    return
+                }
+                runCatching {
+                    val writer = client.getOutputStream().bufferedWriter()
+                    writer.write("HTTP/1.1 200 OK\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n")
+                    writer.flush()
+                    var offset = 0
+                    while (offset < body.size) {
+                        val end = (offset + 32 * 1024).coerceAtMost(body.size)
+                        client.getOutputStream().write(body, offset, end - offset)
+                        client.getOutputStream().flush()
+                        offset = end
+                        if (chunkDelayMs > 0) Thread.sleep(chunkDelayMs)
+                    }
+                }
+            }
+        }
+
+        override fun close() {
+            server.close()
+            thread.join(2_000)
+        }
+    }
+
+    private class TruncatedLoopbackHttpServer(
+        private val payload: ByteArray,
+        private val bytesToSend: Int,
+    ) : AutoCloseable {
+        private val server = ServerSocket(0, 4, java.net.InetAddress.getByName("127.0.0.1"))
+        private val thread = Thread(::serve, "fluxdown-android-test-truncated-http")
+        val url = "http://127.0.0.1:${server.localPort}/truncated.bin"
+        val requestCount = AtomicInteger(0)
+
+        init { thread.start() }
+
+        private fun serve() {
+            while (!server.isClosed) {
+                runCatching { server.accept() }.getOrNull()?.let { socket ->
+                    Thread({ respond(socket) }, "fluxdown-android-test-truncated-http-client").start()
+                }
+            }
+        }
+
+        private fun respond(socket: Socket) {
+            socket.use { client ->
+                val request = BufferedInputStream(client.getInputStream())
+                readHeaders(request)
+                requestCount.incrementAndGet()
+                runCatching {
+                    val writer = client.getOutputStream().bufferedWriter()
+                    writer.write("HTTP/1.1 200 OK\r\nContent-Length: ${payload.size}\r\nConnection: close\r\n\r\n")
+                    writer.flush()
+                    client.getOutputStream().write(payload, 0, bytesToSend.coerceAtMost(payload.size))
+                    client.getOutputStream().flush()
+                    // 作者: long
+                    // 主动关闭连接，模拟 CDN/网络在响应体未完成时断开；客户端应将其判为失败并按配置重试。
                 }
             }
         }
