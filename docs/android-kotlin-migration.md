@@ -14,7 +14,7 @@
 - Kotlin 任务页新增 1 秒快照轮询，并用互斥门避免刷新请求重叠；运行中任务可以持续显示 Rust 持久化的真实进度、下载速度和完成时间，轮询不会重复启动前台服务。
 - 新增 Android 真机队列回归：暂停/继续保留断点、并发数为 1 时第二任务真实排队、失败重试、416 回退、重置/删除、前台服务中断恢复；当前 instrumentation 共 `15/15` 通过（Redmi Note 8 Pro，serial：`wsvwypiz7xwslvl7`）。本轮仍只生成 `arm64-v8a` 预览包，未切换正式包名或商店签名。
 - 新增 Android 压力与异常回归：`16 MiB` HTTP 文件完整落盘并校验 SHA-256；`48` 段、约 `6 MiB` 的 HLS playlist 使用 4 路分片并发完成；服务端提前断开响应体时任务进入 `failed` 且不伪造完成；输出路径被普通文件占用时任务进入 `failed`。完整 instrumentation 已更新为 `19/19` 通过。
-- 新增前台服务后台回归 `foregroundServiceCompletesWhenActivityMovesToBackground`：Redmi 真机启动 Kotlin 页面和 `DownloadForegroundService` 后按 Home 将 Activity 退到后台，2 MiB 慢速 HTTP 任务仍由 Rust 队列完成，输出字节与源内容一致。该证据覆盖“用户离开页面”，不宣称系统低内存回收或永久后台存活。
+- 新增前台服务后台回归 `foregroundServiceCompletesWhenActivityMovesToBackground`：Redmi 真机启动 Kotlin 页面和 `DownloadForegroundService` 后按 Home 将 Activity 退到后台，16 MiB、约 30 秒的慢速 HTTP 任务仍由 Rust 队列完成，输出字节与源内容一致。该证据覆盖较长时间“用户离开页面”的持续下载，不宣称系统低内存回收或永久后台存活。
 - 新增网络传输中断恢复回归 `queueRecoversAfterMidTransferNetworkInterruptionThroughRust`：Redmi 真机回环 HTTP 首次只返回四分之一响应体后主动断开，Rust 将 `reqwest` 的响应体解码/EOF 异常归类为可重试错误，第二次请求恢复完整文件；任务最终 `finished`、`512 KiB/512 KiB`，服务端收到至少两次请求。该用例覆盖真实传输中断的恢复，不把普通 HTTP 503 冒充网络切换。
 - 修复 Rust HTTP 重试分类：响应体读取阶段的 `is_decode()`、EOF、连接关闭和断管错误现在会进入自动重试；认证、权限、磁盘空间不足和资源不存在等不可恢复错误仍不重试。
 - 新增可选系统级 Wi-Fi 切换回归 `queueRecoversAfterWifiToggleThroughRust`：在 Redmi 真机连接 `192.168.1.8` 局域网的 `64 MiB` Range HTTP 资源，下载产生真实进度后通过 `svc wifi disable/enable` 切断并恢复 Wi-Fi；主机先收到 `200`，恢复后收到 `206` Range 请求，任务最终完整落盘。该用例必须显式传入 `networkFixtureUrl`/`networkFixtureBytes`，普通 connected instrumentation 默认跳过。

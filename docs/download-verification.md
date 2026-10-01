@@ -10,7 +10,7 @@
 | Kotlin → JNI → Rust 回环 HTTP | 通过；`RustQueueInstrumentationTest.queueDownloadsLoopbackHttpThroughRust` 真实启动设备回环 HTTP 服务，任务进入 `finished`，落盘内容和任务字节数与源 payload 一致 | 不依赖公网或隐藏测试页面 |
 | 过期残留文件 + HTTP 416 | 通过；`queueRetriesStalePartialAfterHttp416ThroughRust` 先写入过期残留，服务端对 Range 返回 416，Rust 清理残留后无 Range 重下，任务最终 `finished` 且内容完全匹配 | 覆盖 Android 真机 JNI 队列路径；Rust 另有 Range 分片回退单测 |
 | 局域网 Torrent/Magnet 重复入队 | 通过；真实 Tracker `http://192.168.1.8:18691/announce` + Transmission Seeder 下，`.torrent` 与 Magnet 各重复入队两份，均只选择 `kotlin-p2p-bundle/a-selected.bin`；四个任务全部 `finished`，每项 `65,536/65,536 B`，最终文件 SHA-256 为 `de7129a343e055ff35229d4679eae6a4dc35c6411495afab8a88164d42c0b85c` | 共享输出目录未出现完整未选文件；librqbit 可能留下零字节占位路径，未将其当作下载内容 |
-| Activity 退后台后继续下载 | 通过；`foregroundServiceCompletesWhenActivityMovesToBackground` 启动 Kotlin 页面和前台服务，按 Home 隐藏 Activity 后 2 MiB 慢速 HTTP 任务仍完成，输出内容与源 payload 一致 | 覆盖用户离开页面；不等同于系统低内存回收、网络切换或永久后台存活 |
+| Activity 退后台后继续下载 | 通过；`foregroundServiceCompletesWhenActivityMovesToBackground` 启动 Kotlin 页面和前台服务，按 Home 隐藏 Activity 后 16 MiB、约 30 秒慢速 HTTP 任务仍完成，输出内容与源 payload 一致 | 覆盖较长时间用户离开页面；不等同于系统低内存回收、网络切换或永久后台存活 |
 | 传输中断后自动恢复 | 通过；`queueRecoversAfterMidTransferNetworkInterruptionThroughRust` 首次 HTTP 响应只发送四分之一后断开，第二次请求返回完整内容；任务最终 `finished`、`512 KiB/512 KiB`，服务端请求次数至少为 `2` | 覆盖响应体 EOF/解码异常的真实重试；不等同于切换 Wi-Fi/蜂窝网络的系统级网络开关验收 |
 | 系统级 Wi-Fi 切换后恢复 | 通过；`queueRecoversAfterWifiToggleThroughRust` 使用 `192.168.1.8` 局域网 `64 MiB` Range 资源，Redmi 真机下载中途执行 `svc wifi disable/enable`，主机日志出现先 `200` 后 `206` 的恢复请求，最终 `67,108,864/67,108,864 B` | 仅在显式传入局域网夹具参数时执行；覆盖 Wi-Fi 切换，不等同于蜂窝网络切换或系统低内存回收 |
 | 系统级 ENOSPC | 当前设备未执行破坏性填盘；Redmi 真机 `/data` 仍约有 `102.7 GiB` 可用，非 root 环境没有安全的分区/配额故障注入点 | Rust `ErrorKind::StorageFull` 不重试和“磁盘空间不足”文案已有单测；Android 真机暂以无效路径/权限错误作为邻近回归，不宣称真实 ENOSPC |

@@ -639,7 +639,7 @@ class RustQueueInstrumentationTest {
 
     @Test
     fun foregroundServiceCompletesWhenActivityMovesToBackground() {
-        val payload = ByteArray(2 * 1024 * 1024) { index -> (index * 17 % 251).toByte() }
+        val payload = ByteArray(16 * 1024 * 1024) { index -> (index * 17 % 251).toByte() }
         val server = SlowLoopbackHttpServer(payload, chunkSize = 8 * 1024, chunkDelayMs = 15)
         val root = File(context.cacheDir, "rust-service-background-${UUID.randomUUID()}").apply { mkdirs() }
         val store = File(root, "queue.json")
@@ -690,7 +690,7 @@ class RustQueueInstrumentationTest {
                 .uiAutomation
                 .executeShellCommand("input keyevent KEYCODE_HOME")
                 .close()
-            waitForTaskState(store, taskId, "finished", 45_000)
+            waitForTaskState(store, taskId, "finished", 75_000)
             assertEquals(payload.toList(), file.readBytes().toList())
         } finally {
             if (serviceStarted) {
