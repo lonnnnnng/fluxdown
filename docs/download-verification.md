@@ -10,11 +10,13 @@
 | Kotlin → JNI → Rust 回环 HTTP | 通过；`RustQueueInstrumentationTest.queueDownloadsLoopbackHttpThroughRust` 真实启动设备回环 HTTP 服务，任务进入 `finished`，落盘内容和任务字节数与源 payload 一致 | 不依赖公网或隐藏测试页面 |
 | 过期残留文件 + HTTP 416 | 通过；`queueRetriesStalePartialAfterHttp416ThroughRust` 先写入过期残留，服务端对 Range 返回 416，Rust 清理残留后无 Range 重下，任务最终 `finished` 且内容完全匹配 | 覆盖 Android 真机 JNI 队列路径；Rust 另有 Range 分片回退单测 |
 | 局域网 Torrent/Magnet 重复入队 | 通过；真实 Tracker `http://192.168.1.8:18691/announce` + Transmission Seeder 下，`.torrent` 与 Magnet 各重复入队两份，均只选择 `kotlin-p2p-bundle/a-selected.bin`；四个任务全部 `finished`，每项 `65,536/65,536 B`，最终文件 SHA-256 为 `de7129a343e055ff35229d4679eae6a4dc35c6411495afab8a88164d42c0b85c` | 共享输出目录未出现完整未选文件；librqbit 可能留下零字节占位路径，未将其当作下载内容 |
+| Activity 退后台后继续下载 | 通过；`foregroundServiceCompletesWhenActivityMovesToBackground` 启动 Kotlin 页面和前台服务，按 Home 隐藏 Activity 后 2 MiB 慢速 HTTP 任务仍完成，输出内容与源 payload 一致 | 覆盖用户离开页面；不等同于系统低内存回收、网络切换或永久后台存活 |
+| 系统级 ENOSPC | 当前设备未执行破坏性填盘；Redmi 真机 `/data` 仍约有 `102.7 GiB` 可用，非 root 环境没有安全的分区/配额故障注入点 | Rust `ErrorKind::StorageFull` 不重试和“磁盘空间不足”文案已有单测；Android 真机暂以无效路径/权限错误作为邻近回归，不宣称真实 ENOSPC |
 | Torrent/Magnet 任务名称 | 通过；单文件资源在任务列表显示去扩展名的目录入口，多文件显示 metadata 目录名；点击后在“资源详情”展示完整文件名、格式、大小和逐文件进度 | 未改变 metadata 选择页的完整信息 |
 | 任务时间与速度 | 通过；Kotlin 读取 Rust 的开始/完成时间字段，运行中显示速度，完成态显示完成时间，不再显示已完成任务的下载速度 | 时间显示为设备本地时区的 `MM-dd HH:mm` |
 | 宿主进程强停后恢复 | 通过；`lifecycle-force-stop-1021.bin` 运行中执行 `adb shell am force-stop`，重新启动后 PID 从 `24185` 变为 `25844`，前台服务重新接管 Rust 队列，最终 `finished`、`67,108,864/67,108,864 B`，无重复任务 | 覆盖显式强停后的启动恢复；不宣称系统低内存回收或永久后台存活 |
 
-本轮 Android connected instrumentation 共 `11/11` 通过；仅验证 arm64 预览包，Alpha 4 远端资产回验结果见下文。
+本轮默认 Android connected instrumentation 共 `21` 项，`20` 项通过、局域网参数化 P2P 用例 `1` 项按设计跳过；其中 Activity 退后台前台服务回归已纳入默认套件。仅验证 arm64 预览包，Alpha 4 远端资产回验结果见下文。
 
 另行执行带局域网 fixture 参数的 `RustQueueInstrumentationTest.queueTorrentAndMagnetDuplicateSelectionDoNotCorruptSharedOutput`，结果为 `1/1` 通过；该用例不纳入默认 connected instrumentation，避免基础回归依赖外部 Seeder。
 

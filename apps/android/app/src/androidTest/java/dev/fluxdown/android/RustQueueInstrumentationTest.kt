@@ -529,6 +529,75 @@ class RustQueueInstrumentationTest {
         }
     }
 
+    @Test
+    fun foregroundServiceCompletesWhenActivityMovesToBackground() {
+        val payload = ByteArray(2 * 1024 * 1024) { index -> (index * 17 % 251).toByte() }
+        val server = SlowLoopbackHttpServer(payload, chunkSize = 8 * 1024, chunkDelayMs = 15)
+        val root = File(context.cacheDir, "rust-service-background-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val output = File(root, "downloads").apply { mkdirs() }
+        val file = File(output, "background.bin")
+        val settings = context.getSharedPreferences("fluxdown.kotlin.settings", 0)
+        val previousThreads = settings.getString("threads", null)
+        val previousConcurrency = settings.getString("concurrency", null)
+        val previousRetries = settings.getString("retries", null)
+        var serviceStarted = false
+        try {
+            // 作者: long
+            // 先真实拉起 Kotlin 主页面，再把 Activity 送入后台；下载仍由前台服务持有 Rust 队列句柄。
+            context.startActivity(
+                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            Thread.sleep(500)
+            // 作者: long
+            // 夹具只提供单连接响应；固定线程数后，测试观察的是 Activity 退后台期间服务是否持续工作，
+            // 不把 Range 分片能力混入本用例的失败原因。
+            settings.edit()
+                .putString("threads", "1")
+                .putString("concurrency", "1")
+                .putString("retries", "0")
+                .commit()
+            val add = RustCoreBridge.queueAdd(
+                store.absolutePath,
+                JSONObject()
+                    .put("source", server.url)
+                    .put("outputDir", output.absolutePath)
+                    .put("fileName", file.name)
+                    .toString(),
+            )
+            assertTrue("后台服务测试入队失败: $add", parseOk(add))
+            val taskId = JSONObject(add).getJSONObject("data").getString("id")
+            val serviceIntent = Intent(context, DownloadForegroundService::class.java).apply {
+                action = DownloadForegroundService.ACTION_START
+                putExtra(DownloadForegroundService.EXTRA_STORE_PATH, store.absolutePath)
+            }
+            ContextCompat.startForegroundService(context, serviceIntent)
+            serviceStarted = true
+            waitForTaskState(store, taskId, "running", 10_000)
+            waitForDownloadedBytes(store, taskId, 0L, 10_000)
+
+            // 作者: long
+            // 这里模拟用户按 Home 离开应用；不是 force-stop，服务和 Rust runner 应继续完成当前任务。
+            InstrumentationRegistry.getInstrumentation()
+                .uiAutomation
+                .executeShellCommand("input keyevent KEYCODE_HOME")
+                .close()
+            waitForTaskState(store, taskId, "finished", 45_000)
+            assertEquals(payload.toList(), file.readBytes().toList())
+        } finally {
+            if (serviceStarted) {
+                context.stopService(Intent(context, DownloadForegroundService::class.java))
+            }
+            settings.edit().apply {
+                if (previousThreads == null) remove("threads") else putString("threads", previousThreads)
+                if (previousConcurrency == null) remove("concurrency") else putString("concurrency", previousConcurrency)
+                if (previousRetries == null) remove("retries") else putString("retries", previousRetries)
+            }.commit()
+            server.close()
+            root.deleteRecursively()
+        }
+    }
+
     private fun runQueueTask(
         url: String,
         payload: ByteArray,
