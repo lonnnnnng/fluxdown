@@ -1,5 +1,20 @@
 # 下载验证状态
 
+## 2026-10-01 Kotlin Alpha 4 队列与列表回归
+
+设备：Redmi Note 8 Pro，adb serial `wsvwypiz7xwslvl7`；应用包名
+`dev.fluxdown.mobile.kotlin`，源码版本 `1.0.28-kotlin-alpha.4`。
+
+| 用例 | 结果 | 证据边界 |
+| --- | --- | --- |
+| Kotlin → JNI → Rust 回环 HTTP | 通过；`RustQueueInstrumentationTest.queueDownloadsLoopbackHttpThroughRust` 真实启动设备回环 HTTP 服务，任务进入 `finished`，落盘内容和任务字节数与源 payload 一致 | 不依赖公网或隐藏测试页面 |
+| 过期残留文件 + HTTP 416 | 通过；`queueRetriesStalePartialAfterHttp416ThroughRust` 先写入过期残留，服务端对 Range 返回 416，Rust 清理残留后无 Range 重下，任务最终 `finished` 且内容完全匹配 | 覆盖 Android 真机 JNI 队列路径；Rust 另有 Range 分片回退单测 |
+| Torrent/Magnet 任务名称 | 通过；单文件资源在任务列表显示去扩展名的目录入口，多文件显示 metadata 目录名；点击后在“资源详情”展示完整文件名、格式、大小和逐文件进度 | 未改变 metadata 选择页的完整信息 |
+| 任务时间与速度 | 通过；Kotlin 读取 Rust 的开始/完成时间字段，运行中显示速度，完成态显示完成时间，不再显示已完成任务的下载速度 | 时间显示为设备本地时区的 `MM-dd HH:mm` |
+| 宿主进程强停后恢复 | 通过；`lifecycle-force-stop-1021.bin` 运行中执行 `adb shell am force-stop`，重新启动后 PID 从 `24185` 变为 `25844`，前台服务重新接管 Rust 队列，最终 `finished`、`67,108,864/67,108,864 B`，无重复任务 | 覆盖显式强停后的启动恢复；不宣称系统低内存回收或永久后台存活 |
+
+本轮 Android connected instrumentation 共 `10/10` 通过；仅验证 arm64 预览包，Release 资产仍需按发布后的远端 URL 回验。
+
 ## 2026-09-30 Android Kotlin arm64 协议缺口复验（工作树）
 
 设备：Redmi Note 8 Pro，adb serial `wsvwypiz7xwslvl7`；应用包名

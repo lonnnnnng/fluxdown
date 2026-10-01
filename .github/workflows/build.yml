@@ -197,6 +197,7 @@ jobs:
 
   android:
     name: Android app
+    if: ${{ inputs.run_mode != 'mobile-release' }}
     needs: preflight
     runs-on: ubuntu-latest
     steps:
@@ -314,6 +315,46 @@ jobs:
         with:
           name: fluxdown-android-release-aab
           path: apps/mobile/build/app/outputs/bundle/release/app-release.aab
+
+  android_kotlin:
+    name: Android Kotlin app
+    if: ${{ inputs.run_mode == 'mobile-release' }}
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK and NDK
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Build Kotlin arm64 release APK
+        shell: bash
+        run: |
+          export ANDROID_NDK_LATEST_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          npm run mobile:kotlin:release
+      - name: Verify Kotlin APK
+        run: node scripts/verify-artifacts.mjs file apps/android/app/build/outputs/apk/release/app-release.apk
+      - name: Upload Kotlin Android release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxdown-kotlin-android-release-apk
+          path: apps/android/app/build/outputs/apk/release/app-release.apk
 
   ios:
     name: iOS app
@@ -541,7 +582,7 @@ jobs:
     if: ${{ inputs.run_mode == 'mobile-release' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     needs:
-      - android
+      - android_kotlin
     permissions:
       actions: read
       contents: write
@@ -552,12 +593,18 @@ jobs:
           node-version: 22
       - uses: actions/download-artifact@v4
         with:
-          name: fluxdown-android-release-apk
+          name: fluxdown-kotlin-android-release-apk
           path: dist/mobile-release
       - name: Verify tag and prepare arm64 APK
         shell: bash
         run: |
-          version="$(node -p "require('./package.json').version")"
+          # 作者: long
+          # Kotlin Alpha 使用独立版本线，不能读取桌面/Flutter 共用的根 package.json 版本。
+          version="$(sed -nE 's/.*versionName = "([^"]+)".*/\1/p' apps/android/app/build.gradle.kts | head -n 1)"
+          if [ -z "$version" ]; then
+            echo "Kotlin Android versionName is missing."
+            exit 1
+          fi
           if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
             echo "Tag $GITHUB_REF_NAME does not match package version $version."
             exit 1

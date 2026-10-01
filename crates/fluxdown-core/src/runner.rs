@@ -3,13 +3,14 @@ use crate::{
     DownloadProgress, DownloadState, DownloadTask, Protocol, TaskStore, TaskStoreError,
     sanitize_download_file_name,
 };
-use futures_util::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc};
+use tokio::task::JoinSet;
 
 const STALE_RUNNING_TASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
@@ -112,67 +113,96 @@ impl QueueRunner {
         self.store
             .recover_stale_running(STALE_RUNNING_TASK_TIMEOUT)
             .await?;
-        let tasks = self.store.list().await?;
-        // 作者: long
-        // 并发下载数约束的是全局正在执行的任务数量，已经运行的任务必须先占用槽位，新任务才会老实排队。
-        let running = tasks
-            .iter()
-            .filter(|task| task.state == DownloadState::Running)
-            .count();
-        let queued = tasks
-            .into_iter()
-            .filter(|task| task.state == DownloadState::Queued)
-            .collect::<Vec<_>>();
-        let total_queued = queued.len();
-        let available_slots = concurrency.saturating_sub(running);
-
-        if available_slots == 0 {
-            return Ok(QueueRunReport {
-                total_queued,
-                started: 0,
-                finished: 0,
-                handed_off: 0,
-                failed: 0,
-                tasks: Vec::new(),
-            });
-        }
-
         let write_lock = Arc::new(Mutex::new(()));
-        let results = stream::iter(queued)
-            .map(|task| {
-                let store = self.store.clone();
-                let engine = self.engine.clone();
-                let write_lock = Arc::clone(&write_lock);
-                let task_options = options.clone();
-                async move {
-                    run_one_with_retry(store, engine, task, write_lock, task_options)
-                        .await
-                        .map(|report| report.task)
-                }
-            })
-            .buffer_unordered(available_slots)
-            .collect::<Vec<_>>()
-            .await;
-
-        let mut tasks = Vec::with_capacity(results.len());
+        let mut join_set: JoinSet<(String, Result<DownloadTask, QueueRunnerError>)> =
+            JoinSet::new();
+        let mut active_ids = HashSet::new();
+        let mut seen_queued_ids = HashSet::new();
+        let mut total_queued = 0;
+        let mut tasks = Vec::new();
+        let mut started = 0;
         let mut finished = 0;
         let mut handed_off = 0;
         let mut failed = 0;
 
-        for result in results {
-            let task = result?;
-            match task.state {
-                DownloadState::Finished => finished += 1,
-                DownloadState::HandedOff => handed_off += 1,
-                DownloadState::Failed => failed += 1,
-                _ => {}
+        // 作者: long
+        // 队列运行句柄持续观察 store，而不是只消费启动瞬间的 queued 快照。
+        // 这样任务 A 运行期间加入的任务 B 可以及时填充空闲槽位，不会无故停留在排队中。
+        let mut poll_interval = tokio::time::interval(Duration::from_millis(250));
+        loop {
+            let snapshot = self.store.list().await?;
+            let external_running = snapshot
+                .iter()
+                .filter(|task| {
+                    task.state == DownloadState::Running && !active_ids.contains(&task.id)
+                })
+                .count();
+            let queued = snapshot
+                .into_iter()
+                .filter(|task| {
+                    task.state == DownloadState::Queued && !active_ids.contains(&task.id)
+                })
+                .collect::<Vec<_>>();
+            let queued_count = queued.len();
+
+            for task in &queued {
+                if seen_queued_ids.insert(task.id.clone()) {
+                    total_queued += 1;
+                }
             }
-            tasks.push(task);
+
+            let available_slots =
+                concurrency.saturating_sub(external_running.saturating_add(active_ids.len()));
+            for task in queued.into_iter().take(available_slots) {
+                let task_id = task.id.clone();
+                active_ids.insert(task_id.clone());
+                started += 1;
+                let store = self.store.clone();
+                let engine = self.engine.clone();
+                let write_lock = Arc::clone(&write_lock);
+                let task_options = options.clone();
+                join_set.spawn(async move {
+                    let result = run_one_with_retry(store, engine, task, write_lock, task_options)
+                        .await
+                        .map(|report| report.task);
+                    (task_id, result)
+                });
+            }
+
+            if join_set.is_empty() {
+                if queued_count == 0 || (available_slots == 0 && external_running > 0) {
+                    break;
+                }
+                // 其他运行句柄可能暂时占满槽位，等它释放槽位后再尝试填充本队列。
+                poll_interval.tick().await;
+                continue;
+            }
+
+            tokio::select! {
+                result = join_set.join_next() => {
+                    let Some(result) = result else { continue };
+                    let (task_id, task_result) = result.map_err(|error| {
+                        QueueRunnerError::Store(TaskStoreError::Io(std::io::Error::other(
+                            format!("queue task join failed: {error}"),
+                        )))
+                    })?;
+                    active_ids.remove(&task_id);
+                    let task = task_result?;
+                    match task.state {
+                        DownloadState::Finished => finished += 1,
+                        DownloadState::HandedOff => handed_off += 1,
+                        DownloadState::Failed => failed += 1,
+                        _ => {}
+                    }
+                    tasks.push(task);
+                }
+                _ = poll_interval.tick() => {}
+            }
         }
 
         Ok(QueueRunReport {
             total_queued,
-            started: tasks.len(),
+            started,
             finished,
             handed_off,
             failed,
@@ -417,7 +447,9 @@ async fn run_one(
                 preserve_newer_task_state = true;
             } else {
                 task.set_state(DownloadState::Paused);
-                if let Some(size) = partial_file_size(&task).await {
+                if !matches!(task.protocol, Protocol::Torrent | Protocol::Magnet)
+                    && let Some(size) = partial_file_size(&task).await
+                {
                     task.set_progress(size, task.total_bytes);
                 }
             }
@@ -730,6 +762,82 @@ mod tests {
                 .iter()
                 .all(|task| task.state == DownloadState::Finished)
         );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_queue_starts_task_added_while_another_task_is_running() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let mut request = [0; 1024];
+                    let _ = stream.read(&mut request).await;
+                    let payload = vec![b'd'; 64 * 1024];
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        payload.len()
+                    );
+                    stream.write_all(response.as_bytes()).await.unwrap();
+                    stream.write_all(&payload[..4096]).await.unwrap();
+                    tokio::time::sleep(Duration::from_millis(800)).await;
+                    let _ = stream.write_all(&payload[4096..]).await;
+                });
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = TaskStore::new(temp_dir.path().join("queue.json"));
+        let first = store
+            .enqueue(DownloadRequest::new(
+                format!("http://{address}/first.bin"),
+                temp_dir.path(),
+            ))
+            .await
+            .unwrap();
+        let runner = QueueRunner::new(store.clone());
+        let run = tokio::spawn(async move {
+            runner
+                .run_queued_with_options(
+                    2,
+                    QueueRunnerOptions {
+                        download: DownloadOptions::new(1, None),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap()
+        });
+        for _ in 0..50 {
+            if store.get(&first.id).await.unwrap().state == DownloadState::Running {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let second = store
+            .enqueue(DownloadRequest::new(
+                format!("http://{address}/second.bin"),
+                temp_dir.path(),
+            ))
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_millis(700), async {
+            loop {
+                if store.get(&second.id).await.unwrap().state == DownloadState::Running {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("new task should fill the spare concurrency slot");
+        let report = run.await.unwrap();
+        assert_eq!(report.started, 2);
+        assert_eq!(report.finished, 2);
         server.await.unwrap();
     }
 

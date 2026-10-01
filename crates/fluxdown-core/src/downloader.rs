@@ -5,7 +5,9 @@ use crate::{
 };
 use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
 use futures_util::{StreamExt, stream};
-use librqbit::{AddTorrent, AddTorrentOptions, Session, SessionOptions, limits::LimitsConfig};
+use librqbit::{
+    AddTorrent, AddTorrentOptions, Session, SessionOptions, TorrentStatsState, limits::LimitsConfig,
+};
 use m3u8_rs::{Key, KeyMethod};
 use percent_encoding::percent_decode_str;
 use reqwest::Client;
@@ -817,7 +819,7 @@ impl DownloadEngine {
             .map(|name| sanitize_download_file_name(&name, "download.bin"))
             .unwrap_or_else(|| infer_file_name(&url, "download.bin"));
         let output_path = request.output_dir.join(file_name);
-        let existing_bytes = existing_file_size(&output_path).await?;
+        let mut existing_bytes = existing_file_size(&output_path).await?;
         let credentials = url_credentials(&mut url)?;
         let limiter = DownloadSpeedLimiter::new(options.speed_limit_bps);
 
@@ -840,32 +842,58 @@ impl DownloadEngine {
             return Ok(summary);
         }
 
-        let mut builder = client.get(url);
-        if let Some((username, password)) = credentials {
-            builder = builder.basic_auth(username, password);
+        let mut builder = client.get(url.clone());
+        if let Some((username, password)) = credentials.as_ref() {
+            builder = builder.basic_auth(username, password.as_ref());
         }
         if existing_bytes > 0 {
             builder = builder.header(RANGE, format!("bytes={existing_bytes}-"));
         }
 
-        let response = builder.send().await?;
-        if existing_bytes > 0
-            && response.status() == StatusCode::RANGE_NOT_SATISFIABLE
-            && unsatisfied_range_total(response.headers().get(CONTENT_RANGE))
-                == Some(existing_bytes)
-        {
-            emit_progress(&progress, existing_bytes, Some(existing_bytes));
-            return Ok(DownloadSummary {
-                protocol,
-                backend: Backend::BuiltIn,
-                display_name: display_name_from_path(&output_path),
-                output_path,
-                bytes_written: existing_bytes,
-                resumed_from: existing_bytes,
-                total_bytes: Some(existing_bytes),
-                segments_written: None,
-                sha256: None,
-            });
+        let mut response = builder.send().await?;
+        if existing_bytes > 0 && response.status() == StatusCode::RANGE_NOT_SATISFIABLE {
+            let range_total = unsatisfied_range_total(response.headers().get(CONTENT_RANGE));
+            // 作者: long
+            // 部分服务器对已完整下载文件只回 416，却省略 Content-Range。
+            // 只有响应头或额外 HEAD 明确证明远端长度等于本地长度，才能确认完成，避免把截断文件误判成功。
+            let remote_total = if range_total.is_some() {
+                range_total
+            } else {
+                let mut head = client.head(url.clone());
+                if let Some((username, password)) = credentials.as_ref() {
+                    head = head.basic_auth(username, password.as_ref());
+                }
+                head.send()
+                    .await
+                    .ok()
+                    .filter(|response| response.status().is_success())
+                    .and_then(|response| response.content_length())
+            };
+            if remote_total == Some(existing_bytes) {
+                emit_progress(&progress, existing_bytes, Some(existing_bytes));
+                return Ok(DownloadSummary {
+                    protocol,
+                    backend: Backend::BuiltIn,
+                    display_name: display_name_from_path(&output_path),
+                    output_path,
+                    bytes_written: existing_bytes,
+                    resumed_from: existing_bytes,
+                    total_bytes: Some(existing_bytes),
+                    segments_written: None,
+                    sha256: None,
+                });
+            }
+
+            // 作者: long
+            // 本地残留文件比远端新版本更大，或服务端已经不接受这个断点时，继续携带旧 Range
+            // 只会反复得到 416。清理残留文件并重新发起无 Range 请求，确保用户点击重试可以恢复。
+            let _ = fs::remove_file(&output_path).await;
+            existing_bytes = 0;
+            let mut restart = client.get(url.clone());
+            if let Some((username, password)) = credentials.as_ref() {
+                restart = restart.basic_auth(username, password.as_ref());
+            }
+            response = restart.send().await?;
         }
         let response = response.error_for_status()?;
         let status = response.status();
@@ -994,7 +1022,16 @@ impl DownloadEngine {
                     if let Some((username, password)) = credentials {
                         request = request.basic_auth(username, password);
                     }
-                    let response = request.send().await?.error_for_status()?;
+                    let response = request.send().await?;
+                    if response.status() == StatusCode::RANGE_NOT_SATISFIABLE {
+                        // 作者: long
+                        // 部分 CDN/网关虽然 HEAD 声明支持 Range，但实际分片请求可能返回 416；
+                        // 这不代表资源不可下载，交由外层清理预分配文件后回退单连接下载。
+                        return Err(DownloadError::HttpRange(format!(
+                            "server rejected byte range {start}-{end} with HTTP 416"
+                        )));
+                    }
+                    let response = response.error_for_status()?;
                     if response.status() != StatusCode::PARTIAL_CONTENT {
                         return Err(DownloadError::HttpRange(format!(
                             "expected 206 for bytes {start}-{end}, got {}",
@@ -1035,6 +1072,22 @@ impl DownloadEngine {
             .buffer_unordered(thread_count)
             .collect::<Vec<_>>()
             .await;
+
+        let range_rejected = results.iter().any(|item| {
+            matches!(
+                item,
+                Err(DownloadError::HttpRange(message)) if message.contains("HTTP 416")
+            )
+        });
+        let only_range_rejections = results.iter().all(|item| match item {
+            Ok(()) => true,
+            Err(DownloadError::HttpRange(message)) => message.contains("HTTP 416"),
+            Err(_) => false,
+        });
+        if range_rejected && only_range_rejections {
+            let _ = fs::remove_file(&temp_output_path).await;
+            return Ok(None);
+        }
 
         for result in results {
             if let Err(error) = result {
@@ -1255,6 +1308,7 @@ impl DownloadEngine {
             &initial_stats.file_progress,
             initial_stats.progress_bytes,
             initial_stats.total_bytes,
+            matches!(initial_stats.state, TorrentStatsState::Initializing),
         );
         emit_progress(&progress, initial_progress, Some(initial_total));
         // 作者: long
@@ -1318,6 +1372,7 @@ impl DownloadEngine {
                         &stats.file_progress,
                         stats.progress_bytes,
                         stats.total_bytes,
+                        matches!(stats.state, TorrentStatsState::Initializing),
                     );
                     emit_progress(&progress, progress_bytes, Some(total_bytes));
                     if progress_bytes > last_progress_bytes {
@@ -1350,6 +1405,7 @@ impl DownloadEngine {
             &final_stats.file_progress,
             final_stats.progress_bytes,
             final_stats.total_bytes,
+            matches!(final_stats.state, TorrentStatsState::Initializing),
         );
         emit_progress(&progress, final_progress, Some(final_total));
         let details_result = handle.with_metadata(|metadata| {
@@ -2405,12 +2461,16 @@ fn torrent_progress_for_request(
     file_progress: &[u64],
     aggregate_progress: u64,
     aggregate_total: u64,
+    initializing: bool,
 ) -> (u64, u64) {
     // 作者: long
     // librqbit 的总进度包含整个 metadata；用户只确认部分文件时，任务卡和队列状态必须
     // 使用同一组选中文件的大小与已写入字节，否则未选择文件会把任务显示成“43/43”一类的假完成。
     if request.torrent_file_indices.is_empty() || request.torrent_files.is_empty() {
-        return (aggregate_progress, aggregate_total);
+        return (
+            if initializing { 0 } else { aggregate_progress },
+            aggregate_total,
+        );
     }
 
     let selected = request
@@ -2425,10 +2485,15 @@ fn torrent_progress_for_request(
         .map(|file| file.size)
         .sum::<u64>();
     if selected_total == 0 {
-        return (aggregate_progress, aggregate_total);
+        return (
+            if initializing { 0 } else { aggregate_progress },
+            aggregate_total,
+        );
     }
 
-    let selected_progress = if file_progress.is_empty() {
+    let selected_progress = if initializing {
+        0
+    } else if file_progress.is_empty() {
         aggregate_progress.min(selected_total)
     } else {
         request
@@ -3948,7 +4013,7 @@ mod tests {
             },
         ];
 
-        let (downloaded, total) = torrent_progress_for_request(&request, &[21, 22], 43, 43);
+        let (downloaded, total) = torrent_progress_for_request(&request, &[21, 22], 43, 43, false);
         assert_eq!((downloaded, total), (22, 22));
     }
 
@@ -3956,8 +4021,17 @@ mod tests {
     fn torrent_progress_preserves_whole_resource_without_selection() {
         let request = DownloadRequest::new("magnet:?xt=urn:btih:test", "/tmp");
         assert_eq!(
-            torrent_progress_for_request(&request, &[21, 22], 43, 43),
+            torrent_progress_for_request(&request, &[21, 22], 43, 43, false),
             (43, 43)
+        );
+    }
+
+    #[test]
+    fn torrent_initializing_progress_never_counts_piece_checking_as_downloaded() {
+        let request = DownloadRequest::new("magnet:?xt=urn:btih:test", "/tmp");
+        assert_eq!(
+            torrent_progress_for_request(&request, &[], 43, 43, true),
+            (0, 43)
         );
     }
 
@@ -5139,6 +5213,173 @@ fn main() {{
         );
         assert!(!temp_dir.path().join("master.ts").exists());
         server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn http_range_416_falls_back_to_single_connection_download() {
+        let payload = Arc::new(
+            (0..(128 * 1024))
+                .map(|index| (index % 191) as u8)
+                .collect::<Vec<_>>(),
+        );
+        let rejected = Arc::new(AtomicUsize::new(0));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/payload.bin", listener.local_addr().unwrap());
+        let server_payload = Arc::clone(&payload);
+        let server_rejected = Arc::clone(&rejected);
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let payload = Arc::clone(&server_payload);
+                let rejected = Arc::clone(&server_rejected);
+                tokio::spawn(async move {
+                    let mut buffer = [0; 2048];
+                    let Ok(read) = stream.read(&mut buffer).await else {
+                        return;
+                    };
+                    let request = String::from_utf8_lossy(&buffer[..read]);
+                    let method = request
+                        .lines()
+                        .next()
+                        .and_then(|line| line.split_whitespace().next())
+                        .unwrap_or("GET");
+                    if method == "HEAD" {
+                        let header = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                            payload.len()
+                        );
+                        let _ = stream.write_all(header.as_bytes()).await;
+                        return;
+                    }
+
+                    if let Some((start, end)) = requested_range(&request) {
+                        if rejected.fetch_add(1, AtomicOrdering::SeqCst) == 0 {
+                            let _ = stream
+                                .write_all(
+                                    b"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                                )
+                                .await;
+                            return;
+                        }
+                        let body = payload[start..=end].to_vec();
+                        let header = format!(
+                            "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {start}-{end}/{}\r\nConnection: close\r\n\r\n",
+                            body.len(),
+                            payload.len()
+                        );
+                        let _ = stream.write_all(header.as_bytes()).await;
+                        let _ = stream.write_all(&body).await;
+                        return;
+                    }
+
+                    let header = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        payload.len()
+                    );
+                    let _ = stream.write_all(header.as_bytes()).await;
+                    let _ = stream.write_all(&payload).await;
+                });
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let summary = DownloadEngine::new()
+            .download_with_options(
+                DownloadRequest::new(source, temp_dir.path()),
+                DownloadOptions::new(4, None),
+            )
+            .await
+            .unwrap();
+        assert_eq!(summary.bytes_written, payload.len() as u64);
+        assert_eq!(
+            fs::read(temp_dir.path().join("payload.bin")).await.unwrap(),
+            payload.as_slice()
+        );
+        assert!(rejected.load(AtomicOrdering::SeqCst) >= 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn http_resume_416_discards_stale_partial_and_restarts() {
+        let payload = b"fresh remote payload".to_vec();
+        let range_hits = Arc::new(AtomicUsize::new(0));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/payload.bin", listener.local_addr().unwrap());
+        let server_payload = payload.clone();
+        let server_range_hits = Arc::clone(&range_hits);
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let payload = server_payload.clone();
+                let range_hits = Arc::clone(&server_range_hits);
+                tokio::spawn(async move {
+                    let mut buffer = [0; 2048];
+                    let Ok(read) = stream.read(&mut buffer).await else {
+                        return;
+                    };
+                    let request = String::from_utf8_lossy(&buffer[..read]);
+                    let method = request
+                        .lines()
+                        .next()
+                        .and_then(|line| line.split_whitespace().next())
+                        .unwrap_or("GET");
+                    if method == "HEAD" {
+                        let header = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                            payload.len()
+                        );
+                        let _ = stream.write_all(header.as_bytes()).await;
+                        return;
+                    }
+
+                    if request.lines().any(|line| {
+                        line.split_once(':')
+                            .is_some_and(|(name, _)| name.eq_ignore_ascii_case("range"))
+                    }) {
+                        range_hits.fetch_add(1, AtomicOrdering::SeqCst);
+                        let header = format!(
+                            "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                            payload.len()
+                        );
+                        let _ = stream.write_all(header.as_bytes()).await;
+                        return;
+                    }
+
+                    let header = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        payload.len()
+                    );
+                    let _ = stream.write_all(header.as_bytes()).await;
+                    let _ = stream.write_all(&payload).await;
+                });
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("payload.bin"),
+            [payload.as_slice(), b"stale tail"].concat(),
+        )
+        .await
+        .unwrap();
+        let mut request = DownloadRequest::new(source, temp_dir.path());
+        request.file_name = Some("payload.bin".to_string());
+        let summary = DownloadEngine::new()
+            .download_with_options(request, DownloadOptions::new(1, None))
+            .await
+            .unwrap();
+
+        assert_eq!(summary.bytes_written, payload.len() as u64);
+        assert_eq!(
+            fs::read(temp_dir.path().join("payload.bin")).await.unwrap(),
+            payload
+        );
+        assert_eq!(range_hits.load(AtomicOrdering::SeqCst), 1);
+        server.abort();
     }
 
     #[tokio::test]

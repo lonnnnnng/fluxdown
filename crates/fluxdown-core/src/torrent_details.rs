@@ -107,6 +107,14 @@ fn runtime_details(task_id: &str) -> Option<TorrentDetails> {
         guard.get(task_id)?.clone()
     };
     let stats = handle.stats();
+    // 作者: long
+    // librqbit 初始化阶段的 progress_bytes 表示校验已有 piece 的扫描进度，不是已写入文件的字节数；
+    // 详情页必须等进入 Live/Paused 后再展示真实下载进度，避免 metadata 刚解析就显示满进度。
+    let progress_bytes = if matches!(stats.state, librqbit::TorrentStatsState::Initializing) {
+        0
+    } else {
+        stats.progress_bytes
+    };
     let mut trackers = handle
         .shared()
         .trackers
@@ -153,7 +161,7 @@ fn runtime_details(task_id: &str) -> Option<TorrentDetails> {
         .live
         .as_ref()
         .map(|live| live.download_speed.mbps * 1024.0 * 1024.0);
-    let eta_seconds = match (metadata_total, stats.progress_bytes, download_speed_bps) {
+    let eta_seconds = match (metadata_total, progress_bytes, download_speed_bps) {
         (total, progress, Some(speed)) if total > progress && speed > 0.0 && total > 0 => {
             Some(((total - progress) as f64 / speed).ceil() as u64)
         }
@@ -171,7 +179,7 @@ fn runtime_details(task_id: &str) -> Option<TorrentDetails> {
         } else {
             stats.total_bytes
         }),
-        progress_bytes: Some(stats.progress_bytes),
+        progress_bytes: Some(progress_bytes),
         uploaded_bytes: Some(stats.uploaded_bytes),
         download_speed_bps,
         upload_speed_bps: stats

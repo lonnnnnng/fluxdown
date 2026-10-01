@@ -1,0 +1,5 @@
+# 复制为 apps/android/key.properties 后填写真实值；不要提交真实文件或 keystore。
+storePassword=change-me
+keyPassword=change-me
+keyAlias=fluxdown
+storeFile=/absolute/path/to/fluxdown-release.jks

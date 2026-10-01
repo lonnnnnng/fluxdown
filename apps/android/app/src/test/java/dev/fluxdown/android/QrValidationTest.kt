@@ -6,6 +6,22 @@ import org.junit.Test
 
 class QrValidationTest {
     @Test
+    fun torrentSingleFileUsesDirectoryEntryLabel() {
+        assertEquals(
+            "episode-01",
+            torrentResourceDirectoryLabel("episode-01.mkv", listOf("episode-01.mkv")),
+        )
+    }
+
+    @Test
+    fun torrentMultiFileKeepsMetadataDirectoryName() {
+        assertEquals(
+            "bundle",
+            torrentResourceDirectoryLabel("bundle", listOf("a.bin", "b.bin")),
+        )
+    }
+
+    @Test
     fun acceptsRawValueWhenRustDetectsProtocol() {
         val result = firstValidatedQrDownloadSource(listOf("https://example.test/file.bin" to null)) { "https" }
 

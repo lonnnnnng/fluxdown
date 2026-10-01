@@ -155,20 +155,19 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import java.net.URLConnection
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 
-// 作者: long
-// Activity 重建不会重复恢复队列；只有新进程第一次创建 ViewModel 时，才把旧进程遗留的 running 任务重新排队。
-private val PROCESS_RECOVERY_HANDLED = AtomicBoolean(false)
-private const val KOTLIN_APP_VERSION = "1.0.28-kotlin-alpha.3"
+private const val KOTLIN_APP_VERSION = "1.0.28-kotlin-alpha.4"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -192,6 +191,8 @@ private data class QueueTask(
     val downloadedBytes: Long,
     val totalBytes: Long?,
     val speedBytesPerSecond: Long,
+    val startedAtMs: Long?,
+    val finishedAtMs: Long?,
     val error: String?,
     val outputDir: String,
     val torrentName: String?,
@@ -209,14 +210,27 @@ private data class QueueTask(
 
     val displayName: String
         get() = when {
-            isTorrentResource -> torrentName?.takeIf { it.isNotBlank() } ?: "Torrent 资源"
+            isTorrentResource -> torrentResourceDirectoryLabel(torrentName, torrentFiles.map { it.name })
             hlsRemuxedToMp4 && name.endsWith(".ts", ignoreCase = true) -> name.dropLast(3) + ".mp4"
             else -> name
         }
 
     val progress: Float
-        get() = if (totalBytes == null || totalBytes <= 0) 0f
+        get() = if (state == "finished") 1f
+        else if (totalBytes == null || totalBytes <= 0) 0f
         else (downloadedBytes.toDouble() / totalBytes).coerceIn(0.0, 1.0).toFloat()
+}
+
+internal fun torrentResourceDirectoryLabel(name: String?, fileNames: List<String>): String {
+    val metadataName = name?.trim().orEmpty()
+    if (metadataName.isEmpty()) return "Torrent 资源"
+    // 作者: long
+    // 单文件种子的 metadata 名通常就是文件名；列表展示资源入口时去掉文件扩展名，
+    // 文件全名、格式和大小仍在详情中，避免目录入口看起来像单个 MP4/MKV 文件。
+    if (fileNames.size == 1 && metadataName.equals(fileNames[0], ignoreCase = true)) {
+        return metadataName.substringBeforeLast('.', metadataName).ifBlank { metadataName }
+    }
+    return metadataName
 }
 
 private data class TorrentFileSelection(
@@ -246,7 +260,7 @@ private data class KotlinSettings(
     val sftpKnownHostsPath: String = "",
 )
 
-private data class StoredAndroidCredential(
+internal data class StoredAndroidCredential(
     val username: String,
     val password: String = "",
     val privateKeyPem: String? = null,
@@ -312,7 +326,7 @@ private data class NativeUiState(
  * Android 端凭据只保存引用名到普通偏好，用户名、密码和私钥使用 Keystore 中的 AES 密钥加密。
  * 这样任务 JSON、日志和 Rust 队列快照都不会携带认证材料；运行队列时才短暂解密到内存。
  */
-private class AndroidCredentialVault(
+internal class AndroidCredentialVault(
     private val context: Context,
 ) {
     private val prefs = context.getSharedPreferences("fluxdown.kotlin.credentials", Context.MODE_PRIVATE)
@@ -425,7 +439,6 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
     private val knownHostsRoot = File(context.filesDir, "fluxdown/security").apply { mkdirs() }
     private val safCopyInFlight = ConcurrentHashMap.newKeySet<String>()
     private val hlsRemuxInFlight = ConcurrentHashMap.newKeySet<String>()
-    private val activeRunId = AtomicReference<String?>(null)
     private val _state = MutableStateFlow(
         NativeUiState(
             settings = KotlinSettings(
@@ -442,39 +455,8 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
     val state: StateFlow<NativeUiState> = _state.asStateFlow()
 
     init {
-        recoverInterruptedThenRefresh()
+        refresh()
         refreshStorageStats()
-    }
-
-    private fun recoverInterruptedThenRefresh() {
-        if (!PROCESS_RECOVERY_HANDLED.compareAndSet(false, true)) {
-            refresh()
-            return
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            val recovery = RustCoreBridge.queueRecoverInterrupted(storePath)
-            val recoveryError = parseError(recovery)
-            val taskIds = parseRecoveredTaskIds(recovery)
-            var resumed = 0
-            if (recoveryError == null) {
-                taskIds.forEach { taskId ->
-                    if (parseError(RustCoreBridge.queueResume(storePath, taskId)) == null) {
-                        resumed += 1
-                    }
-                }
-            }
-            refreshOnce()
-            if (recoveryError != null) {
-                withContext(Dispatchers.Main) {
-                    _state.value = _state.value.copy(notice = recoveryError)
-                }
-            } else if (resumed > 0) {
-                withContext(Dispatchers.Main) {
-                    _state.value = _state.value.copy(notice = "已恢复 $resumed 个中断任务")
-                }
-            }
-            ensureQueueRunning()
-        }
     }
 
     fun selectTab(tab: HomeTab) {
@@ -1279,90 +1261,16 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
     }
 
     /**
-     * 启动 Rust 的队列调度器并持续轮询，确保 Kotlin 新建任务是真下载而不是只写入列表。
+     * 只唤起前台服务，不在 Activity 生命周期中持有 Rust runner。
      * 作者: long
+     * 这样 UI 进程重建、切到后台或被系统回收时，下载执行仍由可恢复的服务负责。
      */
     private suspend fun ensureQueueRunning() {
-        if (activeRunId.get() != null) return
         val snapshot = parseTasks(RustCoreBridge.queueList(storePath))
         if (snapshot.none { it.state == "queued" || it.state == "running" }) return
-
-        val options = JSONObject()
-            .put("concurrency", _state.value.settings.concurrency.toIntOrNull()?.coerceIn(1, 30) ?: 5)
-            .put("threadCount", _state.value.settings.threads.toIntOrNull()?.coerceIn(1, 32) ?: 16)
-            .put("retryAttempts", _state.value.settings.retries.toIntOrNull()?.coerceIn(0, 10) ?: 3)
-        _state.value.settings.sftpKnownHostsPath
-            .trim()
-            .takeIf { it.isNotEmpty() && File(it).isFile }
-            ?.let { options.put("sftpKnownHosts", it) }
-        _state.value.settings.speedLimit.toDoubleOrNull()
-            ?.takeIf { it > 0.0 }
-            ?.let { options.put("speedLimitKbps", it * 1024.0) }
-        val runtimeCredentials = JSONObject()
-        snapshot.filter { it.state == "queued" || it.state == "running" }.forEach { task ->
-            val reference = task.credentialRef?.trim().orEmpty()
-            if (reference.isEmpty()) return@forEach
-            credentialVault.get(reference)?.let { credential ->
-                val value = JSONObject().put("username", credential.username)
-                if (credential.usesPrivateKey) {
-                    value.put("authType", "privateKey")
-                    value.put("privateKeyPem", credential.privateKeyPem)
-                    credential.passphrase?.let { value.put("passphrase", it) }
-                } else {
-                    value.put("password", credential.password)
-                }
-                runtimeCredentials.put(task.id, value)
-            }
-        }
-        if (runtimeCredentials.length() > 0) options.put("runtimeCredentials", runtimeCredentials)
-
-        val start = RustCoreBridge.queueRunQueued(storePath, options.toString())
-        val runId = parseDataString(start, "runId")
-        if (runId == null) {
-            withContext(Dispatchers.Main) {
-                _state.value = _state.value.copy(notice = parseError(start) ?: "Rust 队列启动失败")
-            }
-            return
-        }
-        if (!activeRunId.compareAndSet(null, runId)) return
         startForegroundMonitor(DownloadForegroundService.ACTION_START)
         withContext(Dispatchers.Main) {
-            _state.value = _state.value.copy(notice = "Rust 下载队列已启动")
-        }
-
-        try {
-            while (activeRunId.get() == runId) {
-                refreshOnce()
-                val status = RustCoreBridge.queueRunStatus(runId)
-                when (parseDataString(status, "state")) {
-                    "failed" -> {
-                        val error = parseDataString(status, "error") ?: parseError(status) ?: "Rust 下载失败"
-                        withContext(Dispatchers.Main) {
-                            _state.value = _state.value.copy(notice = error)
-                        }
-                        activeRunId.compareAndSet(runId, null)
-                        RustCoreBridge.queueRunForget(runId)
-                        stopForegroundMonitor()
-                        refreshOnce()
-                        if (parseTasks(RustCoreBridge.queueList(storePath)).any { it.state == "queued" }) {
-                            ensureQueueRunning()
-                        }
-                    }
-                    "finished" -> {
-                        activeRunId.compareAndSet(runId, null)
-                        RustCoreBridge.queueRunForget(runId)
-                        stopForegroundMonitor()
-                        refreshOnce()
-                        if (parseTasks(RustCoreBridge.queueList(storePath)).any { it.state == "queued" }) {
-                            ensureQueueRunning()
-                        }
-                    }
-                }
-                if (activeRunId.get() != runId) break
-                delay(700)
-            }
-        } finally {
-            activeRunId.compareAndSet(runId, null)
+            _state.value = _state.value.copy(notice = "Rust 下载队列已交给后台服务")
         }
     }
 
@@ -1377,10 +1285,6 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
             putExtra(DownloadForegroundService.EXTRA_STORE_PATH, storePath)
         }
         runCatching { ContextCompat.startForegroundService(context, intent) }
-    }
-
-    private fun stopForegroundMonitor() {
-        runCatching { context.stopService(Intent(context, DownloadForegroundService::class.java)) }
     }
 
     private fun isTreeUri(path: String): Boolean = path.trim().startsWith("content://")
@@ -1498,6 +1402,9 @@ private fun FluxDownApp(model: NativeViewModel) {
     }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         model.clearNotificationPermissionRequest()
+        // 作者: long
+        // Android 首次授权通知后，之前被系统暂缓的前台服务不会自动重试；刷新会重新检查队列并唤起 runner。
+        model.refresh()
     }
     val outputDirectoryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let(model::selectOutputDirectory)
@@ -1912,10 +1819,19 @@ private fun TaskRow(task: QueueTask, model: NativeViewModel) {
                             color = Color(0xFF687782),
                         )
                         Spacer(Modifier.weight(1f))
-                        if (task.state in setOf("running", "queued", "paused") && task.speedBytesPerSecond > 0) {
-                            Text("${formatBytes(task.speedBytesPerSecond)}/s", fontSize = 10.sp, color = Color(0xFF687782))
+                        if (task.state == "running") {
+                            Text(
+                                "速度 ${formatBytes(task.speedBytesPerSecond)}/s",
+                                fontSize = 10.sp,
+                                color = Color(0xFF687782),
+                            )
                         } else if (task.state == "finished") {
-                            Text("已完成", fontSize = 10.sp, color = tint)
+                            Text(
+                                task.finishedAtMs?.let { "完成 ${formatTaskTime(it)}" } ?: "已完成",
+                                fontSize = 10.sp,
+                                color = tint,
+                                maxLines = 1,
+                            )
                         } else if (task.state == "failed") {
                             Text("下载失败", fontSize = 10.sp, color = tint)
                         }
@@ -2985,6 +2901,8 @@ private fun parseTasks(envelope: String): List<QueueTask> = runCatching {
                     downloadedBytes = displayDownloaded,
                     totalBytes = displayTotal,
                     speedBytesPerSecond = task.optLong("current_speed_bytes_per_second", 0L),
+                    startedAtMs = task.optNullableLong("started_at_ms", "startedAtMs"),
+                    finishedAtMs = task.optNullableLong("finished_at_ms", "finishedAtMs"),
                     error = task.optString("error").ifBlank { null },
                     outputDir = rawOutputDir,
                     torrentName = task.optString("torrent_name").ifBlank { null },
@@ -3020,6 +2938,15 @@ private fun parseTorrentFiles(filesJson: JSONArray?): List<TorrentFileSelection>
     }
 }
 
+private fun JSONObject.optNullableLong(vararg keys: String): Long? {
+    for (key in keys) {
+        if (!isNull(key) && has(key)) {
+            optLong(key, 0L).takeIf { it > 0L }?.let { return it }
+        }
+    }
+    return null
+}
+
 private fun parseTorrentIndices(indices: JSONArray?): Set<Int> {
     if (indices == null) return emptySet()
     return buildSet {
@@ -3033,18 +2960,6 @@ private fun parseError(envelope: String): String? = runCatching {
     val root = JSONObject(envelope)
     if (root.optBoolean("ok", false)) null else root.optString("error").ifBlank { "Rust 核心返回未知错误" }
 }.getOrNull()
-
-private fun parseRecoveredTaskIds(envelope: String): List<String> = runCatching {
-    val root = JSONObject(envelope)
-    if (!root.optBoolean("ok", false)) return@runCatching emptyList()
-    val data = root.optJSONObject("data") ?: return@runCatching emptyList()
-    val ids = data.optJSONArray("taskIds") ?: return@runCatching emptyList()
-    buildList {
-        for (index in 0 until ids.length()) {
-            ids.optString(index).trim().takeIf { it.isNotEmpty() }?.let(::add)
-        }
-    }
-}.getOrDefault(emptyList())
 
 internal fun firstValidatedQrDownloadSource(
     candidates: Iterable<Pair<String?, String?>>,
@@ -3145,6 +3060,10 @@ private fun formatBytes(value: Long): String = when {
     value >= 1024L -> "%.1f KB".format(value / 1024.0)
     else -> "$value B"
 }
+
+private fun formatTaskTime(value: Long): String = runCatching {
+    SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(value))
+}.getOrDefault("--")
 
 private fun formatOutputLocation(context: Context, value: String): String {
     if (!value.startsWith("content://")) return value.ifBlank { "应用私有下载目录" }

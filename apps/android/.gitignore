@@ -3,3 +3,4 @@
 /app/build/
 /app/src/main/jniLibs/**/*.so
 /local.properties
+key.properties

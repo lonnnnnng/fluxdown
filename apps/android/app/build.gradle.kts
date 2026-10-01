@@ -1,8 +1,25 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// 作者: long
+// Kotlin 预览包和 Flutter 正式包共用同一套本地签名约定；没有密钥时仍允许构建测试包，
+// 但不会把 debug 证书误标成正式分发签名。真实 key.properties 由 .gitignore 排除。
+val signingProperties = Properties()
+val signingPropertiesFile = rootProject.file("key.properties")
+if (signingPropertiesFile.isFile) {
+    signingPropertiesFile.inputStream().use { signingProperties.load(it) }
+}
+val hasReleaseKeystore = listOf(
+    "storeFile",
+    "storePassword",
+    "keyAlias",
+    "keyPassword",
+).all { signingProperties[it]?.toString()?.isNotBlank() == true }
 
 android {
     namespace = "dev.fluxdown.android"
@@ -13,13 +30,24 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = 2031
-        versionName = "1.0.28-kotlin-alpha.3"
+        versionName = "1.0.28-kotlin-alpha.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
             // 作者: long
             // Kotlin 迁移预览先锁定 arm64，避免在验证阶段重新引入旧架构的 native 体积。
             abiFilters += "arm64-v8a"
+        }
+    }
+
+    signingConfigs {
+        create("release") {
+            if (hasReleaseKeystore) {
+                keyAlias = signingProperties["keyAlias"] as String
+                keyPassword = signingProperties["keyPassword"] as String
+                storeFile = file(signingProperties["storeFile"] as String)
+                storePassword = signingProperties["storePassword"] as String
+            }
         }
     }
 
@@ -31,6 +59,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

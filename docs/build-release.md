@@ -9,7 +9,7 @@
 - Rust workspace `Cargo.toml`
 - Flutter `apps/mobile/pubspec.yaml`
 
-当前源码版本号为 `1.0.28-alpha.1`，本次为只发布移动端的 Alpha 版本，见 [发行说明](releases/1.0.28-alpha.1.md)；桌面稳定版仍为 `1.0.27`。发布标签使用 `v<version>`，GitHub Release 作业会校验标签版本和 `package.json` 版本一致。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
+当前稳定源码版本线为 `1.0.28-alpha.1`；Kotlin Android 预览版本线为 `1.0.28-kotlin-alpha.4`，见 [Kotlin Alpha 4 发行说明](releases/1.0.28-kotlin-alpha.4.md)。桌面稳定版仍为 `1.0.27`。稳定版发布标签使用 `v<version>` 并校验 `package.json`；移动端 Kotlin Alpha 标签由 `apps/android/app/build.gradle.kts` 的 `versionName` 校验。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
 
 ## 本地依赖
 
@@ -154,6 +154,12 @@ flutter build appbundle --release --split-debug-info=build/symbols/android
 3. 确认真实 `key.properties` 和 keystore 不进入版本控制。
 
 如果 `key.properties` 不存在，release 构建会回退到 debug signing，适合安装测试和打包检查，不适合商店发布。
+
+Kotlin Android 预览工程同样支持 `apps/android/key.properties`，模板为
+`apps/android/key.properties.example`。字段与 Flutter 工程一致；未配置时
+`npm run mobile:kotlin:release` 仍可生成 arm64 测试包，但 `apksigner` 证书会是 debug
+证书，不得作为正式商店包发布。正式切换前还需要确认签名证书与现有
+`dev.fluxdown.mobile` 包名、升级签名和迁移策略一致。
 
 CI 签名 secrets：
 
@@ -386,10 +392,11 @@ Release manifest 记录平台、产物类型、大小和 SHA-256。目录型产�
 
 - `rust`：Linux、Windows、macOS 上测试 core/CLI 并构建 CLI。
 - `desktop`：Linux、Windows、macOS 上构建 Tauri GUI 并上传平台产物。
-- `android`：分析、测试、构建 debug APK、release APK 和 AAB。
+- `android`：在 `package`/全平台 `release` 模式下分析、测试、构建 Flutter debug APK、release APK 和 AAB。
+- `android_kotlin`：在 `mobile-release` 模式下构建 `apps/android` 的 Kotlin arm64-v8a Release APK；不运行 Flutter Android 构建。
 - `ios`：构建 iOS simulator、unsigned device；签名 secrets 齐全时构建 IPA。
 - `release`：手动运行在 `v*` 标签 ref 上，并选择 `run_mode=release` 时，整理公开白名单文件、校验大小/哈希，再发布全平台 GitHub Release。内部产物不会因为已经构建就自动公开。
-- `mobile-release`：手动运行在 `v*` 标签 ref 上，并选择 `run_mode=mobile-release` 时，只运行 Android job，发布带 `arm64-v8a` 标识的移动端 APK，并标记为 Alpha pre-release；不会重建或上传桌面/CLI/iOS 资产。
+- `mobile-release`：手动运行在 `v*` 标签 ref 上，并选择 `run_mode=mobile-release` 时，只运行 Kotlin Android job，发布带 `arm64-v8a` 标识的 `dev.fluxdown.mobile.kotlin` APK，并标记为 Alpha pre-release；不会运行 Flutter Android，也不会重建或上传桌面/CLI/iOS 资产。
 
 流水线只在明确需要打包或发版时，通过 GitHub Actions 页面手动触发 `workflow_dispatch` 运行。普通代码提交推送到 `main` 只同步代码，不触发打包流水线；推送 `v*` 标签也只同步标签，不自动触发流水线。手动触发时必须选择 `run_mode`：需要打包时选择 `package`，需要全平台发版时选择 `release`，只发布移动端 Alpha 时选择 `mobile-release`，并切换到对应 `v*` 标签 ref。选择正式发版模式但 ref 不是 `v*` 标签时，预检会立刻失败，避免误跑不可追溯的公开资产。Actions 页面里事件为 `push` 的记录是旧版配置留下的历史执行记录，当前配置不会因普通 push 继续新增。
 
@@ -408,6 +415,7 @@ Release manifest 记录平台、产物类型、大小和 SHA-256。目录型产�
 | `fluxdown-android-debug-apk` | Android debug APK。 |
 | `fluxdown-android-release-apk` | Android release APK。 |
 | `fluxdown-android-release-aab` | Android App Bundle。 |
+| `fluxdown-kotlin-android-release-apk` | Kotlin Android arm64-v8a Alpha APK，仅在 `mobile-release` 模式生成。 |
 | `fluxdown-ios-simulator` | iPhone simulator app bundle。 |
 | `fluxdown-ios-device-unsigned` | unsigned iPhone device app bundle。 |
 | `fluxdown-ffi-ios-static` | iPhone arm64 Rust 静态库，独立构建证据，不是 App 安装包。 |
@@ -421,7 +429,7 @@ Release manifest 记录平台、产物类型、大小和 SHA-256。目录型产�
 4. 提交代码并推送到 `main`。这一步只同步代码，不触发 GitHub Actions 打包流水线。
 5. 创建并推送与新版本一致的 `v<version>` 标签；先确认标签不存在，不重写已发布标签。
 6. 全平台稳定版在 GitHub Actions 页面选择 `run_mode=release`；只发布移动端 Alpha 时选择 `run_mode=mobile-release`。两者都必须选择刚推送的 `v*` 标签 ref。
-7. 从 Release 下载回验全部 10 个公开文件的大小/SHA-256、版本/包名，检查页面含源码包共 12 项；不要把只检查 CI 工作目录写成远端资产验证通过。
+7. 从 Release 下载回验稳定版公开文件，或对移动端 Alpha 回验唯一的 Kotlin arm64-v8a APK 的大小、版本和包名；不要把只检查 CI 工作目录写成远端资产验证通过。
 
 ## 常见问题
 
