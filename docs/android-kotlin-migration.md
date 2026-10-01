@@ -1,6 +1,6 @@
 # Android Kotlin 重写进度
 
-核对日期：2026-10-01。当前源码版本：`1.0.28-kotlin-alpha.4`。
+核对日期：2026-10-01。当前源码版本：`1.0.28-kotlin-alpha.5`。
 
 ## 2026-10-01 队列闭环增量（Kotlin Alpha，未发布）
 
@@ -82,13 +82,18 @@ Android Kotlin 重写采用并行迁移，不立即替换现有 Flutter 包：
 - 2026-09-30 返回退出提示真机回归：安装本轮 arm64 debug APK 后，在任务首页按系统返回键显示“退出 FluxDown”确认框；点击取消后仍停留在任务页，未触发 Activity 退出或崩溃。确认文案明确说明已入队任务继续由后台服务运行。
 - 2026-10-01 构建与启动复验：`cargo fmt --all -- --check`、`cargo test --locked -p fluxdown-core -p fluxdown-ffi`（core 116、FFI 14）和 `apps/mobile/android/gradlew -p apps/android :app:compileDebugKotlin --no-daemon` 均通过；随后 `:app:connectedDebugAndroidTest` 在同一 Redmi 真机 10/10 通过。
 - 2026-10-01 Kotlin 异常网络 instrumentation：新增 `queueRetriesTransientHttpFailureThroughRust`，设备回环 HTTP 前两次返回 `503`、第三次返回 `200`，Kotlin 设置的 `retryAttempts=2` 透传到 Rust runner，任务真实进入 `finished` 且输出字节完全匹配；同一 Redmi 真机 connected instrumentation 更新为 `11/11`。
+- 2026-10-01 HLS 分片实时指标：Rust 队列快照新增可选 `hls_segments_written`/`hls_segments_total`，HLS 并发下载在每个分片完成或命中缓存后持久化真实 `n/m`；Kotlin 任务卡在下载中、完成和失败状态显示“分片 n/m”，同时继续显示字节进度和实时速度。旧队列缺少字段时按未知处理，不把字节数伪装成分片数。
+- 2026-10-01 HLS 分片真机验收：按 `scripts/build-kotlin-android.sh` 重建 arm64 Debug APK（`57 MB`，SHA-256 `1e2b41d47cc1c79e3e8a594582ea3c488230ee0beeafcc7a040407d46868d039`）并安装到 Redmi Note 8 Pro `wsvwypiz7xwslvl7`；`queueStreamsLongHlsPlaylistThroughRust` 真实跑完 48 段、每段 128 KiB 的本机回环资源，队列快照断言 `hls_segments_written=48`、`hls_segments_total=48`，输出字节完整。connected instrumentation 共 25 项结束、2 项按环境跳过、0 失败，应用启动无 `FATAL EXCEPTION`。
+- 2026-10-01 公网 HLS 真机验收：通过显式参数运行 `queueDownloadsConfiguredPublicHlsThroughRust`，资源为 `https://hd.kuktxu.com/play/dwpklmMe/index.m3u8`；Redmi 真机上的 Kotlin → JNI → Rust 队列最终为 `finished`，断言输出文件非空、分片总数大于 0 且 `hls_segments_written == hls_segments_total`。该用例默认跳过，避免基础套件依赖公网站点。
+- 2026-10-01 Kotlin Release 构建检查：`npm run mobile:kotlin:release` 通过，R8 与资源收缩生效，产物 `app-release.apk` 为 `24 MB`、仅包含 `lib/arm64-v8a/libfluxdown_android.so`，此前 Alpha 4 构建版本为 `1.0.28-kotlin-alpha.4`。因 `apps/android/key.properties` 尚不存在，签名仍为 `Android Debug`（仅能用于预览安装），正式证书和升级兼容仍未宣称完成。
+- 2026-10-01 Alpha 5 本地产物：版本 `1.0.28-kotlin-alpha.5`、versionCode `2032`，APK `25,465,282` bytes，SHA-256 `0073dddc222565d42a37c62c7de654536adf11db805ac1484e6b9ee61669abd9`；`apkanalyzer` 确认包名 `dev.fluxdown.mobile.kotlin` 且只包含 `arm64-v8a`，`apksigner` v2 校验通过。安装到 Redmi 真机后启动到 `MainActivity`，无 `FATAL EXCEPTION`。
 - 2026-09-30 HLS 输入护栏回归：Rust 对空媒体 playlist（包括只有初始化段、没有实际媒体分片的情况）直接返回 `InvalidM3u8`，新增核心单测通过，避免生成 0 字节“成功”任务。
 - 2026-09-29 HLS master variant 真机回归：本机 HTTP fixture 提供 320x180/64 kbps 与 1280x720/256 kbps 两个 variant，Redmi 真机通过 `adb reverse tcp:8765 tcp:8765` 在新建任务弹框点击“读取 HLS 清晰度”，界面正确显示 `#0`、`#1` 两项；JNI 加载成功，logcat 无 `FATAL EXCEPTION`。同时修正 ML Kit 回调从分析线程写 Compose 状态的问题，识别结果与错误提示统一切回主线程。
 
 ## 本轮设置迁移验证
 
 - Kotlin 编译：`apps/mobile/android/gradlew -p apps/android :app:compileDebugKotlin --no-daemon` 通过。
-- Rust 回归：`cargo test -p fluxdown-core -p fluxdown-ffi` 通过（core 112、FFI 14）；新增 HLS 缓存来源/损坏校验、较大 HLS 流式合并、Torrent 选中文件进度统计、空 HLS playlist 护栏和 FFI 私钥凭据解析测试，并确认序列化结果不包含私钥正文。
+- Rust 回归：`cargo test --locked -p fluxdown-core -p fluxdown-ffi` 通过（core 116、FFI 14）；新增 HLS 缓存来源/损坏校验、较大 HLS 流式合并、HLS 分片指标、Torrent 选中文件进度统计、空 HLS playlist 护栏和 FFI 私钥凭据解析测试，并确认序列化结果不包含私钥正文。
 - 2026-09-29 Redmi 真机凭据保存回归：首次测试发现旧 Keystore 别名可能无法解析，且 AES/GCM 不允许调用方指定 IV；修复为失效别名幂等删除、由 Keystore 自动生成 IV 并随密文保存后，使用引用 `credtest`、用户名 `testuser`、密码 `testpass` 保存成功，设置页显示引用。强制停止并重新启动应用后引用仍然显示，证明加密偏好和引用列表可持久化；日志无 `FATAL EXCEPTION`。
 - 2026-09-29 Redmi 真机新建任务凭据选择回归：新建任务弹框中的“凭据引用（可选）”可展开菜单，显示“不使用凭据”和已保存的 `credtest`，选择菜单项不会创建任务或崩溃。
 - 2026-09-30 Redmi 真机密码凭据下载与失效重试回归：在 Android Keystore 保存引用 `auth-basic`（用户名 `flux`），新建 HTTP 任务选择该引用，通过 `adb reverse tcp:8770 tcp:8770` 访问 Basic Auth 夹具，任务真实完成并显示 `auth.txt`、`28 B/28 B`、`已完成`。随后在设置页删除该引用，再从已完成任务的长按菜单点击“重新下载”；任务先进入“排队中”，随后真实失败并显示“下载凭据不可用，请检查系统凭据库中的引用和权限。”，没有假完成，证明完成任务重新下载入口和凭据失效错误路径均生效。
@@ -98,7 +103,7 @@ Android Kotlin 重写采用并行迁移，不立即替换现有 Flutter 包：
 ## 剩余能力缺口
 
 - 凭据设置的真实设备闭环已覆盖添加、加密保存、重启回显、新建任务引用选择、带密码 HTTP 下载、SFTP 私钥/`known_hosts` 命中与拒绝，以及删除凭据后重新下载的失败提示；二维码扫描代码已接入 CameraX + ML Kit，实体二维码 instrumentation 和手持相机实拍回填均已通过。
-- HLS 逐文件实时指标、系统级 ENOSPC、长期后台异常网络仍待补；真实局域网 Torrent/Magnet 多文件重复下载压力已完成。当前物理 Redmi 分区仍有约 `102.7 GiB` 可用，非 root 环境不能安全制造真实 ENOSPC；Rust 已有 `ErrorKind::StorageFull` 不重试和中文错误单测，Android 真机只保留无效路径/权限等邻近回归，不把它们冒充磁盘已满。
+- HLS 逐文件指标不适用于单一 HLS 资源，当前已补齐逐分片实时指标；系统级 ENOSPC、长期后台异常网络仍待补。真实局域网 Torrent/Magnet 多文件重复下载压力已完成。当前物理 Redmi 分区仍有约 `102.7 GiB` 可用，非 root 环境不能安全制造真实 ENOSPC；Rust 已有 `ErrorKind::StorageFull` 不重试和中文错误单测，Android 真机只保留无效路径/权限等邻近回归，不把它们冒充磁盘已满。
 - 后台恢复已覆盖 Activity 退后台、force-stop 后断点续传和前台服务保活，系统返回退出提示已在真机通过；仍需覆盖系统低内存回收、网络切换和更长时长后台场景。
 - 正式商店签名升级和正式包名切换仍未完成；本次 Alpha 使用本机专用预览签名，仅用于迁移预览和真机安装。
 
@@ -112,7 +117,7 @@ npm run mobile:kotlin:release
 脚本会先构建 `libfluxdown_android.so`，再调用 `apps/mobile/android/gradlew -p apps/android`。构建输出位于
 `apps/android/app/build/outputs/apk/`，不与现有 Flutter APK 混用。
 
-本轮补充证据：上一轮 `npm run mobile:kotlin:debug` 构建并安装到 Redmi `wsvwypiz7xwslvl7` 成功，`lib/arm64-v8a/libfluxdown_android.so` 已包含 HLS variant JNI 导出；上一轮 arm64 Debug APK 为 `60,210,314` bytes，SHA-256 为 `7eb744e42702ee22fe4c514e180c8515f62bdbf08fb76af1bb2655a969c339db`，包名 `dev.fluxdown.mobile.kotlin`、版本 `1.0.28-kotlin-alpha.3`，启动进程和 `MainActivity` 均已回验。本次 Alpha 4 会重新构建 release APK 并以远端 Release 资产为准；当前没有 `apps/android/key.properties`，因此仍使用 Android Debug 证书，不等同于正式商店签名。
+本轮补充证据：上一轮 `npm run mobile:kotlin:debug` 构建并安装到 Redmi `wsvwypiz7xwslvl7` 成功，`lib/arm64-v8a/libfluxdown_android.so` 已包含 HLS variant JNI 导出；上一轮 arm64 Debug APK 为 `60,210,314` bytes，SHA-256 为 `7eb744e42702ee22fe4c514e180c8515f62bdbf08fb76af1bb2655a969c339db`，包名 `dev.fluxdown.mobile.kotlin`、版本 `1.0.28-kotlin-alpha.3`，启动进程和 `MainActivity` 均已回验。本次 Alpha 5 会重新构建 release APK 并以远端 Release 资产为准；当前没有 `apps/android/key.properties`，因此仍使用 Android Debug 证书，不等同于正式商店签名。
 
 Kotlin Release 签名准备：`apps/android/app/build.gradle.kts` 现在支持 `apps/android/key.properties`，字段与 Flutter Android 工程一致（`storeFile`、`storePassword`、`keyAlias`、`keyPassword`），模板见 `apps/android/key.properties.example`。未配置真实密钥时 Release 明确回退到 debug 签名，仅用于安装测试；配置密钥后才会使用 release signing config。当前仍未配置正式证书，也未切换正式 `applicationId`。
 

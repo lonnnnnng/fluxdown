@@ -9,7 +9,7 @@
 - Rust workspace `Cargo.toml`
 - Flutter `apps/mobile/pubspec.yaml`
 
-当前稳定源码版本线为 `1.0.28-alpha.1`；Kotlin Android 预览版本线为 `1.0.28-kotlin-alpha.4`，见 [Kotlin Alpha 4 发行说明](releases/1.0.28-kotlin-alpha.4.md)。桌面稳定版仍为 `1.0.27`。稳定版发布标签使用 `v<version>` 并校验 `package.json`；移动端 Kotlin Alpha 标签由 `apps/android/app/build.gradle.kts` 的 `versionName` 校验。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
+当前稳定源码版本线为 `1.0.28-alpha.1`；Kotlin Android 预览版本线为 `1.0.28-kotlin-alpha.5`，见 [Kotlin Alpha 5 发行说明](releases/1.0.28-kotlin-alpha.5.md)。桌面稳定版仍为 `1.0.27`。稳定版发布标签使用 `v<version>` 并校验 `package.json`；移动端 Kotlin Alpha 标签由 `apps/android/app/build.gradle.kts` 的 `versionName` 校验。`v1.0.15` 因 Linux CLI 回归失败未发布，保留原标签；后续发版使用新版本号，不覆盖已有标签。
 
 ## 本地依赖
 

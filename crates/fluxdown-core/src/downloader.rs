@@ -24,7 +24,7 @@ use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     mpsc,
 };
 use std::thread::{self, JoinHandle};
@@ -511,6 +511,11 @@ fn ensure_transfer_complete(
 pub struct DownloadProgress {
     pub downloaded_bytes: u64,
     pub total_bytes: Option<u64>,
+    /// HLS 分片级进度；非 HLS 任务保持 None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hls_segments_written: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hls_segments_total: Option<usize>,
 }
 
 pub type ProgressCallback = Arc<dyn Fn(DownloadProgress) + Send + Sync>;
@@ -541,6 +546,8 @@ pub struct DownloadSummary {
     pub resumed_from: u64,
     pub total_bytes: Option<u64>,
     pub segments_written: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segments_total: Option<usize>,
     pub sha256: Option<String>,
 }
 
@@ -891,6 +898,7 @@ impl DownloadEngine {
                     resumed_from: existing_bytes,
                     total_bytes: Some(existing_bytes),
                     segments_written: None,
+                    segments_total: None,
                     sha256: None,
                 });
             }
@@ -948,6 +956,7 @@ impl DownloadEngine {
             resumed_from,
             total_bytes,
             segments_written: None,
+            segments_total: None,
             sha256: None,
         })
     }
@@ -1119,6 +1128,7 @@ impl DownloadEngine {
             resumed_from: 0,
             total_bytes: Some(total_bytes),
             segments_written: None,
+            segments_total: None,
             sha256: None,
         }))
     }
@@ -1267,6 +1277,7 @@ impl DownloadEngine {
             resumed_from: existing_bytes,
             total_bytes,
             segments_written: None,
+            segments_total: None,
             sha256: None,
         })
     }
@@ -1461,6 +1472,7 @@ impl DownloadEngine {
             resumed_from: 0,
             total_bytes: Some(final_total),
             segments_written: None,
+            segments_total: None,
             sha256: None,
         })
     }
@@ -1651,14 +1663,15 @@ impl DownloadEngine {
         let mut output = File::create(&temp_ts_path).await?;
         let mut bytes_written = init_bytes.len() as u64;
         let mut segments_written = 0;
+        let segment_count = segment_specs.len();
         if !init_bytes.is_empty() {
             output.write_all(&init_bytes).await?;
         }
         drop(init_bytes);
-        emit_progress(&progress, bytes_written, None);
+        emit_progress_with_hls(&progress, bytes_written, None, Some(0), Some(segment_count));
 
         let downloaded = Arc::new(AtomicU64::new(bytes_written));
-        let segment_count = segment_specs.len();
+        let segments_completed = Arc::new(AtomicUsize::new(0));
         let segment_results = stream::iter(segment_specs)
             .map(|segment| {
                 let engine = self.clone();
@@ -1666,6 +1679,7 @@ impl DownloadEngine {
                 let cancel = cancel.clone();
                 let progress = progress.clone();
                 let downloaded = Arc::clone(&downloaded);
+                let segments_completed = Arc::clone(&segments_completed);
                 let limiter = limiter.clone();
                 let segment_cache_path = hls_segment_cache_file(&segment_cache_dir, segment.index);
                 let segment_cache_dir = segment_cache_dir.clone();
@@ -1687,7 +1701,14 @@ impl DownloadEngine {
                     {
                         let total =
                             downloaded.fetch_add(cached_length, Ordering::SeqCst) + cached_length;
-                        emit_progress(&progress, total, None);
+                        let completed = segments_completed.fetch_add(1, Ordering::SeqCst) + 1;
+                        emit_progress_with_hls(
+                            &progress,
+                            total,
+                            None,
+                            Some(completed),
+                            Some(segment_count),
+                        );
                         return Ok((segment.index, cached_length));
                     }
                     let bytes = engine
@@ -1730,7 +1751,14 @@ impl DownloadEngine {
                     }
                     let total = downloaded.fetch_add(segment_bytes.len() as u64, Ordering::SeqCst)
                         + segment_bytes.len() as u64;
-                    emit_progress(&progress, total, None);
+                    let completed = segments_completed.fetch_add(1, Ordering::SeqCst) + 1;
+                    emit_progress_with_hls(
+                        &progress,
+                        total,
+                        None,
+                        Some(completed),
+                        Some(segment_count),
+                    );
                     Ok((segment.index, segment_bytes.len() as u64))
                 }
             })
@@ -1819,6 +1847,7 @@ impl DownloadEngine {
             resumed_from: 0,
             total_bytes: Some(output_bytes),
             segments_written: Some(segments_written),
+            segments_total: Some(segment_count),
             sha256: None,
         })
     }
@@ -2077,6 +2106,7 @@ impl DownloadEngine {
             resumed_from: 0,
             total_bytes: None,
             segments_written: None,
+            segments_total: None,
             sha256: None,
         })
     }
@@ -2129,6 +2159,7 @@ impl DownloadEngine {
             resumed_from: 0,
             total_bytes,
             segments_written: None,
+            segments_total: None,
             sha256: None,
         })
     }
@@ -2543,10 +2574,22 @@ fn emit_progress(
     downloaded_bytes: u64,
     total_bytes: Option<u64>,
 ) {
+    emit_progress_with_hls(progress, downloaded_bytes, total_bytes, None, None);
+}
+
+fn emit_progress_with_hls(
+    progress: &Option<ProgressCallback>,
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+    hls_segments_written: Option<usize>,
+    hls_segments_total: Option<usize>,
+) {
     if let Some(callback) = progress {
         callback(DownloadProgress {
             downloaded_bytes,
             total_bytes,
+            hls_segments_written,
+            hls_segments_total,
         });
     }
 }
@@ -3273,6 +3316,7 @@ fn download_sftp_blocking(
         resumed_from: existing_bytes,
         total_bytes,
         segments_written: None,
+        segments_total: None,
         sha256: None,
     };
     drop(sftp);
@@ -3732,6 +3776,7 @@ async fn run_ed2k_cli(
         resumed_from: 0,
         total_bytes: None,
         segments_written: None,
+        segments_total: None,
         sha256: None,
     })
 }
@@ -5477,6 +5522,7 @@ fn main() {{
         }
         let output_path = temp_dir.path().join("large-playlist.ts");
         assert_eq!(summary.segments_written, Some(SEGMENT_COUNT));
+        assert_eq!(summary.segments_total, Some(SEGMENT_COUNT));
         assert_eq!(summary.bytes_written, expected.len() as u64);
         assert_eq!(fs::read(&output_path).await.unwrap(), expected);
         // 作者: long

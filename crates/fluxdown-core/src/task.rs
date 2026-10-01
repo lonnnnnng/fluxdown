@@ -113,6 +113,11 @@ pub struct DownloadTask {
     pub downloaded_bytes: u64,
     #[serde(default)]
     pub current_speed_bytes_per_second: u64,
+    /// HLS 分片进度；普通协议和旧任务保持 None，避免把字节进度误称为分片进度。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hls_segments_written: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hls_segments_total: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed_limit_mbps: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -172,6 +177,8 @@ impl DownloadTask {
             total_bytes: None,
             downloaded_bytes: 0,
             current_speed_bytes_per_second: 0,
+            hls_segments_written: None,
+            hls_segments_total: None,
             error: None,
             created_at_ms: millis,
             updated_at_ms: millis,
@@ -255,6 +262,8 @@ impl DownloadTask {
         self.downloaded_bytes = 0;
         self.total_bytes = None;
         self.current_speed_bytes_per_second = 0;
+        self.hls_segments_written = None;
+        self.hls_segments_total = None;
         self.handoff_backend = Some(backend);
     }
 
@@ -274,6 +283,23 @@ impl DownloadTask {
         self.updated_at_ms = now_ms();
     }
 
+    pub fn set_progress_with_hls(
+        &mut self,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+        current_speed_bytes_per_second: u64,
+        hls_segments_written: Option<usize>,
+        hls_segments_total: Option<usize>,
+    ) {
+        self.set_progress_with_speed(
+            downloaded_bytes,
+            total_bytes,
+            current_speed_bytes_per_second,
+        );
+        self.hls_segments_written = hls_segments_written;
+        self.hls_segments_total = hls_segments_total;
+    }
+
     pub fn fail(&mut self, error: impl Into<String>) {
         self.set_state(DownloadState::Failed);
         self.error = Some(error.into());
@@ -290,6 +316,8 @@ impl DownloadTask {
         self.downloaded_bytes = 0;
         self.total_bytes = None;
         self.current_speed_bytes_per_second = 0;
+        self.hls_segments_written = None;
+        self.hls_segments_total = None;
         self.error = None;
         self.started_at_ms = None;
         self.finished_at_ms = None;
@@ -601,6 +629,8 @@ mod tests {
         let mut value = serde_json::to_value(task).unwrap();
         let object = value.as_object_mut().unwrap();
         object.remove("current_speed_bytes_per_second");
+        object.remove("hls_segments_written");
+        object.remove("hls_segments_total");
         object.remove("started_at_ms");
         object.remove("finished_at_ms");
         object.remove("expected_sha256");
@@ -608,6 +638,8 @@ mod tests {
         let restored: DownloadTask = serde_json::from_value(value).unwrap();
 
         assert_eq!(restored.current_speed_bytes_per_second, 0);
+        assert_eq!(restored.hls_segments_written, None);
+        assert_eq!(restored.hls_segments_total, None);
         assert_eq!(restored.started_at_ms, None);
         assert_eq!(restored.finished_at_ms, None);
         assert_eq!(restored.expected_sha256, None);

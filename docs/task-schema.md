@@ -36,6 +36,7 @@ Rust canonical 队列使用版本 `2`，Flutter 专属投影仍使用版本 `1`�
 | `total_bytes` | number \| null | 已知总字节数 |
 | `downloaded_bytes` | number | 已完成字节数 |
 | `current_speed_bytes_per_second` | number | 实时速率采样（B/s） |
+| `hls_segments_written` / `hls_segments_total` | number | null | HLS 已完成分片数/播放列表分片总数；非 HLS、旧任务或尚未解析播放列表时为空，不等同字节进度 |
 | `error` | string \| null | 最近一次失败原因；展示时脱敏，不保证原始存储已脱敏 |
 | `created_at_ms` / `updated_at_ms` | number | Unix 毫秒时间戳 |
 | `started_at_ms` / `finished_at_ms` | number \| null | 未开始/未结束时为 null |
@@ -100,6 +101,7 @@ Rust 请求包含 `source`、`output_dir`、可选 `file_name`、`credential_ref
 | `expected_sha256` | `expectedSha256` | 命名差异 |
 | `total_bytes` / `downloaded_bytes` | `totalBytes` / `downloadedBytes` | 命名差异 |
 | `current_speed_bytes_per_second` | `currentSpeedBytesPerSecond` | 命名差异 |
+| `hls_segments_written` / `hls_segments_total` | Kotlin 任务卡读取 snake_case | HLS 任务卡显示逐分片 `n/m`；旧字段缺失时不显示伪造指标 |
 | `hls_variant_index` | `hlsVariantIndex` | 移动端新建任务可选，null 使用第一个 master variant |
 | `hls_keep_transport_stream` | `hlsKeepTransportStream` | 移动端新建任务可选，默认 false；true 时保留 TS |
 | `created_at_ms` 等 | `createdAt` 等 `DateTime` | Rust FFI 投影会将毫秒字段转为 UTC `DateTime`；移动端持久化仍使用 ISO-8601，迁移通过任务级 upsert 完成 |

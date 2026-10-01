@@ -153,6 +153,26 @@ impl TaskStore {
         total_bytes: Option<u64>,
         current_speed_bytes_per_second: u64,
     ) -> Result<Option<DownloadTask>, TaskStoreError> {
+        self.set_progress_if_running_with_hls(
+            id,
+            downloaded_bytes,
+            total_bytes,
+            current_speed_bytes_per_second,
+            None,
+            None,
+        )
+        .await
+    }
+
+    pub async fn set_progress_if_running_with_hls(
+        &self,
+        id: &str,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+        current_speed_bytes_per_second: u64,
+        hls_segments_written: Option<usize>,
+        hls_segments_total: Option<usize>,
+    ) -> Result<Option<DownloadTask>, TaskStoreError> {
         let _guard = TASK_STORE_WRITE_LOCK.lock().await;
         let _process_guard = self.lock_for_write().await?;
         let mut file = self.read_file().await?;
@@ -163,10 +183,12 @@ impl TaskStore {
             return Ok(None);
         }
 
-        task.set_progress_with_speed(
+        task.set_progress_with_hls(
             downloaded_bytes,
             total_bytes,
             current_speed_bytes_per_second,
+            hls_segments_written,
+            hls_segments_total,
         );
         let updated = task.clone();
         self.write_file(&file).await?;

@@ -322,7 +322,13 @@ async fn run_one(
             let mut last_speed_sample_at = Instant::now();
             let mut last_speed_sample_bytes = 0_u64;
             while let Some(progress) = progress_rx.recv().await {
-                progress_task.set_progress(progress.downloaded_bytes, progress.total_bytes);
+                progress_task.set_progress_with_hls(
+                    progress.downloaded_bytes,
+                    progress.total_bytes,
+                    0,
+                    progress.hls_segments_written,
+                    progress.hls_segments_total,
+                );
                 // 作者: long
                 // Torrent/Magnet 在等待首个 Peer 时通常会先拿到总大小但仍是 0 字节；
                 // 这次快照也要落盘，否则移动端只能显示“0 B/未知”，用户无法区分
@@ -350,11 +356,13 @@ async fn run_one(
                 last_speed_sample_at = Instant::now();
                 last_speed_sample_bytes = progress_task.downloaded_bytes;
                 match store
-                    .set_progress_if_running(
+                    .set_progress_if_running_with_hls(
                         &progress_task.id,
                         progress_task.downloaded_bytes,
                         progress_task.total_bytes,
                         current_speed,
+                        progress_task.hls_segments_written,
+                        progress_task.hls_segments_total,
                     )
                     .await
                 {
@@ -429,7 +437,13 @@ async fn run_one(
             }
             if summary.backend == crate::Backend::BuiltIn {
                 task.set_state(DownloadState::Finished);
-                task.set_progress(summary.bytes_written, summary.total_bytes);
+                task.set_progress_with_hls(
+                    summary.bytes_written,
+                    summary.total_bytes,
+                    0,
+                    summary.segments_written,
+                    summary.segments_total,
+                );
             } else {
                 // 作者: long
                 // aMule/系统 URL handler 返回成功只代表链接已交给外部客户端；外部客户端没有状态回传时不能写入 Finished 或伪造文件进度。

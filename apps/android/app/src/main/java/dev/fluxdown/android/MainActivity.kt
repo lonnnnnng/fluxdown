@@ -168,7 +168,7 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 
-private const val KOTLIN_APP_VERSION = "1.0.28-kotlin-alpha.4"
+private const val KOTLIN_APP_VERSION = "1.0.28-kotlin-alpha.5"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -192,6 +192,8 @@ private data class QueueTask(
     val downloadedBytes: Long,
     val totalBytes: Long?,
     val speedBytesPerSecond: Long,
+    val hlsSegmentsWritten: Int?,
+    val hlsSegmentsTotal: Int?,
     val startedAtMs: Long?,
     val finishedAtMs: Long?,
     val error: String?,
@@ -1849,20 +1851,34 @@ private fun TaskRow(task: QueueTask, model: NativeViewModel) {
                         )
                         Spacer(Modifier.weight(1f))
                         if (task.state == "running") {
+                            val segmentLabel = task.hlsSegmentLabel()
                             Text(
-                                "速度 ${formatBytes(task.speedBytesPerSecond)}/s",
+                                buildString {
+                                    if (segmentLabel != null) append("$segmentLabel · ")
+                                    append("速度 ${formatBytes(task.speedBytesPerSecond)}/s")
+                                },
                                 fontSize = 10.sp,
                                 color = Color(0xFF687782),
                             )
                         } else if (task.state == "finished") {
                             Text(
-                                task.finishedAtMs?.let { "完成 ${formatTaskTime(it)}" } ?: "已完成",
+                                buildString {
+                                    task.hlsSegmentLabel()?.let { append("$it · ") }
+                                    append(task.finishedAtMs?.let { "完成 ${formatTaskTime(it)}" } ?: "已完成")
+                                },
                                 fontSize = 10.sp,
                                 color = tint,
                                 maxLines = 1,
                             )
                         } else if (task.state == "failed") {
-                            Text("下载失败", fontSize = 10.sp, color = tint)
+                            Text(
+                                buildString {
+                                    task.hlsSegmentLabel()?.let { append("$it · ") }
+                                    append("下载失败")
+                                },
+                                fontSize = 10.sp,
+                                color = tint,
+                            )
                         }
                     }
                     if (task.state == "failed" && !task.error.isNullOrBlank()) {
@@ -2872,6 +2888,13 @@ private fun QueueTask.stateLabel(): String = when (state) {
     else -> state
 }
 
+private fun QueueTask.hlsSegmentLabel(): String? {
+    val written = hlsSegmentsWritten ?: return null
+    val total = hlsSegmentsTotal ?: return null
+    if (!source.substringBefore('?').substringBefore('#').endsWith(".m3u8", ignoreCase = true)) return null
+    return "分片 $written/$total"
+}
+
 private fun parseTasks(envelope: String): List<QueueTask> = runCatching {
     val root = JSONObject(envelope)
     val data = root.optJSONArray("data") ?: JSONArray()
@@ -2930,6 +2953,8 @@ private fun parseTasks(envelope: String): List<QueueTask> = runCatching {
                     downloadedBytes = displayDownloaded,
                     totalBytes = displayTotal,
                     speedBytesPerSecond = task.optLong("current_speed_bytes_per_second", 0L),
+                    hlsSegmentsWritten = task.optNullableInt("hls_segments_written", "hlsSegmentsWritten"),
+                    hlsSegmentsTotal = task.optNullableInt("hls_segments_total", "hlsSegmentsTotal"),
                     startedAtMs = task.optNullableLong("started_at_ms", "startedAtMs"),
                     finishedAtMs = task.optNullableLong("finished_at_ms", "finishedAtMs"),
                     error = task.optString("error").ifBlank { null },
@@ -2971,6 +2996,15 @@ private fun JSONObject.optNullableLong(vararg keys: String): Long? {
     for (key in keys) {
         if (!isNull(key) && has(key)) {
             optLong(key, 0L).takeIf { it > 0L }?.let { return it }
+        }
+    }
+    return null
+}
+
+private fun JSONObject.optNullableInt(vararg keys: String): Int? {
+    for (key in keys) {
+        if (!isNull(key) && has(key)) {
+            optInt(key, -1).takeIf { it >= 0 }?.let { return it }
         }
     }
     return null

@@ -117,10 +117,57 @@ class RustQueueInstrumentationTest {
             waitForRunTerminal(runId, 60_000)
             val task = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
             assertEquals(segmentCount.toLong() * segmentSize, task.optLong("downloaded_bytes"))
+            assertEquals(segmentCount, task.optInt("hls_segments_written", -1))
+            assertEquals(segmentCount, task.optInt("hls_segments_total", -1))
             assertEquals(segmentCount.toLong() * segmentSize, File(output, "long-hls.ts").length())
         } finally {
             runId?.let { forgetRunWhenTerminal(it) }
             server.close()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun queueDownloadsConfiguredPublicHlsThroughRust() {
+        val source = InstrumentationRegistry.getArguments().getString("hlsPublicUrl").orEmpty().trim()
+        // 作者: long
+        // 公网 HLS 资源受可用性、地域和版权影响，只有显式传入用户授权的 URL 才运行，
+        // 默认 connected suite 不把外部站点当成稳定夹具。
+        assumeTrue(
+            "缺少 hlsPublicUrl，跳过公网 HLS 真机用例",
+            source.startsWith("https://") && source.substringBefore('?').substringBefore('#').endsWith(".m3u8", ignoreCase = true),
+        )
+
+        val root = File(context.cacheDir, "rust-public-hls-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val output = File(root, "downloads").apply { mkdirs() }
+        var runId: String? = null
+        try {
+            val add = RustCoreBridge.queueAdd(
+                store.absolutePath,
+                JSONObject()
+                    .put("source", source)
+                    .put("outputDir", output.absolutePath)
+                    .put("fileName", "public-hls.ts")
+                    .put("hlsKeepTransportStream", true)
+                    .toString(),
+            )
+            assertTrue("公网 HLS 入队失败: $add", parseOk(add))
+            val taskId = JSONObject(add).getJSONObject("data").getString("id")
+            runId = startQueue(store, concurrency = 1, threadCount = 4, retryAttempts = 2)
+            waitForRunTerminal(runId, 180_000)
+            val task = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+            assertEquals("公网 HLS 下载失败: $task", "finished", task.optString("state"))
+            assertTrue("公网 HLS 没有落盘字节: $task", task.optLong("downloaded_bytes") > 0L)
+            assertTrue("公网 HLS 没有分片总数: $task", task.optInt("hls_segments_total", 0) > 0)
+            assertEquals(
+                "公网 HLS 分片未完整完成: $task",
+                task.optInt("hls_segments_total", -1),
+                task.optInt("hls_segments_written", -1),
+            )
+            assertTrue("公网 HLS 输出文件为空", File(output, "public-hls.ts").length() > 0L)
+        } finally {
+            runId?.let { forgetRunWhenTerminal(it) }
             root.deleteRecursively()
         }
     }

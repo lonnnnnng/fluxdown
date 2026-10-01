@@ -1,5 +1,25 @@
 # 下载验证状态
 
+## 2026-10-01 Kotlin Alpha 5 公网 HLS 真机回归
+
+设备：Redmi Note 8 Pro，adb serial `wsvwypiz7xwslvl7`；应用包名
+`dev.fluxdown.mobile.kotlin`；资源：
+`https://hd.kuktxu.com/play/dwpklmMe/index.m3u8`。
+
+- 通过显式参数运行 `RustQueueInstrumentationTest.queueDownloadsConfiguredPublicHlsThroughRust`，真实链路为 Kotlin → JNI → Rust queue；测试最终为 `finished`。
+- 任务快照断言输出文件非空、`hls_segments_total > 0`，并且 `hls_segments_written == hls_segments_total`；未使用预置任务或假数据。
+- 该公网用例默认跳过，只在明确传入 `hlsPublicUrl` 时运行，避免基础 connected instrumentation 依赖外部站点。
+- 随后执行 `npm run mobile:kotlin:release` 构建 Alpha 5：APK `25,465,282` bytes，SHA-256 `0073dddc222565d42a37c62c7de654536adf11db805ac1484e6b9ee61669abd9`；包名 `dev.fluxdown.mobile.kotlin`、版本 `1.0.28-kotlin-alpha.5`，仅含 `arm64-v8a`，安装到同一真机并启动成功。
+
+运行命令：
+
+```zsh
+ANDROID_SERIAL=wsvwypiz7xwslvl7 \
+apps/mobile/android/gradlew -p apps/android :app:connectedDebugAndroidTest --no-daemon \
+  -Pandroid.testInstrumentationRunnerArguments.class=dev.fluxdown.android.RustQueueInstrumentationTest#queueDownloadsConfiguredPublicHlsThroughRust \
+  -Pandroid.testInstrumentationRunnerArguments.hlsPublicUrl=https://hd.kuktxu.com/play/dwpklmMe/index.m3u8
+```
+
 ## 2026-10-01 Kotlin Alpha 4 队列与列表回归
 
 设备：Redmi Note 8 Pro，adb serial `wsvwypiz7xwslvl7`；应用包名
@@ -145,6 +165,8 @@ HLS 输入护栏：Rust 对空媒体 playlist（包括只有初始化段、没�
   `collect` 结果和 `ordered_segments` 中，初始化段写入临时输出后立即释放。现有 HLS、AES-128、BYTERANGE、fMP4 和缓存恢复用例全部通过。
 - HLS 较大媒体确定性回归：新增 `streams_large_hls_playlist_in_order_and_cleans_cache`，本地 fixture 生成 48 个 128 KiB
   分片（约 6 MiB），以 8 路并发下载后按原始索引合并，校验最终字节顺序、总大小和成功后的缓存目录清理；该测试通过。
+- HLS 分片进度回归：Rust `DownloadProgress` 与任务快照新增可选的已完成分片/总分片字段；缓存命中和网络下载都会更新该指标，Kotlin 任务卡显示 `分片 n/m`，终态保留最终值，旧任务缺失字段时不显示伪造指标。
+- 2026-10-01 Android 真机：Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）安装本轮 arm64 Debug APK 后，48 段 × 128 KiB 的本机回环 HLS 队列真实完成；Rust 队列最终快照为 `48/48` 分片，字节数与文件大小一致。connected instrumentation 25 项结束、2 项环境跳过、0 失败。
 
 本轮 Android 自动化命令：
 

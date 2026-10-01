@@ -731,6 +731,20 @@ fn task_from_import_payload(
     {
         task.current_speed_bytes_per_second = value;
     }
+    if let Some(value) = payload
+        .get("hlsSegmentsWritten")
+        .or_else(|| payload.get("hls_segments_written"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        task.hls_segments_written = Some(value as usize);
+    }
+    if let Some(value) = payload
+        .get("hlsSegmentsTotal")
+        .or_else(|| payload.get("hls_segments_total"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        task.hls_segments_total = Some(value as usize);
+    }
     if let Some(value) = payload.get("error").and_then(serde_json::Value::as_str) {
         task.error = Some(value.to_string());
     }

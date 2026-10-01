@@ -1,6 +1,6 @@
 # 路线图
 
-核对日期：2026-10-01。源码基线：`android-kotlin-migration` / 当前工作树（P2-05 凭据与连接安全，桌面端与移动端 SFTP known_hosts 配置入口已补齐）；当前 Kotlin 预览源码版本：`1.0.28-kotlin-alpha.4`，桌面稳定版为 `1.0.27`。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
+核对日期：2026-10-01。源码基线：`android-kotlin-migration` / 当前工作树（P2-05 凭据与连接安全，桌面端与移动端 SFTP known_hosts 配置入口已补齐）；当前 Kotlin 预览源码版本：`1.0.28-kotlin-alpha.5`，桌面稳定版为 `1.0.27`。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
 
 状态口径：**已实现**表示有实际代码和入口；**部分实现**表示仍有端侧差异或功能缺口；**待验证**表示缺少目标版本、目标设备的运行证据；**规划**表示尚未交付。构建成功、模拟数据 UI 测试、历史真机通过不能互相替代。
 
@@ -33,7 +33,7 @@
 | 数量与速度设置 | 数字输入配置并发、线程、重试、限速并持久化。 | 数字输入配置并发、线程、重试、限速并持久化。 | 由命令参数配置；默认值和参数范围不应直接等同 GUI。 |
 | Torrent 多文件选择 | metadata 解析后在新建弹框展示文件树并支持多选，保存文件编号；详情支持已落盘文件打开。 | metadata 解析后弹出多文件选择，保存选择结果，支持文件夹详情与已落盘文件预览。 | 重复传入 `--torrent-file-index` 选择文件。 |
 | Torrent 详情 | 文件清单、逐文件已下载量/百分比、tracker、peer、会话速度/ETA；运行中逐文件速度按轮询样本计算，静态 metadata 进度和速度显示未知。 | 文件清单与任务总进度；下载中逐文件完成字节未知，尚无真实逐文件速度。 | 当前以任务级输出为主，无对应详情命令。 |
-| HLS | 清晰度 variant 选择、分片缓存恢复、可选保留 TS；默认尝试 FFmpeg 转 MP4，失败保留 TS。 | VOD、AES-128、fMP4、BYTERANGE、TS 转 MP4；移动端新建任务可指定 variant/保留 TS，Android arm64 通过 `MediaExtractor/MediaMuxer` 完成传统 TS→MP4，并在切换多轨前重置 extractor；空 playlist 会直接失败。 | CLI、Rust FFI 和移动端已共享 HLS 字段；Rust 缓存绑定 playlist 来源并校验分片完整性，合并阶段按序流式读取，并通过约 6 MiB 多分片并发流式合并回归；Android Redmi 真机已完成手持二维码实拍回填、双轨/B 帧/多音频夹具、仅音频/仅视频/空/损坏 TS instrumentation、HLS TS→MP4、variant/fMP4 输出验证；完整多音轨 rendition 选择受设备媒体栈轨道暴露能力限制，Android 真机更大媒体/异常网络长时间验证和 iPhone 真机仍待目标环境。 |
+| HLS | 清晰度 variant 选择、分片缓存恢复、可选保留 TS；默认尝试 FFmpeg 转 MP4，失败保留 TS。 | VOD、AES-128、fMP4、BYTERANGE、TS 转 MP4；移动端新建任务可指定 variant/保留 TS，Android arm64 通过 `MediaExtractor/MediaMuxer` 完成传统 TS→MP4，并在切换多轨前重置 extractor；空 playlist 会直接失败；任务快照保留已完成分片/总分片，移动任务卡显示实时 `n/m`。 | CLI、Rust FFI 和移动端已共享 HLS 字段；Rust 缓存绑定 playlist 来源并校验分片完整性，合并阶段按序流式读取，并通过约 6 MiB 多分片并发流式合并回归；Android Redmi 真机已完成手持二维码实拍回填、双轨/B 帧/多音频夹具、仅音频/仅视频/空/损坏 TS instrumentation、HLS TS→MP4、variant/fMP4 输出验证；完整多音轨 rendition 选择受设备媒体栈轨道暴露能力限制，Android 真机更大媒体/异常网络长时间验证和 iPhone 真机仍待目标环境。 |
 | 平台集成与诊断 | 托盘、关窗驻留、单实例、完成/失败通知、可关闭的剪贴板监听、窗口尺寸恢复、更新检查与安装包下载。 | 有原生扫码、文件选择、打开/分享入口；不等于已有系统级长期后台下载。 | `detect/support/doctor` 用于识别及后端诊断。 |
 
 ### 工程与发行
@@ -52,7 +52,7 @@
 
 | 平台 | 当前源码与既有证据 | 历史运行证据 | 仍待补验 |
 | --- | --- | --- | --- |
-| Android | Kotlin arm64 工作树 `1.0.28-kotlin-alpha.4` 已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）完成 Gradle JVM 单测、默认 connected instrumentation、局域网 Torrent/Magnet 重复入队参数化回归、Activity 退后台前台服务回归、传输中断自动恢复和系统级 Wi-Fi 切换回归；真实二维码识别、双轨/B 帧/多音频、仅音频、仅视频、空/损坏 TS、Rust 回环队列、HTTP 416 回退、503 瞬态重试和 Rust HLS 核心回归均有证据；手持相机实拍回填也已人工确认；此前 Release APK 的 Flutter/Rust FFI smoke 仍保留。 | 同设备已通过暂停、继续、重启恢复、Torrent/Magnet metadata 多文件选择、目录详情和任务指标；本轮二维码、媒体轨道保留、HLS 缓存/流式合并、过期 Range 文件清理、重复入队、Activity 退后台、响应体中断恢复和 Wi-Fi 切换后的 Range 恢复均有自动化或真机证据。 | ed2k 仍按外部 handler 边界；完整多音轨 rendition、真实系统 ENOSPC、系统低内存回收/长期后台和正式签名分发按环境补验。 |
+| Android | Kotlin arm64 工作树 `1.0.28-kotlin-alpha.5` 已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）完成 Gradle JVM 单测、默认 connected instrumentation、局域网 Torrent/Magnet 重复入队参数化回归、Activity 退后台前台服务回归、传输中断自动恢复和系统级 Wi-Fi 切换回归；真实二维码识别、双轨/B 帧/多音频、仅音频、仅视频、空/损坏 TS、Rust 回环队列、HTTP 416 回退、503 瞬态重试、HLS 分片 `48/48` 和公网 HLS 真机回归均有证据；手持相机实拍回填也已人工确认；此前 Release APK 的 Flutter/Rust FFI smoke 仍保留。 | 同设备已通过暂停、继续、重启恢复、Torrent/Magnet metadata 多文件选择、目录详情和任务指标；本轮二维码、媒体轨道保留、HLS 缓存/流式合并、过期 Range 文件清理、重复入队、Activity 退后台、响应体中断恢复、Wi-Fi 切换后的 Range 恢复和公网 HLS 均有自动化或真机证据。 | ed2k 仍按外部 handler 边界；完整多音轨 rendition、真实系统 ENOSPC、系统低内存回收/长期后台和正式签名分发按环境补验。 |
 | iOS simulator | `FLUXDOWN_IOS_INCLUDE_TS_HLS=1 FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration` 已通过当前工作树：HTTP、fMP4 HLS、BYTERANGE HLS、TS HLS 均真实落盘；Rust queue integration 的 HTTP/HLS/variant 也通过；`npm run verify:ios:ui` 已真实启动 App 并完成任务页/设置页切换和存储统计检查。 | App 内历史 HTTP、fMP4/BYTERANGE/TS HLS smoke。 | 新建任务表单的 simulator UI 断言、iPhone 真机扫码、目录选择、分享/打开、Torrent/Magnet 仍待签名设备。 |
 | iPhone 真机 | unsigned device app 构建及 FFI 导出检查；没有签名 IPA。 | 尚无完整真机验收。 | 签名安装后扫码、目录选择、打开/分享、HTTP/HLS/Torrent/Magnet 和恢复流程。 |
 | macOS 桌面 | 当前工作树 `.app` 前台 GUI 协议回归通过：HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、HLS、SFTP、SMB、Torrent、Magnet 真实落盘并校验 SHA-256，ed2k 完成系统移交；CLI 队列控制回归也通过。该证据尚未重新打包为 `1.0.27` DMG。 | 2026-08-05 原生 GUI 12 类协议流程。 | 当前版托盘、更新和更多手工交互仍可继续补验；本轮证据见 `docs/artifacts/macos-desktop-gui-protocol-e2e-20260927.json`。 |
