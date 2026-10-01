@@ -140,6 +140,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -439,6 +440,7 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
     private val knownHostsRoot = File(context.filesDir, "fluxdown/security").apply { mkdirs() }
     private val safCopyInFlight = ConcurrentHashMap.newKeySet<String>()
     private val hlsRemuxInFlight = ConcurrentHashMap.newKeySet<String>()
+    private val refreshInFlight = AtomicBoolean(false)
     private val _state = MutableStateFlow(
         NativeUiState(
             settings = KotlinSettings(
@@ -468,9 +470,26 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
     }
 
     fun refresh() {
+        scheduleRefresh(startRunner = true)
+    }
+
+    /**
+     * 只刷新队列快照，不重复唤起前台服务；任务页用它展示运行中的真实进度和速度。
+     * 作者: long
+     */
+    fun refreshSnapshot() {
+        scheduleRefresh(startRunner = false)
+    }
+
+    private fun scheduleRefresh(startRunner: Boolean) {
+        if (!refreshInFlight.compareAndSet(false, true)) return
         viewModelScope.launch(Dispatchers.IO) {
-            refreshOnce()
-            ensureQueueRunning()
+            try {
+                refreshOnce()
+                if (startRunner) ensureQueueRunning()
+            } finally {
+                refreshInFlight.set(false)
+            }
         }
     }
 
@@ -1416,6 +1435,16 @@ private fun FluxDownApp(model: NativeViewModel) {
     androidx.compose.runtime.LaunchedEffect(state.notificationPermissionRequest) {
         if (state.notificationPermissionRequest && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(state.selectedTab) {
+        // 作者: long
+        // Rust 下载在前台服务中执行，Activity 不应持有执行协程；这里只轮询持久化快照，
+        // 让任务卡片在切回前台后持续显示真实进度、速度和完成时间。
+        while (isActive) {
+            if (state.selectedTab == HomeTab.Tasks) model.refreshSnapshot()
+            delay(1_000)
         }
     }
 

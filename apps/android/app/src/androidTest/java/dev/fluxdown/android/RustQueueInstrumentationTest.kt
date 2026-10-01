@@ -77,6 +77,172 @@ class RustQueueInstrumentationTest {
     }
 
     @Test
+    fun queuePauseResumeThroughRustKeepsPartialProgress() {
+        val payload = ByteArray(512 * 1024) { index -> (index % 251).toByte() }
+        val server = SlowLoopbackHttpServer(payload, chunkSize = 8 * 1024, chunkDelayMs = 25)
+        val root = File(context.cacheDir, "rust-pause-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val output = File(root, "downloads").apply { mkdirs() }
+        val file = File(output, "pause-resume.bin")
+        var firstRunId: String? = null
+        var secondRunId: String? = null
+        try {
+            val add = RustCoreBridge.queueAdd(
+                store.absolutePath,
+                JSONObject()
+                    .put("source", server.url)
+                    .put("outputDir", output.absolutePath)
+                    .put("fileName", file.name)
+                    .toString(),
+            )
+            assertTrue("暂停测试入队失败: $add", parseOk(add))
+            val taskId = JSONObject(add).getJSONObject("data").getString("id")
+            firstRunId = startQueue(store)
+            waitForTaskState(store, taskId, "running", 10_000)
+            waitForDownloadedBytes(store, taskId, 0L, 10_000)
+
+            val paused = RustCoreBridge.queuePause(store.absolutePath, taskId)
+            assertTrue("暂停调用失败: $paused", parseOk(paused))
+            waitForTaskState(store, taskId, "paused", 10_000)
+            val pausedTask = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+            assertEquals("paused", pausedTask.optString("state"))
+            val partialBytes = pausedTask.optLong("downloaded_bytes")
+            assertTrue("暂停应保留已下载断点", partialBytes > 0L)
+
+            waitForRunTerminal(firstRunId, 10_000)
+            RustCoreBridge.queueRunForget(firstRunId)
+            val resumed = RustCoreBridge.queueResume(store.absolutePath, taskId)
+            assertTrue("继续调用失败: $resumed", parseOk(resumed))
+            secondRunId = startQueue(store)
+            waitForTaskState(store, taskId, "finished", 30_000)
+            waitForRunTerminal(secondRunId, 30_000)
+            assertEquals(payload.toList(), file.readBytes().toList())
+            assertTrue("继续后应保留或增加断点", queueTask(RustCoreBridge.queueList(store.absolutePath), taskId).optLong("downloaded_bytes") >= partialBytes)
+        } finally {
+            firstRunId?.let { forgetRunWhenTerminal(it) }
+            secondRunId?.let { forgetRunWhenTerminal(it) }
+            server.close()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun queueConcurrencyOneDoesNotRunTwoTasksAtOnce() {
+        val payload = ByteArray(128 * 1024) { index -> (index % 199).toByte() }
+        val server = SlowLoopbackHttpServer(payload, chunkSize = 8 * 1024, chunkDelayMs = 35)
+        val root = File(context.cacheDir, "rust-concurrency-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val output = File(root, "downloads").apply { mkdirs() }
+        var runId: String? = null
+        try {
+            val taskIds = (1..2).map { index ->
+                val add = RustCoreBridge.queueAdd(
+                    store.absolutePath,
+                    JSONObject()
+                        .put("source", server.url)
+                        .put("outputDir", output.absolutePath)
+                        .put("fileName", "concurrency-$index.bin")
+                        .toString(),
+                )
+                assertTrue("并发测试入队失败: $add", parseOk(add))
+                JSONObject(add).getJSONObject("data").getString("id")
+            }
+            runId = startQueue(store, concurrency = 1)
+            var sawQueuedWhileRunning = false
+            var maxRunning = 0
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+            while (System.nanoTime() < deadline) {
+                val tasks = taskIds.map { taskId -> queueTask(RustCoreBridge.queueList(store.absolutePath), taskId) }
+                val running = tasks.count { it.optString("state") == "running" }
+                maxRunning = maxOf(maxRunning, running)
+                if (running == 1 && tasks.any { it.optString("state") == "queued" }) sawQueuedWhileRunning = true
+                if (tasks.all { it.optString("state") == "finished" }) break
+                Thread.sleep(25)
+            }
+            waitForRunTerminal(runId, 30_000)
+            assertTrue("第二个任务应在首个任务运行时排队", sawQueuedWhileRunning)
+            assertEquals("并发限制为 1 时不能同时运行两个任务", 1, maxRunning)
+            taskIds.forEach { taskId -> assertEquals("finished", queueTask(RustCoreBridge.queueList(store.absolutePath), taskId).optString("state")) }
+        } finally {
+            runId?.let { forgetRunWhenTerminal(it) }
+            server.close()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun queueResetAndRemoveThroughRustUpdatePersistentQueue() {
+        val root = File(context.cacheDir, "rust-reset-remove-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val output = File(root, "downloads").apply { mkdirs() }
+        try {
+            val add = RustCoreBridge.queueAdd(
+                store.absolutePath,
+                JSONObject()
+                    .put("source", "http://127.0.0.1:9/reset.bin")
+                    .put("outputDir", output.absolutePath)
+                    .put("fileName", "reset.bin")
+                    .toString(),
+            )
+            assertTrue("重置测试入队失败: $add", parseOk(add))
+            val taskId = JSONObject(add).getJSONObject("data").getString("id")
+            assertTrue("暂停调用失败", parseOk(RustCoreBridge.queuePause(store.absolutePath, taskId)))
+            assertEquals("paused", queueTask(RustCoreBridge.queueList(store.absolutePath), taskId).optString("state"))
+            assertTrue("重置调用失败", parseOk(RustCoreBridge.queueReset(store.absolutePath, taskId)))
+            assertEquals("queued", queueTask(RustCoreBridge.queueList(store.absolutePath), taskId).optString("state"))
+            assertTrue("删除调用失败", parseOk(RustCoreBridge.queueRemove(store.absolutePath, taskId)))
+            assertEquals(0, JSONObject(RustCoreBridge.queueList(store.absolutePath)).optJSONArray("data")?.length() ?: 0)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun foregroundServiceRecoversInterruptedRunningTask() {
+        val payload = "recovered-after-process-restart".toByteArray()
+        val server = LoopbackHttpServer(payload, rejectFirstRange = false)
+        val root = File(context.cacheDir, "rust-service-recovery-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val output = File(root, "downloads").apply { mkdirs() }
+        val file = File(output, "recovered.bin")
+        val settings = context.getSharedPreferences("fluxdown.kotlin.settings", 0)
+        val previousThreads = settings.getString("threads", null)
+        val previousConcurrency = settings.getString("concurrency", null)
+        val previousRetries = settings.getString("retries", null)
+        try {
+            settings.edit().putString("threads", "1").putString("concurrency", "1").putString("retries", "0").commit()
+            val add = RustCoreBridge.queueAdd(
+                store.absolutePath,
+                JSONObject()
+                    .put("source", server.url)
+                    .put("outputDir", output.absolutePath)
+                    .put("fileName", file.name)
+                    .toString(),
+            )
+            assertTrue("恢复测试入队失败: $add", parseOk(add))
+            val taskId = JSONObject(add).getJSONObject("data").getString("id")
+            markPersistedTaskRunning(store, taskId)
+
+            val serviceIntent = Intent(context, DownloadForegroundService::class.java).apply {
+                action = DownloadForegroundService.ACTION_START
+                putExtra(DownloadForegroundService.EXTRA_STORE_PATH, store.absolutePath)
+            }
+            ContextCompat.startForegroundService(context, serviceIntent)
+            waitForTaskState(store, taskId, "finished", 30_000)
+            assertEquals(payload.toList(), file.readBytes().toList())
+        } finally {
+            context.stopService(Intent(context, DownloadForegroundService::class.java))
+            settings.edit().apply {
+                if (previousThreads == null) remove("threads") else putString("threads", previousThreads)
+                if (previousConcurrency == null) remove("concurrency") else putString("concurrency", previousConcurrency)
+                if (previousRetries == null) remove("retries") else putString("retries", previousRetries)
+            }.commit()
+            server.close()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun foregroundServiceRunsRustQueueThroughLoopbackHttp() {
         val payload = "foreground-service-rust-download".toByteArray()
         val server = LoopbackHttpServer(payload, rejectFirstRange = false)
@@ -193,6 +359,69 @@ class RustQueueInstrumentationTest {
         )
     }
 
+    private fun startQueue(store: File, concurrency: Int = 1): String {
+        val run = RustCoreBridge.queueRunQueued(
+            store.absolutePath,
+            JSONObject()
+                .put("concurrency", concurrency)
+                .put("threadCount", 1)
+                .put("retryAttempts", 0)
+                .toString(),
+        )
+        assertTrue("启动 Rust 队列失败: $run", parseOk(run))
+        return JSONObject(run).getJSONObject("data").getString("runId")
+    }
+
+    private fun waitForTaskState(store: File, taskId: String, expected: String, timeoutMs: Long) {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        var task = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+        while (System.nanoTime() < deadline && task.optString("state") != expected) {
+            Thread.sleep(100)
+            task = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+        }
+        assertEquals("任务未在 ${timeoutMs}ms 内进入 $expected: $task", expected, task.optString("state"))
+    }
+
+    private fun waitForDownloadedBytes(store: File, taskId: String, minimum: Long, timeoutMs: Long) {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        var downloaded = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId).optLong("downloaded_bytes")
+        while (System.nanoTime() < deadline && downloaded <= minimum) {
+            Thread.sleep(100)
+            downloaded = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId).optLong("downloaded_bytes")
+        }
+        assertTrue("任务未在 ${timeoutMs}ms 内产生进度: $downloaded", downloaded > minimum)
+    }
+
+    private fun waitForRunTerminal(runId: String, timeoutMs: Long) {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        var state = parseState(RustCoreBridge.queueRunStatus(runId))
+        while (System.nanoTime() < deadline && state == "running") {
+            Thread.sleep(100)
+            state = parseState(RustCoreBridge.queueRunStatus(runId))
+        }
+        assertTrue("异步队列句柄未结束: $runId", state == "finished" || state == "failed")
+    }
+
+    private fun forgetRunWhenTerminal(runId: String) {
+        runCatching {
+            waitForRunTerminal(runId, 5_000)
+            RustCoreBridge.queueRunForget(runId)
+        }
+    }
+
+    private fun markPersistedTaskRunning(store: File, taskId: String) {
+        val root = JSONObject(store.readText())
+        val tasks = root.optJSONArray("tasks") ?: error("队列文件没有 tasks")
+        val task = (0 until tasks.length())
+            .mapNotNull { tasks.optJSONObject(it) }
+            .firstOrNull { it.optString("id") == taskId }
+            ?: error("队列文件找不到任务 $taskId")
+        task.put("state", "running")
+        task.put("updated_at_ms", System.currentTimeMillis())
+        root.put("tasks", tasks)
+        store.writeText(root.toString())
+    }
+
     private fun parseOk(envelope: String): Boolean = JSONObject(envelope).optBoolean("ok", false)
 
     private fun parseState(envelope: String): String =
@@ -278,6 +507,71 @@ class RustQueueInstrumentationTest {
         override fun close() {
             server.close()
             thread.join(2000)
+        }
+    }
+
+    private class SlowLoopbackHttpServer(
+        private val payload: ByteArray,
+        private val chunkSize: Int,
+        private val chunkDelayMs: Long,
+    ) : AutoCloseable {
+        private val server = ServerSocket(0, 4, java.net.InetAddress.getByName("127.0.0.1"))
+        private val thread = Thread(::serve, "fluxdown-android-test-slow-http")
+        val url = "http://127.0.0.1:${server.localPort}/slow.bin"
+
+        init { thread.start() }
+
+        private fun serve() {
+            while (!server.isClosed) {
+                runCatching { server.accept() }.getOrNull()?.let { socket ->
+                    Thread({ respond(socket) }, "fluxdown-android-test-slow-http-client").start()
+                }
+            }
+        }
+
+        private fun respond(socket: Socket) {
+            socket.use { client ->
+                val request = BufferedInputStream(client.getInputStream())
+                readHeaders(request)
+                runCatching {
+                    val writer = client.getOutputStream().bufferedWriter()
+                    writer.write("HTTP/1.1 200 OK\r\nContent-Length: ${payload.size}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n")
+                    writer.flush()
+                    var offset = 0
+                    while (offset < payload.size) {
+                        val end = (offset + chunkSize).coerceAtMost(payload.size)
+                        client.getOutputStream().write(payload, offset, end - offset)
+                        client.getOutputStream().flush()
+                        offset = end
+                        Thread.sleep(chunkDelayMs)
+                    }
+                }
+            }
+        }
+
+        override fun close() {
+            server.close()
+            thread.join(2_000)
+        }
+    }
+
+    private companion object {
+        private fun readHeaders(input: BufferedInputStream): String {
+            var window = ""
+            var firstLine = ""
+            var line = StringBuilder()
+            var current: Int
+            while (input.read().also { current = it } >= 0) {
+                if (current == '\n'.code) {
+                    if (firstLine.isEmpty()) firstLine = line.toString().trimEnd('\r')
+                    line = StringBuilder()
+                } else {
+                    line.append(current.toChar())
+                }
+                window = (window + current.toChar()).takeLast(4)
+                if (window == "\r\n\r\n") return firstLine
+            }
+            return firstLine
         }
     }
 }

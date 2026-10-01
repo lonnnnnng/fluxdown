@@ -2,7 +2,7 @@
 
 核对日期：2026-10-01。当前源码版本：`1.0.28-kotlin-alpha.4`。
 
-## 2026-10-01 队列闭环增量（工作树，未发布）
+## 2026-10-01 队列闭环增量（Kotlin Alpha，未发布）
 
 - 新增 `RustQueueInstrumentationTest` 两项真机回归：Kotlin → JNI → Rust 真实回环 HTTP 下载，以及设备上存在过期残留文件时收到 HTTP 416 后清理残留并重新下载。两项均校验任务最终为 `finished`、字节数和落盘内容，不使用预置假数据。
 - Rust HTTP 单连接路径补齐 416 处理：只有 `Content-Range` 或额外 `HEAD` 明确证明本地文件已完整时才直接复用；无法证明时删除残留并重新发起无 `Range` 请求，避免截断文件被误判完成或持续卡在 416。
@@ -10,7 +10,8 @@
 - Torrent/Magnet 任务卡现在显示资源目录入口：单文件 metadata 名与文件名相同时去掉扩展名作为入口名称，多文件保留 metadata 目录名；完整文件名、格式、大小和逐文件进度仍在“资源详情”中展示。
 - Kotlin 任务列表读取并显示 Rust 持久化的 `started_at_ms`/`finished_at_ms`；运行中显示实时速度，完成态显示完成时间，避免已完成任务继续显示下载速度。
 - 宿主侧生命周期真机回归：使用全新 `64.0 MiB` Range HTTP 资源 `lifecycle-force-stop-1021.bin`，任务运行到断点后执行 `adb shell am force-stop dev.fluxdown.mobile.kotlin`，再启动 `MainActivity`；目标进程 PID 从 `24185` 变为 `25844`，前台服务在新进程中重新恢复同一队列，最终快照为 `finished`、`67,108,864/67,108,864 B`，无重复任务。该证据覆盖显式强停后的启动恢复，不宣称系统低内存回收或永久后台存活。
-- 当前 Kotlin Android instrumentation 共 `11/11` 通过（队列 HTTP/416、503 瞬态错误重试、前台服务、扫码实体识别、HLS remux 等）；本轮仍只生成 `arm64-v8a` 预览包，未切换正式包名或商店签名。
+- Kotlin 任务页新增 1 秒快照轮询，并用互斥门避免刷新请求重叠；运行中任务可以持续显示 Rust 持久化的真实进度、下载速度和完成时间，轮询不会重复启动前台服务。
+- 新增 Android 真机队列回归：暂停/继续保留断点、并发数为 1 时第二任务真实排队、失败重试、416 回退、重置/删除、前台服务中断恢复；当前 instrumentation 共 `15/15` 通过（Redmi Note 8 Pro，serial：`wsvwypiz7xwslvl7`）。本轮仍只生成 `arm64-v8a` 预览包，未切换正式包名或商店签名。
 
 ## 当前策略
 
