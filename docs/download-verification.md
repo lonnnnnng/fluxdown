@@ -15,6 +15,19 @@
 
 本轮 Android connected instrumentation 共 `10/10` 通过；仅验证 arm64 预览包，Release 资产仍需按发布后的远端 URL 回验。
 
+Alpha 4 已发布并完成远端回验：GitHub Release
+[`v1.0.28-kotlin-alpha.4`](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.28-kotlin-alpha.4)
+只有一个公开资产 `FluxDown-1.0.28-kotlin-alpha.4-android-arm64-v8a-release.apk`，大小
+`25,465,286` bytes，远端下载后的 SHA-256 为
+`db8ee1ccbb586bf3901f15275d82054409d962eb402401bf8b783a3b949230ac`。`aapt2` 回验包名
+`dev.fluxdown.mobile.kotlin`、版本 `1.0.28-kotlin-alpha.4`；APK 只包含
+`arm64-v8a` native libraries，`apksigner verify --verbose` 通过 v2 签名。
+
+首次手动 `mobile-release` 运行
+[`36808344500`](https://github.com/lonnnnnng/fluxdown/actions/runs/36808344500) 在旧标签提交的
+SDK 初始化阶段失败，未生成或上传资产；该问题已在后续分支提交 `1261b1d` 修复。Alpha 4
+资产来自同一标签对应的本地 Release APK，并已按上述方式完成远端回验。
+
 ## 2026-09-30 Android Kotlin arm64 协议缺口复验（工作树）
 
 设备：Redmi Note 8 Pro，adb serial `wsvwypiz7xwslvl7`；应用包名
