@@ -10,6 +10,7 @@ import java.io.File
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.json.JSONArray
@@ -53,6 +54,23 @@ class RustQueueInstrumentationTest {
             assertEquals("finished", result.state)
             assertEquals(payload.toList(), result.outputBytes.toList())
             assertTrue("应先收到一次带 Range 的 416", server.rangeRequests.await(2, TimeUnit.SECONDS))
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun queueRetriesTransientHttpFailureThroughRust() {
+        val payload = "retry-through-kotlin-rust".toByteArray()
+        val server = LoopbackHttpServer(payload, rejectFirstRange = false, transientFailures = 2)
+        try {
+            // 作者: long
+            // 让回环服务前两次返回 503，验证设置透传的重试次数真的由 Rust runner 执行，
+            // 而不是 Kotlin 在 UI 层把失败任务伪装成完成。
+            val result = runQueueTask(server.url, payload, staleBytes = null, retryAttempts = 2)
+            assertEquals("finished", result.state)
+            assertEquals(payload.toList(), result.outputBytes.toList())
+            assertEquals("应包含两次 503 和一次成功请求", 3, server.requestCount.get())
         } finally {
             server.close()
         }
@@ -118,7 +136,12 @@ class RustQueueInstrumentationTest {
         }
     }
 
-    private fun runQueueTask(url: String, payload: ByteArray, staleBytes: ByteArray?): QueueResult {
+    private fun runQueueTask(
+        url: String,
+        payload: ByteArray,
+        staleBytes: ByteArray?,
+        retryAttempts: Int = 0,
+    ): QueueResult {
         val root = File(context.cacheDir, "rust-queue-${UUID.randomUUID()}").apply { mkdirs() }
         val store = File(root, "queue.json")
         val output = File(root, "downloads").apply { mkdirs() }
@@ -140,7 +163,7 @@ class RustQueueInstrumentationTest {
             JSONObject()
                 .put("concurrency", 1)
                 .put("threadCount", 1)
-                .put("retryAttempts", 0)
+                .put("retryAttempts", retryAttempts)
                 .toString(),
         )
         assertTrue("启动 Rust 队列失败: $run", parseOk(run))
@@ -193,11 +216,14 @@ class RustQueueInstrumentationTest {
     private class LoopbackHttpServer(
         private val payload: ByteArray,
         private val rejectFirstRange: Boolean,
+        transientFailures: Int = 0,
     ) : AutoCloseable {
         private val server = ServerSocket(0, 4, java.net.InetAddress.getByName("127.0.0.1"))
         private val thread = Thread(::serve, "fluxdown-android-test-http")
         val url = "http://127.0.0.1:${server.localPort}/fixture.bin"
         val rangeRequests = CountDownLatch(1)
+        val requestCount = AtomicInteger(0)
+        private val transientFailuresRemaining = AtomicInteger(transientFailures)
         @Volatile
         private var rangeRejected = false
 
@@ -225,6 +251,7 @@ class RustQueueInstrumentationTest {
                         previous = current
                     }
                 }
+                requestCount.incrementAndGet()
                 val hasRange = bytes.lineSequence().any { it.startsWith("Range:", ignoreCase = true) }
                 if (hasRange && rejectFirstRange && !rangeRejected) {
                     rangeRejected = true
@@ -236,6 +263,11 @@ class RustQueueInstrumentationTest {
                 }
                 if (hasRange) rangeRequests.countDown()
                 val writer = client.getOutputStream().bufferedWriter()
+                if (transientFailuresRemaining.getAndUpdate { remaining -> (remaining - 1).coerceAtLeast(0) } > 0) {
+                    writer.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    writer.flush()
+                    return
+                }
                 writer.write("HTTP/1.1 200 OK\r\nContent-Length: ${payload.size}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n")
                 writer.flush()
                 client.getOutputStream().write(payload)

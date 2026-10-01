@@ -13,7 +13,7 @@
 | 任务时间与速度 | 通过；Kotlin 读取 Rust 的开始/完成时间字段，运行中显示速度，完成态显示完成时间，不再显示已完成任务的下载速度 | 时间显示为设备本地时区的 `MM-dd HH:mm` |
 | 宿主进程强停后恢复 | 通过；`lifecycle-force-stop-1021.bin` 运行中执行 `adb shell am force-stop`，重新启动后 PID 从 `24185` 变为 `25844`，前台服务重新接管 Rust 队列，最终 `finished`、`67,108,864/67,108,864 B`，无重复任务 | 覆盖显式强停后的启动恢复；不宣称系统低内存回收或永久后台存活 |
 
-本轮 Android connected instrumentation 共 `10/10` 通过；仅验证 arm64 预览包，Release 资产仍需按发布后的远端 URL 回验。
+本轮 Android connected instrumentation 共 `11/11` 通过；仅验证 arm64 预览包，Alpha 4 远端资产回验结果见下文。
 
 Alpha 4 已发布并完成远端回验：GitHub Release
 [`v1.0.28-kotlin-alpha.4`](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.28-kotlin-alpha.4)

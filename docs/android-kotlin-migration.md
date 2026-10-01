@@ -10,7 +10,7 @@
 - Torrent/Magnet 任务卡现在显示资源目录入口：单文件 metadata 名与文件名相同时去掉扩展名作为入口名称，多文件保留 metadata 目录名；完整文件名、格式、大小和逐文件进度仍在“资源详情”中展示。
 - Kotlin 任务列表读取并显示 Rust 持久化的 `started_at_ms`/`finished_at_ms`；运行中显示实时速度，完成态显示完成时间，避免已完成任务继续显示下载速度。
 - 宿主侧生命周期真机回归：使用全新 `64.0 MiB` Range HTTP 资源 `lifecycle-force-stop-1021.bin`，任务运行到断点后执行 `adb shell am force-stop dev.fluxdown.mobile.kotlin`，再启动 `MainActivity`；目标进程 PID 从 `24185` 变为 `25844`，前台服务在新进程中重新恢复同一队列，最终快照为 `finished`、`67,108,864/67,108,864 B`，无重复任务。该证据覆盖显式强停后的启动恢复，不宣称系统低内存回收或永久后台存活。
-- 当前 Kotlin Android instrumentation 共 `10/10` 通过（队列 HTTP/416、前台服务、扫码实体识别、HLS remux 等）；本轮仍只生成 `arm64-v8a` 预览包，未切换正式包名或商店签名。
+- 当前 Kotlin Android instrumentation 共 `11/11` 通过（队列 HTTP/416、503 瞬态错误重试、前台服务、扫码实体识别、HLS remux 等）；本轮仍只生成 `arm64-v8a` 预览包，未切换正式包名或商店签名。
 
 ## 当前策略
 
@@ -74,6 +74,7 @@ Android Kotlin 重写采用并行迁移，不立即替换现有 Flutter 包：
 - 2026-09-30 SFTP 凭据与主机指纹真机回归：在设置中保存 `sftp-key4` 凭据引用并导入匹配的 `known_hosts`，通过 `sftp://192.168.1.8:2222/Downloads/fluxdown-kotlin-sftp.txt` 下载 `41 B` 文件，任务进入“已完成”。替换为伪造指纹后，`sftp-bad-host.txt` 在传输前失败并提示主机身份校验错误；同时确认 URL 已含用户名时不能再叠加凭据引用，SFTP 绝对路径按远程用户主目录解析，避免把 `/Users/long/...` 重复拼接。
 - 2026-09-30 返回退出提示真机回归：安装本轮 arm64 debug APK 后，在任务首页按系统返回键显示“退出 FluxDown”确认框；点击取消后仍停留在任务页，未触发 Activity 退出或崩溃。确认文案明确说明已入队任务继续由后台服务运行。
 - 2026-10-01 构建与启动复验：`cargo fmt --all -- --check`、`cargo test --locked -p fluxdown-core -p fluxdown-ffi`（core 116、FFI 14）和 `apps/mobile/android/gradlew -p apps/android :app:compileDebugKotlin --no-daemon` 均通过；随后 `:app:connectedDebugAndroidTest` 在同一 Redmi 真机 10/10 通过。
+- 2026-10-01 Kotlin 异常网络 instrumentation：新增 `queueRetriesTransientHttpFailureThroughRust`，设备回环 HTTP 前两次返回 `503`、第三次返回 `200`，Kotlin 设置的 `retryAttempts=2` 透传到 Rust runner，任务真实进入 `finished` 且输出字节完全匹配；同一 Redmi 真机 connected instrumentation 更新为 `11/11`。
 - 2026-09-30 HLS 输入护栏回归：Rust 对空媒体 playlist（包括只有初始化段、没有实际媒体分片的情况）直接返回 `InvalidM3u8`，新增核心单测通过，避免生成 0 字节“成功”任务。
 - 2026-09-29 HLS master variant 真机回归：本机 HTTP fixture 提供 320x180/64 kbps 与 1280x720/256 kbps 两个 variant，Redmi 真机通过 `adb reverse tcp:8765 tcp:8765` 在新建任务弹框点击“读取 HLS 清晰度”，界面正确显示 `#0`、`#1` 两项；JNI 加载成功，logcat 无 `FATAL EXCEPTION`。同时修正 ML Kit 回调从分析线程写 Compose 状态的问题，识别结果与错误提示统一切回主线程。
 
