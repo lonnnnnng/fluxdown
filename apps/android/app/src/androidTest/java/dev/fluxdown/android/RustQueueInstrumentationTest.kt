@@ -686,7 +686,10 @@ class RustQueueInstrumentationTest {
 
     @Test
     fun foregroundServiceCompletesWhenActivityMovesToBackground() {
-        val payload = ByteArray(16 * 1024 * 1024) { index -> (index * 17 % 251).toByte() }
+        // 作者: long
+        // 这个用例只需要让前台服务在 Activity 退后台后持续一段时间；4 MiB 配合慢速分块
+        // 已足够覆盖生命周期切换，同时避免低内存模拟器为测试夹具一次性分配 16 MiB 而 OOM。
+        val payload = ByteArray(4 * 1024 * 1024) { index -> (index * 17 % 251).toByte() }
         val server = SlowLoopbackHttpServer(payload, chunkSize = 8 * 1024, chunkDelayMs = 15)
         val root = File(context.cacheDir, "rust-service-background-${UUID.randomUUID()}").apply { mkdirs() }
         val store = File(root, "queue.json")

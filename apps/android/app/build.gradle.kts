@@ -25,13 +25,23 @@ android {
     namespace = "dev.fluxdown.android"
     compileSdk = 36
 
+    // 作者: long
+    // 日常回归继续使用 Debug 变体；只有 Release 验收显式打开开关时，才生成
+    // releaseTest instrumentation，避免普通 connectedDebugAndroidTest 被混淆产物拖慢。
+    testBuildType = if (project.findProperty("fluxdownReleaseInstrumentation") == "true") {
+        "releaseTest"
+    } else {
+        "debug"
+    }
+
     defaultConfig {
         applicationId = "dev.fluxdown.mobile.kotlin"
         minSdk = 24
         targetSdk = 36
-        versionCode = 2032
-        versionName = "1.0.28-kotlin-alpha.5"
+        versionCode = 2033
+        versionName = "1.0.28-kotlin-alpha.6"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testProguardFiles("test-proguard-rules.pro")
 
         ndk {
             // 作者: long
@@ -64,6 +74,18 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+        }
+
+        // 作者: long
+        // releaseTest 复用正式 Release 的 R8/资源收缩规则，但保持可调试并使用独立包名，
+        // 这样可以在不覆盖用户安装的 Release APK 的情况下运行 connected instrumentation，
+        // 直接验证混淆后的 JNI、队列和协议入口，而不是把 Debug 测试 APK 强行套到 Release 包上。
+        create("releaseTest") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".releaseTest"
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
+            proguardFile("release-test-proguard-rules.pro")
         }
     }
 
@@ -109,6 +131,12 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
+    // 作者: long
+    // releaseTest 会对测试 APK 也执行 R8；AndroidX Test 的 tracing 代码把这两个
+    // 可选类型作为签名引用，显式放进测试 classpath，避免 Release 验收在打包阶段失败。
+    androidTestImplementation("androidx.concurrent:concurrent-futures:1.1.0")
+    androidTestImplementation("com.google.errorprone:error_prone_annotations:2.36.0")
+    androidTestImplementation("androidx.tracing:tracing:1.2.0")
     androidTestImplementation("com.google.zxing:core:3.4.1")
     debugImplementation("androidx.compose.ui:ui-tooling:1.7.5")
 }

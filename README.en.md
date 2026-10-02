@@ -2,7 +2,11 @@
 
 [中文](README.md)
 
-FluxDown is a multi-protocol downloader for desktop and mobile. The current source version is [1.0.28-alpha.1](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.28-alpha.1), a mobile-only alpha release; the stable desktop release remains [1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27). Features below describe the current source; historical verification is labeled separately.
+FluxDown is a multi-protocol downloader for desktop and mobile. The desktop/Flutter line is [1.0.28-alpha.1](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.28-alpha.1), while the Android Kotlin preview is [1.0.28-kotlin-alpha.6](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.28-kotlin-alpha.6); the stable desktop release remains [1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27). Features below describe the current source; historical verification is labeled separately.
+
+### 1.0.28 Kotlin Android Alpha 6 (2026-10-02)
+
+Publishes the Android Kotlin rewrite preview, limited to an `arm64-v8a` APK. This alpha adds R8/resource-shrunk ReleaseTest device coverage, tightens Torrent/Magnet metadata, file selection, retry, and error flows, and verifies real LAN Torrent/Magnet downloads. See the [release notes](docs/releases/1.0.28-kotlin-alpha.6.md) (Chinese).
 
 ### 1.0.28-alpha.1 Mobile Alpha (2026-09-28)
 

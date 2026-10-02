@@ -1,5 +1,49 @@
 # 下载验证状态
 
+## 2026-10-02 Kotlin Android Alpha 6 发布前复验
+
+- 本地 `:app:assembleRelease` 通过；APK `apps/android/app/build/outputs/apk/release/app-release.apk` 为 `24,481,666` bytes，SHA-256 为 `656438267bfe3e989d3098db378f582aa1bd6cb6439b56895c533a96b75468c5`，只包含 `arm64-v8a`，当前使用 Android Debug 签名。
+- ReleaseTest 真机 HTTP 回环用例通过；同一 ReleaseTest 变体使用 `http://192.168.1.8:53839/lan-p2p.torrent`、Tracker `http://192.168.1.8:53836/announce` 和 Transmission Seeder `192.168.1.8:53838`，Torrent/Magnet 重复入队、metadata、文件选择、Peer 下载和 `39 B` 文件 SHA-256 校验均通过。
+- 默认 Debug connected instrumentation：`24` 项通过、`3` 项按环境跳过、`0` 失败；Kotlin JVM 单测通过；Rust core `118/118`、FFI `14/14` 通过；`git diff --check` 通过。
+- ReleaseTest 通过 `-PfluxdownReleaseInstrumentation=true` 启用，只用于混淆后验收；本 Alpha 公开资产仍只包含一个 `arm64-v8a` APK，不包含桌面、CLI、iOS 或 Flutter 资产。
+
+## 2026-10-02 Torrent/Magnet 失败任务重试链路修复
+
+- 代码修复：失败 Torrent/Magnet 重试会保留原失败任务直到新 metadata 选择成功并完成入队，成功后再删除旧任务，避免重复任务或取消选择后留下空任务。
+- SAF 保存位置修复：重试从 `target:<taskId>` 偏好恢复用户的 `content://` 目录，下载仍经私有 staging 后复制到该目录；没有有效授权时才回退到任务快照路径。
+- 验证状态：Kotlin JVM 回归与 `:app:compileDebugKotlin` 已通过；Redmi 真机已完成失败重试、取消选择和 SAF 最终落盘组合回归。无 Peer 阶段任务 `0 B/22 B` 超时失败；取消 metadata 文件选择后任务总数仍为 `1`；确认选择后旧任务被替换。切换同一 HTTP 种子地址到真实 Transmission Seeder 后，任务完成 `22 B/22 B`，`/sdcard/FluxDownTest/no-peer-retry.txt` 与源文件 SHA-256 均为 `bd973a8c54d8c89dbc680e8b5c532c2a76c10b67c775954215b5c736a30f7a3b`。
+
+## 2026-10-02 Kotlin instrumentation 与无 Peer 诊断回归
+
+- Rust 核心 `cargo test --locked -p fluxdown-core`：`118/118` 通过；Kotlin `:app:testDebugUnitTest` 通过。
+- Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）直接安装当前 debug APK 与测试 APK 后执行 connected instrumentation：报告 XML 为 `24` 个用例、`0` 失败、`3` 跳过，实际执行的用例全部通过；其中 Wi-Fi、公网 HLS、局域网 Torrent/Magnet 因未传入外部 fixture 按设计跳过。覆盖前台服务、退后台、暂停恢复、并发约束、HTTP 503/416/传输中断重试和 HLS remux。
+- CASKA 低内存模拟器在整套 Gradle 多设备安装阶段出现 `ShellCommandUnresponsiveException`，没有进入测试；同一后台服务用例改为 `4 MiB` 慢速夹具后，单独在 CASKA 与 Redmi 均通过。该模拟器安装器问题不计为产品功能失败。
+- 真实无 Peer 夹具 `http://192.168.1.8:60843/no-peer-retry.torrent`（Tracker `http://192.168.1.8:60842/announce`，无 Seeder）在 Redmi 完成 metadata 和文件选择；先把设置页“自动重试次数”设为 `1`，再重新新建任务。Tracker 收到首次 announce，约 89 秒后再次收到来自 `192.168.1.21` 的 announce，任务最终为 `失败(1)`，保持 `0 B/29 B`，错误为“暂无可用 Peer 或 Tracker 未响应，请检查网络、Tracker 后稍后重试。”；这次确认了真实自动重试和耗尽后的失败态，没有使用假任务或中途修改设置。
+- Torrent/Magnet 详情页回归：运行中任务详情查询设置 `30` 秒上限；metadata 会话超时、失败或未进入 `finished` 时，UI 回退到任务入队时保存的目录、已确认文件和逐文件进度，不再把详情异常冒泡成顶部提示或阻塞任务列表；查询结束始终释放 Rust 临时 run。Kotlin 单测、Rust 核心 `118` 项和 Redmi 真机 connected instrumentation 均通过。
+- Magnet 新建 metadata 的 Rust 内部超时已从 `30` 秒统一为 `90` 秒，与 Kotlin 外层等待一致；metadata 预览和正式下载都按 `30` 秒主动刷新 Tracker。局域网 Tracker/Transmission 真机 Torrent + Magnet 参数化回归均通过，未出现 metadata 提前终止或 Peer 下载回归。
+- 任务卡紧凑布局回归：任务列表卡片之间改为零间距，完成态只显示完成时间（`yyyyMMdd HH:mm:ss`），运行态保留速度和百分比；改动后同一 Redmi 真机套件保持 `27` 个测试、`0` 失败、`3` 跳过。
+- 新建任务弹框回归：移除保存位置和磁盘容量区域，保存位置及容量统计仍可在设置页查看和修改；Kotlin 单测、编译和 Redmi 真机 connected instrumentation 均通过。
+
+## 2026-10-02 Kotlin 真机 Torrent HTTP 加载与公网 Peer 回归
+
+设备：Redmi Note 8 Pro，adb serial `wsvwypiz7xwslvl7`；应用包名
+`dev.fluxdown.mobile.kotlin`；本轮安装的是工作树最新 Kotlin Debug APK。
+
+| 用例 | 结果 | 证据 |
+| --- | --- | --- |
+| 局域网 HTTP `.torrent` | 通过；新建任务使用 `http://192.168.1.8:53839/lan-p2p.torrent`，先获取 metadata 并进入文件选择，再确认加入；任务从 `0 B/39 B` 变为 `39 B/39 B`，任务状态为完成 | Tracker `http://192.168.1.8:53836/announce` 记录到真机 `192.168.1.21` 的 announce，`left=39`；主机做种端口为 `53838`。未用预置任务或假进度；设备启用 SELinux，无法通过 `run-as` 读取应用私有输出目录，因此完整性以 Rust 队列快照、Peer announce 和任务字节数为主 |
+| 局域网 Magnet | 通过；使用 Info hash `f205e41aa956b64738a07a806d66bc907c1269a8` 和 Tracker `http://192.168.1.8:53836/announce`，metadata 弹框显示 `lan-p2p-sample.txt`，确认后任务真实完成 `39 B/39 B` | Tracker 同时记录到真机 `192.168.1.21` 的 announce（端口 `49152`）；覆盖 Magnet → metadata → 文件选择 → Peer 下载，不依赖预置队列 |
+| 公网 HTTP `.torrent` | 部分通过；`https://bt.uump4.cc/btdown/2026/08/29/20260829195947ac4oodz35dp.torrent` metadata 返回 4 个文件，Info hash 为 `40cb607aea02cc5f5a349601582b7e6e362dc759`；确认后真实进度从已有断点 `56.0 MB/381.9 MB` 增长到至少 `160.0 MB/381.9 MB`，随后无数据活动超过 90 秒后失败 | 证明 HTTP 种子不会在 metadata 后立即失败，且已有进度会保留；该公网资源的 Peer、Tracker 和 Webseed 不稳定，最终按无活动超时进入可诊断失败，不把外部资源问题误判为引擎无限卡住 |
+| 无 Peer 超时与自动重试耗尽 | 通过；真机使用只提供种子文件、不提供 Seeder 的 `http://192.168.1.8:60843/no-peer-retry.torrent`，设置“自动重试次数”为 `1` 后重新创建任务，保持 `0 B/29 B`，约 90 秒后失败并显示“暂无可用 Peer 或 Tracker 未响应，请检查网络、Tracker 后稍后重试。” | Tracker `http://192.168.1.8:60842/announce` 首次收到真机 announce，约 89 秒后再次收到来自 `192.168.1.21` 的 announce；任务最终为 `失败(1)`，证明真实重试已触发并在次数耗尽后结束，没有使用假任务或中途改设置 |
+
+本轮修复了 HTTP/HTTPS `.torrent` 的独立路径问题：此前正式下载使用
+`librqbit::AddTorrent::from_url`，metadata 虽能返回，但正式 session 可能没有继续向 Tracker
+announce，随后 0 B/s 并立即失败。现在由 FluxDown 先下载种子字节，再统一调用
+`AddTorrent::from_bytes`；同时每 30 秒刷新 Tracker，并在实际 `fetched_bytes` 和选中文件进度都
+没有活动超过 90 秒时释放 session，让队列层进入既有自动重试，而不是无限挂起。局域网 CLI 回归已
+用同一 `from_bytes` 路径完成 `39/39 B` 并收到 Tracker announce；本节真机结果进一步覆盖 Kotlin
+→ JNI → Rust 的真实移动端路径。
+
 ## 2026-10-01 Kotlin Alpha 5 公网 HLS 真机回归
 
 设备：Redmi Note 8 Pro，adb serial `wsvwypiz7xwslvl7`；应用包名
@@ -30,12 +74,14 @@ apps/mobile/android/gradlew -p apps/android :app:connectedDebugAndroidTest --no-
 | Kotlin → JNI → Rust 回环 HTTP | 通过；`RustQueueInstrumentationTest.queueDownloadsLoopbackHttpThroughRust` 真实启动设备回环 HTTP 服务，任务进入 `finished`，落盘内容和任务字节数与源 payload 一致 | 不依赖公网或隐藏测试页面 |
 | 过期残留文件 + HTTP 416 | 通过；`queueRetriesStalePartialAfterHttp416ThroughRust` 先写入过期残留，服务端对 Range 返回 416，Rust 清理残留后无 Range 重下，任务最终 `finished` 且内容完全匹配 | 覆盖 Android 真机 JNI 队列路径；Rust 另有 Range 分片回退单测 |
 | 局域网 Torrent/Magnet 重复入队 | 通过；真实 Tracker `http://192.168.1.8:18691/announce` + Transmission Seeder 下，`.torrent` 与 Magnet 各重复入队两份，均只选择 `kotlin-p2p-bundle/a-selected.bin`；四个任务全部 `finished`，每项 `65,536/65,536 B`，最终文件 SHA-256 为 `de7129a343e055ff35229d4679eae6a4dc35c6411495afab8a88164d42c0b85c` | 共享输出目录未出现完整未选文件；librqbit 可能留下零字节占位路径，未将其当作下载内容 |
-| Activity 退后台后继续下载 | 通过；`foregroundServiceCompletesWhenActivityMovesToBackground` 启动 Kotlin 页面和前台服务，按 Home 隐藏 Activity 后 16 MiB、约 30 秒慢速 HTTP 任务仍完成，输出内容与源 payload 一致 | 覆盖较长时间用户离开页面；不等同于系统低内存回收、网络切换或永久后台存活 |
+| Activity 退后台后继续下载 | 通过；`foregroundServiceCompletesWhenActivityMovesToBackground` 启动 Kotlin 页面和前台服务，按 Home 隐藏 Activity 后 `4 MiB` 慢速 HTTP 任务仍完成，输出内容与源 payload 一致 | 覆盖用户离开页面期间的持续下载；不等同于系统低内存回收、网络切换或永久后台存活 |
 | 传输中断后自动恢复 | 通过；`queueRecoversAfterMidTransferNetworkInterruptionThroughRust` 首次 HTTP 响应只发送四分之一后断开，第二次请求返回完整内容；任务最终 `finished`、`512 KiB/512 KiB`，服务端请求次数至少为 `2` | 覆盖响应体 EOF/解码异常的真实重试；不等同于切换 Wi-Fi/蜂窝网络的系统级网络开关验收 |
 | 系统级 Wi-Fi 切换后恢复 | 通过；`queueRecoversAfterWifiToggleThroughRust` 使用 `192.168.1.8` 局域网 `64 MiB` Range 资源，Redmi 真机下载中途执行 `svc wifi disable/enable`，主机日志出现先 `200` 后 `206` 的恢复请求，最终 `67,108,864/67,108,864 B` | 仅在显式传入局域网夹具参数时执行；覆盖 Wi-Fi 切换，不等同于蜂窝网络切换或系统低内存回收 |
 | 系统级 ENOSPC | 当前设备未执行破坏性填盘；Redmi 真机 `/data` 仍约有 `102.7 GiB` 可用，非 root 环境没有安全的分区/配额故障注入点 | Rust `ErrorKind::StorageFull` 不重试和“磁盘空间不足”文案已有单测；Android 真机暂以无效路径/权限错误作为邻近回归，不宣称真实 ENOSPC |
 | Torrent/Magnet 任务名称 | 通过；单文件资源在任务列表显示去扩展名的目录入口，多文件显示 metadata 目录名；点击后在“资源详情”展示完整文件名、格式、大小和逐文件进度 | 未改变 metadata 选择页的完整信息 |
-| 任务时间与速度 | 通过；Kotlin 读取 Rust 的开始/完成时间字段，运行中显示速度，完成态显示完成时间，不再显示已完成任务的下载速度 | 时间显示为设备本地时区的 `MM-dd HH:mm` |
+| Torrent/Magnet metadata 错误提示 | 通过；错误种子地址 `https://example.com/invalid.torrent` 返回 HTTP 404 时，新建弹框内部显示错误标题和具体 Rust 返回信息，未创建空任务 | 覆盖错误 metadata 的 UI 展示；不代表该地址是可下载资源 |
+| 协议创建交互护栏 | 通过；未知协议在入队前被拦截，HLS 清晰度读取错误、新建任务入队错误和 Torrent 文件确认入队错误均在对应弹框显示；ed2k 无系统接管应用时不创建任务 | 覆盖 Android Kotlin 交互层；不替代每种协议的网络可达性验收 |
+| 任务时间与速度 | 通过；Kotlin 读取 Rust 的开始/完成时间字段，运行中显示速度，完成态显示完成时间，不再显示已完成任务的下载速度 | 完成时间显示为设备本地时区的 `yyyyMMdd HH:mm:ss`；有总量的任务使用整卡背景显示进度 |
 | 宿主进程强停后恢复 | 通过；`lifecycle-force-stop-1021.bin` 运行中执行 `adb shell am force-stop`，重新启动后 PID 从 `24185` 变为 `25844`，前台服务重新接管 Rust 队列，最终 `finished`、`67,108,864/67,108,864 B`，无重复任务 | 覆盖显式强停后的启动恢复；不宣称系统低内存回收或永久后台存活 |
 
 本轮默认 Android connected instrumentation 命令成功，新增传输中断恢复回归；局域网参数化 P2P 和 Wi-Fi 切换用例均按设计跳过，未把它们计入基础套件。Wi-Fi 切换专项另行使用局域网夹具完成，详见上表。仅验证 arm64 预览包，Alpha 4 远端资产回验结果见下文。
@@ -136,7 +182,7 @@ SFTP 细节复验：2026-09-30 使用临时局域网服务 `192.168.1.8:2222` �
 长按菜单选择“重新下载”，任务先进入 `queued`，随后进入 `failed`，错误为“`下载凭据不可用，请检查系统凭据库中的引用和权限。`”，没有伪造完成状态。
 
 构建与自动化门禁：`cargo fmt --all -- --check` 通过；
-`cargo test --locked -p fluxdown-core -p fluxdown-ffi` 通过（core 112 项、ffi 14 项）；
+`cargo test --locked -p fluxdown-core -p fluxdown-ffi` 通过（core 118 项、ffi 14 项）；
 `scripts/build-kotlin-android.sh` 通过并生成 arm64-v8a APK。
 
 HLS 输入护栏：Rust 对空媒体 playlist（包括只有初始化段、没有实际媒体分片的 playlist）直接

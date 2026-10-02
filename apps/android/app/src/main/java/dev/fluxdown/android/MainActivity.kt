@@ -55,6 +55,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Close
@@ -63,7 +64,6 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -168,7 +168,7 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 
-private const val KOTLIN_APP_VERSION = "1.0.28-kotlin-alpha.5"
+private const val KOTLIN_APP_VERSION = "1.0.28-kotlin-alpha.6"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -252,6 +252,8 @@ private data class TorrentSelection(
     val directoryName: String,
     val files: List<TorrentFileSelection>,
     val infoHash: String?,
+    val onConfirmed: (() -> Unit)? = null,
+    val replaceTaskId: String? = null,
 )
 
 private data class KotlinSettings(
@@ -308,6 +310,10 @@ private data class NativeUiState(
     val rustVersion: String = "未加载",
     val rustAbi: String = "-",
     val torrentSelection: TorrentSelection? = null,
+    val torrentMetadataLoading: Boolean = false,
+    val torrentMetadataError: String? = null,
+    val newTaskSubmitting: Boolean = false,
+    val newTaskError: String? = null,
     val isConfirmingTorrent: Boolean = false,
     val torrentDetail: TorrentSelection? = null,
     val torrentDetailTask: QueueTask? = null,
@@ -322,6 +328,7 @@ private data class NativeUiState(
     val hlsVariants: List<HlsVariantOption> = emptyList(),
     val hlsVariantsSource: String? = null,
     val hlsVariantsLoading: Boolean = false,
+    val hlsVariantsError: String? = null,
 )
 
 /**
@@ -503,34 +510,43 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
         expectedSha256: String,
         hlsVariantIndex: Int?,
         hlsKeepTransportStream: Boolean,
+        onQueued: (() -> Unit)? = null,
     ) {
+        if (_state.value.newTaskSubmitting || _state.value.torrentMetadataLoading) return
+        _state.value = _state.value.copy(newTaskSubmitting = true, newTaskError = null, torrentMetadataError = null)
         viewModelScope.launch(Dispatchers.IO) {
+            try {
             val normalizedSource = source.trim()
             val protocol = parseDataString(RustCoreBridge.detect(normalizedSource), "protocol")
+            val sourceError = downloadSourceIssue(normalizedSource, protocol)
+            if (sourceError != null) {
+                showNewTaskError(sourceError)
+                return@launch
+            }
             val normalizedCredential = credentialRef?.trim()?.takeIf { it.isNotEmpty() }
             if (normalizedCredential != null && !supportsCredentialProtocol(protocol)) {
-                withContext(Dispatchers.Main) {
-                    _state.value = _state.value.copy(notice = "该协议不支持凭据引用")
-                }
+                showNewTaskError("该协议不支持凭据引用")
                 return@launch
             }
             if (normalizedCredential != null) {
                 val credential = credentialVault.get(normalizedCredential)
                 if (credential == null) {
-                    withContext(Dispatchers.Main) {
-                        _state.value = _state.value.copy(notice = "凭据不可用，请在设置中重新保存")
-                    }
+                    showNewTaskError("凭据不可用，请在设置中重新保存")
                     return@launch
                 }
                 if (credential.usesPrivateKey && protocol != "sftp") {
-                    withContext(Dispatchers.Main) {
-                        _state.value = _state.value.copy(notice = "SFTP 私钥凭据只能用于 SFTP 任务")
-                    }
+                    showNewTaskError("SFTP 私钥凭据只能用于 SFTP 任务")
                     return@launch
                 }
             }
             if (protocol == "torrent" || protocol == "magnet") {
-                inspectTorrent(normalizedSource, fileName.trim(), outputPath.ifBlank { defaultOutputPath })
+                inspectTorrent(normalizedSource, fileName.trim(), outputPath.ifBlank { defaultOutputPath }, onQueued)
+                return@launch
+            }
+            // 作者: long
+            // ed2k 由外部客户端接管；先确认系统有接收者，再写队列，避免无接管应用时闪现空任务。
+            if (protocol == "ed2k" && ed2kIntent(normalizedSource).resolveActivity(context.packageManager) == null) {
+                showNewTaskError("没有可处理 ed2k 链接的应用，请先安装支持 ed2k 的客户端")
                 return@launch
             }
             val selectedOutput = outputPath.ifBlank { defaultOutputPath }
@@ -549,9 +565,37 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
                 selectedOutput.takeIf { isTreeUri(it) },
                 startQueue = protocol != "ed2k",
             )
-            if (protocol == "ed2k" && taskIdFromQueue != null) {
-                handoffEd2k(normalizedSource, taskIdFromQueue)
+            val enqueueSucceeded = _state.value.newTaskError == null
+            if (!enqueueSucceeded) {
+                return@launch
             }
+            if (protocol == "ed2k" && taskIdFromQueue != null) {
+                if (handoffEd2k(normalizedSource, taskIdFromQueue)) {
+                    withContext(Dispatchers.Main) { onQueued?.invoke() }
+                }
+            } else if (protocol != "ed2k") {
+                withContext(Dispatchers.Main) { onQueued?.invoke() }
+            } else {
+                showNewTaskError("ed2k 任务创建成功，但无法取得任务编号，未移交外部客户端")
+            }
+            } catch (error: Throwable) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                showNewTaskError(error.message ?: "任务创建失败")
+            } finally {
+                withContext(Dispatchers.Main) { _state.value = _state.value.copy(newTaskSubmitting = false) }
+            }
+        }
+    }
+
+    fun clearNewTaskError() {
+        _state.value = _state.value.copy(newTaskError = null, torrentMetadataError = null)
+    }
+
+    private suspend fun showNewTaskError(message: String) {
+        withContext(Dispatchers.Main) {
+            // 作者: long
+            // 新建任务的错误已经在当前弹框内展示，页面顶部不再重复追加一条系统提示，避免遮挡任务列表。
+            _state.value = _state.value.copy(newTaskError = message, notice = null)
         }
     }
 
@@ -567,7 +611,10 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
             parseDataString(result, "id")?.let { rememberSafTarget(it, safTarget) }
         }
         withContext(Dispatchers.Main) {
-            _state.value = _state.value.copy(notice = message ?: "任务已加入 Rust 队列")
+            _state.value = _state.value.copy(
+                notice = null,
+                newTaskError = message,
+            )
         }
         if (message == null) {
             refreshOnce()
@@ -576,75 +623,103 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
         return taskId
     }
 
-    private suspend fun handoffEd2k(source: String, taskId: String) {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(source)).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        val packageManager = context.packageManager
-        val canHandle = intent.resolveActivity(packageManager) != null
-        if (!canHandle) {
-            RustCoreBridge.queueRemove(storePath, taskId)
-            withContext(Dispatchers.Main) {
-                _state.value = _state.value.copy(notice = "没有可处理 ed2k 链接的应用")
-            }
-            refreshOnce()
-            return
-        }
-        runCatching { context.startActivity(intent) }
+    private fun ed2kIntent(source: String) = Intent(Intent.ACTION_VIEW, Uri.parse(source)).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    private suspend fun handoffEd2k(source: String, taskId: String): Boolean {
+        val result = runCatching { context.startActivity(ed2kIntent(source)) }
             .onSuccess {
                 RustCoreBridge.queueMarkHandedOff(storePath, taskId)
                 withContext(Dispatchers.Main) {
-                    _state.value = _state.value.copy(notice = "ed2k 链接已移交外部客户端")
+                    _state.value = _state.value.copy(notice = null)
                 }
             }
             .onFailure {
                 RustCoreBridge.queueRemove(storePath, taskId)
-                withContext(Dispatchers.Main) {
-                    _state.value = _state.value.copy(notice = "ed2k 链接移交失败：${it.message ?: "未知错误"}")
-                }
+                showNewTaskError("ed2k 链接移交失败：${it.message ?: "未知错误"}")
             }
         refreshOnce()
+        return result.isSuccess
     }
 
     /**
      * Torrent/Magnet 先解析 metadata，不写入队列；只有用户确认文件选择后才创建任务。
      * 作者: long
      */
-    private suspend fun inspectTorrent(source: String, fileName: String, outputPath: String) {
+    private suspend fun inspectTorrent(
+        source: String,
+        fileName: String,
+        outputPath: String,
+        onQueued: (() -> Unit)?,
+        replaceTaskId: String? = null,
+    ) {
         withContext(Dispatchers.Main) {
-            _state.value = _state.value.copy(notice = "正在解析 Torrent/Magnet metadata…")
+            _state.value = _state.value.copy(
+                torrentMetadataLoading = true,
+                torrentMetadataError = null,
+                notice = null,
+            )
         }
-        val start = RustCoreBridge.torrentDetailsAsync(source)
-        val runId = parseDataString(start, "runId")
-        if (runId == null) {
-            withContext(Dispatchers.Main) {
-                _state.value = _state.value.copy(notice = parseError(start) ?: "metadata 解析启动失败")
+        var metadataRunId: String? = null
+        try {
+            val start = RustCoreBridge.torrentDetailsAsync(source)
+            val runId = parseDataString(start, "runId")
+            if (runId == null) {
+                val message = parseError(start) ?: "metadata 解析启动失败"
+                withContext(Dispatchers.Main) {
+                    _state.value = _state.value.copy(notice = null, newTaskError = message, torrentMetadataError = message)
+                }
+                return
             }
-            return
-        }
-        var detailsStatus = "running"
-        var terminalStatus = start
-        while (detailsStatus == "running") {
-            delay(500)
-            terminalStatus = RustCoreBridge.queueRunStatus(runId)
-            detailsStatus = parseDataString(terminalStatus, "state") ?: "failed"
-        }
-        RustCoreBridge.queueRunForget(runId)
-        if (detailsStatus != "finished") {
-            withContext(Dispatchers.Main) {
-                _state.value = _state.value.copy(notice = parseDataString(terminalStatus, "error") ?: "metadata 解析失败")
+            metadataRunId = runId
+            var detailsStatus = "running"
+            var terminalStatus = start
+            val deadlineNanos = System.nanoTime() + 90_000_000_000L
+            while (detailsStatus == "running") {
+                if (System.nanoTime() >= deadlineNanos) {
+                    throw IllegalStateException("获取 Torrent/Magnet 清单超时，请检查网络或节点")
+                }
+                delay(500)
+                terminalStatus = RustCoreBridge.queueRunStatus(runId)
+                detailsStatus = parseDataString(terminalStatus, "state") ?: "failed"
             }
-            return
-        }
-        val selection = parseTorrentSelection(terminalStatus, source, fileName, outputPath)
-        if (selection == null || selection.files.isEmpty()) {
-            withContext(Dispatchers.Main) {
-                _state.value = _state.value.copy(notice = "metadata 未返回可下载文件")
+            if (detailsStatus != "finished") {
+                val message = parseDataString(terminalStatus, "error") ?: "metadata 解析失败"
+                withContext(Dispatchers.Main) {
+                    _state.value = _state.value.copy(notice = null, newTaskError = message, torrentMetadataError = message)
+                }
+                return
             }
-            return
-        }
-        withContext(Dispatchers.Main) {
-            _state.value = _state.value.copy(torrentSelection = selection, notice = null)
+            val selection = parseTorrentSelection(
+                terminalStatus,
+                source,
+                fileName,
+                outputPath,
+                onQueued,
+                replaceTaskId,
+            )
+            if (selection == null || selection.files.isEmpty()) {
+                val message = "metadata 未返回可下载文件"
+                withContext(Dispatchers.Main) {
+                    _state.value = _state.value.copy(notice = null, newTaskError = message, torrentMetadataError = message)
+                }
+                return
+            }
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(torrentSelection = selection, torrentMetadataError = null, newTaskError = null, notice = null)
+            }
+        } catch (error: Throwable) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            val message = error.message?.trim().takeUnless { it.isNullOrEmpty() } ?: "metadata 解析失败"
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(notice = null, newTaskError = message, torrentMetadataError = message)
+            }
+        } finally {
+            metadataRunId?.let { RustCoreBridge.queueRunForget(it) }
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(torrentMetadataLoading = false)
+            }
         }
     }
 
@@ -671,34 +746,49 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             // 作者: long
             // 运行中的 Torrent 由 Rust 返回逐文件进度；暂停或完成后没有活动会话时，仍展示入队时保存的 metadata。
-            val start = RustCoreBridge.torrentDetailsAsync(task.source, task.id)
-            val runId = parseDataString(start, "runId")
-            if (runId == null) {
+            var detailsRunId: String? = null
+            try {
+                val start = RustCoreBridge.torrentDetailsAsync(task.source, task.id)
+                val runId = parseDataString(start, "runId")
+                if (runId == null) {
+                    withContext(Dispatchers.Main) {
+                        _state.value = _state.value.copy(torrentDetail = savedDetails(), torrentDetailTask = task, notice = null)
+                    }
+                    return@launch
+                }
+                detailsRunId = runId
+                var detailsStatus = "running"
+                var terminalStatus = start
+                val deadlineNanos = System.nanoTime() + 30_000_000_000L
+                while (detailsStatus == "running") {
+                    if (System.nanoTime() >= deadlineNanos) break
+                    delay(400)
+                    terminalStatus = RustCoreBridge.queueRunStatus(runId)
+                    detailsStatus = parseDataString(terminalStatus, "state") ?: "failed"
+                }
+                val selection = if (detailsStatus == "finished") {
+                    parseTorrentSelection(terminalStatus, task.source, task.name, outputPath)
+                } else {
+                    null
+                }
+                val selected = selection?.let { value ->
+                    if (task.torrentFileIndices.isEmpty()) value
+                    else value.copy(files = value.files.filter { it.index in task.torrentFileIndices })
+                }
+                val fallback = selected ?: savedDetails()
+                withContext(Dispatchers.Main) {
+                    _state.value = _state.value.copy(torrentDetail = fallback, torrentDetailTask = task, notice = null)
+                }
+            } catch (error: Throwable) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                // 作者: long
+                // 详情查询只影响展示，不应因为 metadata 会话异常让任务页或下载任务崩溃；
+                // 回退到入队时保存的文件清单，用户仍可查看已确认内容和落盘进度。
                 withContext(Dispatchers.Main) {
                     _state.value = _state.value.copy(torrentDetail = savedDetails(), torrentDetailTask = task, notice = null)
                 }
-                return@launch
-            }
-            var detailsStatus = "running"
-            var terminalStatus = start
-            while (detailsStatus == "running") {
-                delay(400)
-                terminalStatus = RustCoreBridge.queueRunStatus(runId)
-                detailsStatus = parseDataString(terminalStatus, "state") ?: "failed"
-            }
-            RustCoreBridge.queueRunForget(runId)
-            val selection = if (detailsStatus == "finished") {
-                parseTorrentSelection(terminalStatus, task.source, task.name, outputPath)
-            } else {
-                null
-            }
-            val selected = selection?.let { value ->
-                if (task.torrentFileIndices.isEmpty()) value
-                else value.copy(files = value.files.filter { it.index in task.torrentFileIndices })
-            }
-            val fallback = selected ?: savedDetails()
-            withContext(Dispatchers.Main) {
-                _state.value = _state.value.copy(torrentDetail = fallback, torrentDetailTask = task, notice = null)
+            } finally {
+                detailsRunId?.let { RustCoreBridge.queueRunForget(it) }
             }
         }
     }
@@ -713,7 +803,7 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             if (selectedIndexes.isEmpty()) {
                 withContext(Dispatchers.Main) {
-                    _state.value = _state.value.copy(isConfirmingTorrent = false, notice = "至少选择一个文件")
+                    _state.value = _state.value.copy(isConfirmingTorrent = false, newTaskError = "至少选择一个文件", notice = null)
                 }
                 return@launch
             }
@@ -738,27 +828,51 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
                 .put("torrentFiles", files)
             taskId?.let { request.put("taskId", it) }
             val result = RustCoreBridge.queueAdd(storePath, request.toString())
-            val message = parseError(result)
+            val enqueueMessage = parseError(result)
+            val newTaskId = parseDataString(result, "id")
+            var message = enqueueMessage
             if (message == null && taskId != null) {
                 rememberSafTarget(taskId, selection.outputPath)
+            }
+            if (message == null && selection.replaceTaskId != null) {
+                // 作者: long
+                // 重试必须先确保新任务已经落盘，再替换旧失败任务；这样 metadata 获取失败、用户取消选择
+                // 或新任务入队失败时，旧任务仍可继续查看和再次重试，不会出现“任务凭空消失”。
+                val removeResult = RustCoreBridge.queueRemove(storePath, selection.replaceTaskId)
+                val removeMessage = parseError(removeResult)
+                if (removeMessage != null) {
+                    (newTaskId ?: taskId)?.let { createdTaskId ->
+                        RustCoreBridge.queueRemove(storePath, createdTaskId)
+                        forgetSafTarget(createdTaskId)
+                    }
+                    message = "替换旧失败任务失败：$removeMessage"
+                } else {
+                    forgetSafTarget(selection.replaceTaskId)
+                }
             }
             withContext(Dispatchers.Main) {
                 _state.value = _state.value.copy(
                     torrentSelection = if (message == null) null else selection,
                     isConfirmingTorrent = false,
-                    notice = message ?: "任务已加入 Rust 队列",
+                    newTaskError = message,
+                    notice = null,
                 )
+                if (message == null) selection.onConfirmed?.invoke()
             }
             if (message == null) {
                 refreshOnce()
                 ensureQueueRunning()
+            } else {
+                // 作者: long
+                // 替换失败时新任务可能已被回滚，立即刷新列表让 UI 与持久化队列一致，避免用户看到残留重复项。
+                refreshOnce()
             }
         }
     }
 
     fun cancelTorrentSelection() {
         if (_state.value.isConfirmingTorrent) return
-        _state.value = _state.value.copy(torrentSelection = null, notice = "已取消 Torrent/Magnet 任务")
+        _state.value = _state.value.copy(torrentSelection = null, newTaskError = null, notice = null)
     }
 
     fun remove(task: QueueTask) {
@@ -778,6 +892,30 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
     fun reset(task: QueueTask) {
         mutateTask(task, { RustCoreBridge.queueReset(storePath, task.id) }) {
             markSafPending(task.id)
+        }
+    }
+
+    fun retry(task: QueueTask) {
+        if (!task.isTorrentResource) {
+            reset(task)
+            return
+        }
+        // 作者: long
+        // Torrent/Magnet 失败后重新解析 metadata，给用户重新确认文件集合的机会；
+        // 直接 queueReset 会沿用过期会话，容易把失败任务再次卡在等待 Peer 状态。
+        _state.value = _state.value.copy(actionTask = null, torrentMetadataError = null, newTaskError = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            val retryOutputPath = torrentRetryOutputPath(
+                taskOutputPath = task.outputDir,
+                persistedSafTarget = safTargetPrefs.getString("target:${task.id}", null),
+            )
+            inspectTorrent(
+                source = task.source,
+                fileName = task.name,
+                outputPath = retryOutputPath,
+                onQueued = null,
+                replaceTaskId = task.id,
+            )
         }
     }
 
@@ -1048,18 +1186,20 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
     fun loadHlsVariants(source: String) {
         val requested = source.trim()
         if (!requested.substringBefore('?').substringBefore('#').endsWith(".m3u8", ignoreCase = true)) {
-            _state.value = _state.value.copy(hlsVariants = emptyList(), hlsVariantsSource = null, hlsVariantsLoading = false)
+            _state.value = _state.value.copy(hlsVariants = emptyList(), hlsVariantsSource = null, hlsVariantsLoading = false, hlsVariantsError = null)
             return
         }
         if (_state.value.hlsVariantsLoading && _state.value.hlsVariantsSource == requested) return
-        _state.value = _state.value.copy(hlsVariants = emptyList(), hlsVariantsSource = requested, hlsVariantsLoading = true)
+        _state.value = _state.value.copy(hlsVariants = emptyList(), hlsVariantsSource = requested, hlsVariantsLoading = true, hlsVariantsError = null)
         viewModelScope.launch(Dispatchers.IO) {
-            val result = parseHlsVariants(RustCoreBridge.hlsVariants(requested))
+            val envelope = RustCoreBridge.hlsVariants(requested)
+            val error = parseError(envelope)
+            val result = if (error == null) parseHlsVariants(envelope) else emptyList()
             withContext(Dispatchers.Main) {
                 // 作者: long
                 // 网络请求返回可能晚于用户继续编辑链接，只接受仍对应当前地址的结果，避免旧清晰度列表套到新任务。
                 if (_state.value.hlsVariantsSource == requested) {
-                    _state.value = _state.value.copy(hlsVariants = result, hlsVariantsLoading = false)
+                    _state.value = _state.value.copy(hlsVariants = result, hlsVariantsLoading = false, hlsVariantsError = error)
                 }
             }
         }
@@ -1290,9 +1430,8 @@ private class NativeViewModel(private val context: Context) : ViewModel() {
         val snapshot = parseTasks(RustCoreBridge.queueList(storePath))
         if (snapshot.none { it.state == "queued" || it.state == "running" }) return
         startForegroundMonitor(DownloadForegroundService.ACTION_START)
-        withContext(Dispatchers.Main) {
-            _state.value = _state.value.copy(notice = "Rust 下载队列已交给后台服务")
-        }
+        // 作者: long
+        // 前台服务接管是内部调度细节，不在任务页顶部追加提示；真实状态由任务卡片和通知栏展示。
     }
 
     private fun startForegroundMonitor(action: String) {
@@ -1482,7 +1621,7 @@ private fun FluxDownApp(model: NativeViewModel) {
         floatingActionButton = {
             if (state.selectedTab == HomeTab.Tasks) {
                 FloatingActionButton(
-                    onClick = { showNewTask = true },
+                    onClick = { model.clearNewTaskError(); showNewTask = true },
                     containerColor = MaterialTheme.colorScheme.primary,
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "新建任务")
@@ -1515,19 +1654,29 @@ private fun FluxDownApp(model: NativeViewModel) {
     if (showNewTask) {
         NewTaskDialog(
             defaultOutputPath = state.settings.outputPath,
-            storageStats = state.storageStats,
-            storageLoading = state.storageLoading,
-            storageUnavailable = state.storageUnavailable,
-            onDismiss = { showNewTask = false },
-            onChooseOutputDirectory = { outputDirectoryLauncher.launch(null) },
+            onDismiss = { model.clearNewTaskError(); showNewTask = false },
             credentialReferences = state.credentialReferences,
             hlsVariants = state.hlsVariants,
             hlsVariantsSource = state.hlsVariantsSource,
             hlsVariantsLoading = state.hlsVariantsLoading,
+            hlsVariantsError = state.hlsVariantsError,
             onLoadHlsVariants = model::loadHlsVariants,
+            torrentMetadataLoading = state.torrentMetadataLoading,
+            torrentMetadataError = state.torrentMetadataError,
+            newTaskSubmitting = state.newTaskSubmitting,
+            newTaskError = state.newTaskError,
+            onSourceChanged = model::clearNewTaskError,
             onConfirm = { source, fileName, outputPath, credentialRef, expectedSha256, hlsVariantIndex, hlsKeepTransportStream ->
-                showNewTask = false
-                model.addTask(source, fileName, outputPath, credentialRef, expectedSha256, hlsVariantIndex, hlsKeepTransportStream)
+                model.addTask(
+                    source,
+                    fileName,
+                    outputPath,
+                    credentialRef,
+                    expectedSha256,
+                    hlsVariantIndex,
+                    hlsKeepTransportStream,
+                    onQueued = { model.clearNewTaskError(); showNewTask = false },
+                )
             },
         )
     }
@@ -1545,6 +1694,7 @@ private fun FluxDownApp(model: NativeViewModel) {
         TorrentSelectionDialog(
             selection = selection,
             isConfirming = state.isConfirmingTorrent,
+            error = state.newTaskError,
             onDismiss = model::cancelTorrentSelection,
             onConfirm = { selected -> model.confirmTorrentSelection(selection, selected) },
         )
@@ -1570,7 +1720,7 @@ private fun FluxDownApp(model: NativeViewModel) {
             onDismiss = model::closeTaskActions,
             onPause = { model.closeTaskActions(); model.pause(task) },
             onResume = { model.closeTaskActions(); model.resume(task) },
-            onRetry = { model.closeTaskActions(); model.reset(task) },
+            onRetry = { model.closeTaskActions(); model.retry(task) },
             onOpen = { model.openTask(task) },
             onShare = { model.shareTask(task) },
             onCopySource = { model.copySource(task) },
@@ -1668,9 +1818,6 @@ private fun QueueScreen(state: NativeUiState, model: NativeViewModel) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("任务", fontSize = 18.sp, fontWeight = FontWeight.Normal, color = Color(0xFF20252B), modifier = Modifier.weight(1f))
-            IconButton(onClick = model::refresh, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Default.Refresh, contentDescription = "刷新", tint = Color(0xFF0F6FA8), modifier = Modifier.size(18.dp))
-            }
         }
         QueueFilterStrip(
             selected = selectedFilter,
@@ -1688,7 +1835,9 @@ private fun QueueScreen(state: NativeUiState, model: NativeViewModel) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 88.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+                // 作者: long
+                // 下载列表按任务卡连续排列，避免卡片间的外边距打断状态色和进度背景的连续阅读。
+                verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 items(visibleTasks, key = { it.id }) { task -> TaskRow(task, model) }
             }
@@ -1772,9 +1921,9 @@ private fun EmptyQueue() {
 @OptIn(ExperimentalFoundationApi::class)
 private fun TaskRow(task: QueueTask, model: NativeViewModel) {
     val (tint, background, border, progressFill) = when (task.state) {
-        "finished", "handed-off" -> listOf(Color(0xFF2E8B57), Color(0xFFF1FBF5), Color(0x4A2E8B57), Color.Transparent)
-        "failed" -> listOf(Color(0xFFC64B4B), Color(0xFFFFF5F5), Color(0x4AC64B4B), Color.Transparent)
-        "paused" -> listOf(Color(0xFFB7791F), Color(0xFFFFFAF0), Color(0x4AB7791F), Color.Transparent)
+        "finished", "handed-off" -> listOf(Color(0xFF2E8B57), Color(0xFFF1FBF5), Color(0x4A2E8B57), Color(0x4A2E8B57))
+        "failed" -> listOf(Color(0xFFC64B4B), Color(0xFFFFF5F5), Color(0x4AC64B4B), Color(0x3AC64B4B))
+        "paused" -> listOf(Color(0xFFB7791F), Color(0xFFFFFAF0), Color(0x4AB7791F), Color(0x4AB7791F))
         else -> listOf(Color(0xFF168BD1), Color(0xFFF7FCFF), Color(0x4A168BD1), Color(0xB89DD8F5))
     }
     Card(
@@ -1797,7 +1946,7 @@ private fun TaskRow(task: QueueTask, model: NativeViewModel) {
         border = BorderStroke(1.dp, border),
     ) {
         BoxWithConstraints {
-            if (task.state == "running" && task.progress > 0f) {
+            if (task.totalBytes != null && task.totalBytes > 0L && task.progress > 0f) {
                 Box(
                     Modifier
                         .width(maxWidth * task.progress)
@@ -1835,7 +1984,11 @@ private fun TaskRow(task: QueueTask, model: NativeViewModel) {
                         Spacer(Modifier.width(5.dp))
                         Surface(color = tint.copy(alpha = 0.14f), shape = RoundedCornerShape(5.dp)) {
                             Text(
-                                "${task.stateLabel()} ${(task.progress * 100).toInt()}%",
+                                when (task.state) {
+                                    "running" -> "${(task.progress * 100).toInt()}%"
+                                    "finished" -> "已完成"
+                                    else -> task.stateLabel()
+                                },
                                 color = tint,
                                 fontSize = 9.5.sp,
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
@@ -1862,10 +2015,7 @@ private fun TaskRow(task: QueueTask, model: NativeViewModel) {
                             )
                         } else if (task.state == "finished") {
                             Text(
-                                buildString {
-                                    task.hlsSegmentLabel()?.let { append("$it · ") }
-                                    append(task.finishedAtMs?.let { "完成 ${formatTaskTime(it)}" } ?: "已完成")
-                                },
+                                task.finishedAtMs?.let(::formatTaskTime) ?: "--",
                                 fontSize = 10.sp,
                                 color = tint,
                                 maxLines = 1,
@@ -1909,6 +2059,11 @@ private fun TaskActionsDialog(
         text = {
             Column(Modifier.fillMaxWidth()) {
                 Text(task.displayName, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = Color(0xFF687782))
+                if (task.state == "failed" && !task.error.isNullOrBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("失败原因", fontSize = 11.sp, color = Color(0xFFB64646))
+                    Text(task.error, fontSize = 11.sp, color = Color(0xFF7A3030), maxLines = 6, overflow = TextOverflow.Ellipsis)
+                }
                 Spacer(Modifier.height(8.dp))
                 if (task.state == "running") {
                     TaskActionButton(Icons.Default.Pause, "暂停", onPause)
@@ -1926,7 +2081,7 @@ private fun TaskActionsDialog(
                     task.torrentFileIndices.isEmpty() || it.index in task.torrentFileIndices
                 }
                 if (task.state == "finished" && selectedTorrentFiles <= 1) {
-                    TaskActionButton(Icons.Default.OpenInNew, "打开文件", onOpen)
+                    TaskActionButton(Icons.AutoMirrored.Filled.OpenInNew, "打开文件", onOpen)
                     TaskActionButton(Icons.Default.Share, "分享文件", onShare)
                 }
                 if (task.isTorrentResource) {
@@ -2348,15 +2503,17 @@ private fun SettingField(label: String, value: String, hint: String, onValueChan
 @Composable
 private fun NewTaskDialog(
     defaultOutputPath: String,
-    storageStats: AndroidStorageStats?,
-    storageLoading: Boolean,
-    storageUnavailable: Boolean,
     credentialReferences: List<String>,
     hlsVariants: List<HlsVariantOption>,
     hlsVariantsSource: String?,
     hlsVariantsLoading: Boolean,
+    hlsVariantsError: String?,
     onLoadHlsVariants: (String) -> Unit,
-    onChooseOutputDirectory: () -> Unit,
+    torrentMetadataLoading: Boolean,
+    torrentMetadataError: String?,
+    newTaskSubmitting: Boolean,
+    newTaskError: String?,
+    onSourceChanged: () -> Unit,
     onDismiss: () -> Unit,
     onConfirm: (String, String, String, String?, String, Int?, Boolean) -> Unit,
 ) {
@@ -2365,17 +2522,18 @@ private fun NewTaskDialog(
     var outputPath by remember { mutableStateOf(defaultOutputPath) }
     var credentialRef by remember { mutableStateOf<String?>(null) }
     var credentialMenuExpanded by remember { mutableStateOf(false) }
-    var expectedSha256 by remember { mutableStateOf("") }
     var hlsVariant by remember { mutableStateOf("") }
     var hlsKeepTransportStream by remember { mutableStateOf(false) }
     var showScanner by rememberSaveable { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
-    val isHlsSource = source.trim().substringBefore('?').substringBefore('#').endsWith(".m3u8", ignoreCase = true)
-    val hlsVariantIndex = hlsVariant.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
-    val hlsVariantError = hlsVariant.trim().isNotEmpty() && (hlsVariantIndex == null || hlsVariantIndex < 0)
     val detectedProtocol = remember(source) {
         source.trim().takeIf { it.isNotEmpty() }?.let { parseDataString(RustCoreBridge.detect(it), "protocol") } ?: "unknown"
     }
+    val isHlsSource = detectedProtocol == "m3u8"
+    val hlsVariantIndex = hlsVariant.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
+    val hlsVariantError = hlsVariant.trim().isNotEmpty() && (hlsVariantIndex == null || hlsVariantIndex < 0)
+    val sourceError = downloadSourceIssue(source.trim(), detectedProtocol)
+    val busy = newTaskSubmitting || torrentMetadataLoading
     val detectedLabel = when (detectedProtocol) {
         "http" -> "HTTP · Rust 下载引擎"
         "https" -> "HTTPS · Rust 下载引擎"
@@ -2388,10 +2546,10 @@ private fun NewTaskDialog(
         "ed2k" -> "ED2K · 外部接管"
         "smb" -> "SMB · Rust 下载引擎"
         "webdav", "webdavs" -> "WebDAV · Rust 下载引擎"
-        else -> "等待识别链接类型"
+        else -> if (source.isBlank()) "等待识别链接类型" else "无法识别或暂不支持"
     }
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!busy) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Surface(
@@ -2427,13 +2585,14 @@ private fun NewTaskDialog(
                     IconButton(onClick = { showScanner = true }, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.QrCodeScanner, contentDescription = "扫描二维码", tint = Color(0xFF3F4B55), modifier = Modifier.size(17.dp))
                     }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Close, contentDescription = "关闭", tint = Color(0xFF3F4B55), modifier = Modifier.size(19.dp))
                     }
                 }
                 OutlinedTextField(
                     value = source,
-                    onValueChange = { source = it },
+                    onValueChange = { source = it; onSourceChanged() },
+                    enabled = !busy,
                     label = { Text("下载链接", fontSize = 12.sp) },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 5,
@@ -2455,13 +2614,28 @@ private fun NewTaskDialog(
                     Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("自动识别", fontSize = 10.5.sp, color = Color(0xFF5D646D))
                         Spacer(Modifier.width(8.dp))
-                        Text(detectedLabel, modifier = Modifier.weight(1f), fontSize = 11.5.sp, color = Color(0xFF168BD1), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF168BD1), modifier = Modifier.size(15.dp))
+                        Text(detectedLabel, modifier = Modifier.weight(1f), fontSize = 11.5.sp, color = if (source.isNotBlank() && sourceError != null) Color(0xFFB33A3A) else Color(0xFF168BD1), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (sourceError == null) Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF168BD1), modifier = Modifier.size(15.dp))
+                    }
+                }
+                (torrentMetadataError ?: newTaskError ?: sourceError?.takeIf { source.isNotBlank() })?.let { message ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF1F1)),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Color(0x3AC64B4B)),
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
+                            Text(if (torrentMetadataError != null) "Torrent/Magnet 清单获取失败" else "无法创建下载任务", fontSize = 11.5.sp, color = Color(0xFFB33A3A))
+                            Spacer(Modifier.height(2.dp))
+                            Text(message, fontSize = 11.sp, color = Color(0xFF7A3030))
+                        }
                     }
                 }
                 OutlinedTextField(
                     value = fileName,
                     onValueChange = { fileName = it },
+                    enabled = !busy,
                     label = { Text("文件名", fontSize = 12.sp) },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 4,
@@ -2521,6 +2695,9 @@ private fun NewTaskDialog(
                             Text("${hlsVariants.size} 个", fontSize = 11.sp, color = Color(0xFF74838D))
                         }
                     }
+                    if (hlsVariantsSource == source.trim() && hlsVariantsError != null) {
+                        Text("清晰度读取失败：$hlsVariantsError", fontSize = 11.sp, color = Color(0xFFB33A3A))
+                    }
                     if (hlsVariantsSource == source.trim() && hlsVariants.isNotEmpty()) {
                         Column(
                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0xFFF4F8FC)).padding(8.dp),
@@ -2559,24 +2736,37 @@ private fun NewTaskDialog(
                         Text("保留原始 TS 文件", fontSize = 12.sp, color = Color(0xFF50606C))
                     }
                 }
-                StorageStatsPanel(
-                    stats = storageStats,
-                    loading = storageLoading,
-                    unavailable = storageUnavailable,
-                )
+                if (torrentMetadataLoading) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().height(3.dp),
+                        color = Color(0xFF168BD1),
+                        trackColor = Color(0xFFD9EAF5),
+                    )
+                    Text(
+                        "正在获取可下载清单，完成后选择文件…",
+                        fontSize = 11.sp,
+                        color = Color(0xFF5D646D),
+                    )
+                }
                 Button(
                     onClick = {
-                        if (source.isNotBlank() && !hlsVariantError) {
-                            onConfirm(source, fileName, outputPath, credentialRef, expectedSha256, hlsVariantIndex.takeIf { isHlsSource }, hlsKeepTransportStream && isHlsSource)
+                        if (sourceError == null && !hlsVariantError && !busy) {
+                            onConfirm(source, fileName, outputPath, credentialRef, "", hlsVariantIndex.takeIf { isHlsSource }, hlsKeepTransportStream && isHlsSource)
                         }
                     },
-                    enabled = source.isNotBlank() && !hlsVariantError,
+                    enabled = sourceError == null && !hlsVariantError && !busy,
                     modifier = Modifier.fillMaxWidth().height(44.dp),
                     shape = RoundedCornerShape(8.dp),
                 ) {
-                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(17.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("开始下载", fontSize = 13.sp, fontWeight = FontWeight.Normal)
+                    if (torrentMetadataLoading) {
+                        Text("正在获取清单…", fontSize = 13.sp, fontWeight = FontWeight.Normal)
+                    } else if (newTaskSubmitting) {
+                        Text("正在创建任务…", fontSize = 13.sp, fontWeight = FontWeight.Normal)
+                    } else {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("开始下载", fontSize = 13.sp, fontWeight = FontWeight.Normal)
+                    }
                 }
             }
         }
@@ -2724,6 +2914,7 @@ private fun QrScannerDialog(
 private fun TorrentSelectionDialog(
     selection: TorrentSelection,
     isConfirming: Boolean,
+    error: String?,
     onDismiss: () -> Unit,
     onConfirm: (Set<Int>) -> Unit,
 ) {
@@ -2748,6 +2939,16 @@ private fun TorrentSelectionDialog(
                 }
                 Spacer(Modifier.height(12.dp))
                 Text("选择要下载的文件（${selectedIndexes.size}/${selection.files.size}）", fontSize = 12.sp, color = Color(0xFF687782))
+                error?.let { message ->
+                    Spacer(Modifier.height(6.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF1F1)),
+                        border = BorderStroke(1.dp, Color(0x3AC64B4B)),
+                    ) {
+                        Text("加入队列失败：$message", modifier = Modifier.padding(9.dp), fontSize = 11.sp, color = Color(0xFF7A3030))
+                    }
+                }
                 Spacer(Modifier.height(6.dp))
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -2838,7 +3039,7 @@ private fun TorrentDetailsDialog(
                                 )
                                 if (onOpenFile != null) {
                                     IconButton(onClick = { onOpenFile(file) }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Default.OpenInNew, contentDescription = "打开 ${file.name}", modifier = Modifier.size(17.dp))
+                                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "打开 ${file.name}", modifier = Modifier.size(17.dp))
                                     }
                                 }
                                 if (onShareFile != null) {
@@ -2992,6 +3193,16 @@ private fun parseTorrentFiles(filesJson: JSONArray?): List<TorrentFileSelection>
     }
 }
 
+internal fun torrentRetryOutputPath(taskOutputPath: String, persistedSafTarget: String?): String {
+    // 作者: long
+    // SAF 任务在 Rust 中使用私有暂存目录，重试时必须恢复用户授权的 content URI；
+    // 偏好损坏或被清空时才回退到队列快照里的路径，避免把空值误当成可写目录。
+    return persistedSafTarget
+        ?.trim()
+        ?.takeIf { it.startsWith("content://") }
+        ?: taskOutputPath
+}
+
 private fun JSONObject.optNullableLong(vararg keys: String): Long? {
     for (key in keys) {
         if (!isNull(key) && has(key)) {
@@ -3075,6 +3286,8 @@ private fun parseTorrentSelection(
     source: String,
     requestedFileName: String,
     outputPath: String,
+    onConfirmed: (() -> Unit)? = null,
+    replaceTaskId: String? = null,
 ): TorrentSelection? = runCatching {
     val root = JSONObject(envelope)
     val report = root.optJSONObject("data")?.optJSONObject("report") ?: return@runCatching null
@@ -3093,6 +3306,8 @@ private fun parseTorrentSelection(
         directoryName = report.optString("name").ifBlank { "Torrent 资源" },
         files = files,
         infoHash = infoHash,
+        onConfirmed = onConfirmed,
+        replaceTaskId = replaceTaskId,
     )
 }.getOrNull()
 
@@ -3106,6 +3321,18 @@ private fun supportsCredentialProtocol(protocol: String?): Boolean = protocol in
     "sftp",
     "smb",
 )
+
+internal fun downloadSourceIssue(source: String, protocol: String?): String? {
+    if (source.isBlank()) return "请输入下载链接"
+    if (protocol !in setOf(
+            "http", "https", "m3u8", "torrent", "magnet", "ftp", "ftps",
+            "sftp", "ed2k", "smb", "webdav", "webdavs",
+        )
+    ) {
+        return "无法识别或暂不支持该链接协议"
+    }
+    return null
+}
 
 private fun hasUsableKnownHostEntry(content: String): Boolean = content.lineSequence().any { rawLine ->
     val line = rawLine.trim()
@@ -3125,7 +3352,7 @@ private fun formatBytes(value: Long): String = when {
 }
 
 private fun formatTaskTime(value: Long): String = runCatching {
-    SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(value))
+    SimpleDateFormat("yyyyMMdd HH:mm:ss", Locale.getDefault()).format(Date(value))
 }.getOrDefault("--")
 
 private fun formatOutputLocation(context: Context, value: String): String {

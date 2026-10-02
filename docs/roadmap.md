@@ -1,6 +1,6 @@
 # 路线图
 
-核对日期：2026-10-01。源码基线：`android-kotlin-migration` / 当前工作树（P2-05 凭据与连接安全，桌面端与移动端 SFTP known_hosts 配置入口已补齐）；当前 Kotlin 预览源码版本：`1.0.28-kotlin-alpha.5`，桌面稳定版为 `1.0.27`。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
+核对日期：2026-10-02。源码基线：`android-kotlin-migration` / 当前工作树（P2-05 凭据与连接安全，桌面端与移动端 SFTP known_hosts 配置入口已补齐）；当前 Kotlin 预览源码版本：`1.0.28-kotlin-alpha.6`，桌面稳定版为 `1.0.27`。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
 
 状态口径：**已实现**表示有实际代码和入口；**部分实现**表示仍有端侧差异或功能缺口；**待验证**表示缺少目标版本、目标设备的运行证据；**规划**表示尚未交付。构建成功、模拟数据 UI 测试、历史真机通过不能互相替代。
 
@@ -52,7 +52,7 @@
 
 | 平台 | 当前源码与既有证据 | 历史运行证据 | 仍待补验 |
 | --- | --- | --- | --- |
-| Android | Kotlin arm64 工作树 `1.0.28-kotlin-alpha.5` 已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）完成 Gradle JVM 单测、默认 connected instrumentation、局域网 Torrent/Magnet 重复入队参数化回归、Activity 退后台前台服务回归、传输中断自动恢复和系统级 Wi-Fi 切换回归；真实二维码识别、双轨/B 帧/多音频、仅音频、仅视频、空/损坏 TS、Rust 回环队列、HTTP 416 回退、503 瞬态重试、HLS 分片 `48/48` 和公网 HLS 真机回归均有证据；手持相机实拍回填也已人工确认；此前 Release APK 的 Flutter/Rust FFI smoke 仍保留。 | 同设备已通过暂停、继续、重启恢复、Torrent/Magnet metadata 多文件选择、目录详情和任务指标；本轮二维码、媒体轨道保留、HLS 缓存/流式合并、过期 Range 文件清理、重复入队、Activity 退后台、响应体中断恢复、Wi-Fi 切换后的 Range 恢复和公网 HLS 均有自动化或真机证据。 | ed2k 仍按外部 handler 边界；完整多音轨 rendition、真实系统 ENOSPC、系统低内存回收/长期后台和正式签名分发按环境补验。 |
+| Android | Kotlin arm64 工作树 `1.0.28-kotlin-alpha.6` 已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）完成 Gradle JVM 单测、默认真机 instrumentation `24/24`（另有 `3` 项按环境跳过）、ReleaseTest HTTP 与 Torrent/Magnet 回归、局域网 Torrent/Magnet 重复入队参数化回归、Activity 退后台前台服务回归、传输中断自动恢复和系统级 Wi-Fi 切换回归；真实二维码识别、双轨/B 帧/多音频、仅音频、仅视频、空/损坏 TS、Rust 回环队列、HTTP 416 回退、503 瞬态重试、HLS 分片 `48/48`、公网 HLS 和无 Peer 自动重试=1 真机回归均有证据；手持相机实拍回填也已人工确认；R8/资源收缩后的 arm64 Release APK 已重新构建并通过真机 UI 下载验收。 | 同设备已通过暂停、继续、重启恢复、Torrent/Magnet metadata 多文件选择、目录详情和任务指标；本轮二维码、媒体轨道保留、HLS 缓存/流式合并、过期 Range 文件清理、重复入队、Activity 退后台、响应体中断恢复、Wi-Fi 切换后的 Range 恢复、公网 HLS 和无 Peer 重试耗尽均有自动化或真机证据。 | ed2k 仍按外部 handler 边界；完整多音轨 rendition、真实系统 ENOSPC、系统低内存回收/长期后台和正式签名分发按环境补验。 |
 | iOS simulator | `FLUXDOWN_IOS_INCLUDE_TS_HLS=1 FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration` 已通过当前工作树：HTTP、fMP4 HLS、BYTERANGE HLS、TS HLS 均真实落盘；Rust queue integration 的 HTTP/HLS/variant 也通过；`npm run verify:ios:ui` 已真实启动 App 并完成任务页/设置页切换和存储统计检查。 | App 内历史 HTTP、fMP4/BYTERANGE/TS HLS smoke。 | 新建任务表单的 simulator UI 断言、iPhone 真机扫码、目录选择、分享/打开、Torrent/Magnet 仍待签名设备。 |
 | iPhone 真机 | unsigned device app 构建及 FFI 导出检查；没有签名 IPA。 | 尚无完整真机验收。 | 签名安装后扫码、目录选择、打开/分享、HTTP/HLS/Torrent/Magnet 和恢复流程。 |
 | macOS 桌面 | 当前工作树 `.app` 前台 GUI 协议回归通过：HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、HLS、SFTP、SMB、Torrent、Magnet 真实落盘并校验 SHA-256，ed2k 完成系统移交；CLI 队列控制回归也通过。该证据尚未重新打包为 `1.0.27` DMG。 | 2026-08-05 原生 GUI 12 类协议流程。 | 当前版托盘、更新和更多手工交互仍可继续补验；本轮证据见 `docs/artifacts/macos-desktop-gui-protocol-e2e-20260927.json`。 |

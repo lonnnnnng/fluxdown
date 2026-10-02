@@ -2,7 +2,11 @@
 
 [English](README.en.md)
 
-FluxDown 是一款面向桌面端和移动端的多协议下载器。当前源码版本为 [1.0.28-alpha.1](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.28-alpha.1)，这是仅移动端的 Alpha 发布；桌面稳定版仍为 [1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27)。以下功能说明以当前源码为准，历史验证单独标注。
+FluxDown 是一款面向桌面端和移动端的多协议下载器。当前桌面/Flutter 版本线为 [1.0.28-alpha.1](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.28-alpha.1)，Android Kotlin 预览版为 [1.0.28-kotlin-alpha.6](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.28-kotlin-alpha.6)；桌面稳定版仍为 [1.0.27](https://github.com/lonnnnnng/fluxdown/releases/tag/v1.0.27)。以下功能说明以当前源码为准，历史验证单独标注。
+
+### 1.0.28 Kotlin Android Alpha 6（2026-10-02）
+
+发布 Android Kotlin 重写预览包，继续只提供 `arm64-v8a` APK。补充 R8/资源收缩后的 ReleaseTest 真机验收，收口 Torrent/Magnet metadata、文件选择、重试和错误提示流程，并验证局域网 Torrent/Magnet 真实下载。详见 [发行说明](docs/releases/1.0.28-kotlin-alpha.6.md)。
 
 ### 1.0.28-alpha.1 移动端 Alpha（2026-09-28）
 

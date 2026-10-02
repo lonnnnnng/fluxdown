@@ -48,6 +48,11 @@ use url::Url;
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
 const HLS_SEGMENT_ATTEMPTS: usize = 3;
 const TORRENT_STALL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const TORRENT_NO_PEER_TIMEOUT: Duration = Duration::from_secs(90);
+// 作者: long
+// 移动网络下 Magnet metadata 可能需要多轮 Tracker/Peer 发现；预览超时必须与 Kotlin 外层等待一致，不能提前截断真实解析。
+pub(crate) const TORRENT_METADATA_TIMEOUT: Duration = Duration::from_secs(90);
+pub(crate) const TORRENT_TRACKER_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const TORRENT_LISTEN_PORT_START: u16 = 49152;
 const TORRENT_LISTEN_PORT_END: u16 = 65535;
 
@@ -1303,6 +1308,10 @@ impl DownloadEngine {
                 Some(AddTorrentOptions {
                     overwrite: true,
                     only_files: torrent_only_files(&request),
+                    // 作者: long
+                    // 公网种子的 Tracker 经常返回较短的 announce 间隔或直接暂时无响应；
+                    // 强制刷新让 librqbit 在 Peer 耗尽后尽快重新发现节点，而不是把任务长时间挂在 0 B/s。
+                    force_tracker_interval: Some(TORRENT_TRACKER_REFRESH_INTERVAL),
                     ratelimits: torrent_rate_limits(options.speed_limit_bps),
                     ..Default::default()
                 }),
@@ -1341,8 +1350,10 @@ impl DownloadEngine {
         }
         let runtime_registered = request.task_id.is_some();
         let runtime_task_id = request.task_id.clone();
+        let mut last_activity_at = Instant::now();
         let mut last_progress_at = Instant::now();
         let mut last_progress_bytes = initial_progress;
+        let mut last_fetched_bytes = torrent_fetched_bytes(&initial_stats);
 
         let wait_handle = handle.clone();
         let mut wait_task = tokio::spawn(async move { wait_handle.wait_until_completed().await });
@@ -1397,12 +1408,23 @@ impl DownloadEngine {
                         matches!(stats.state, TorrentStatsState::Initializing),
                     );
                     emit_progress(&progress, progress_bytes, Some(total_bytes));
-                    if progress_bytes > last_progress_bytes {
+                    let fetched_bytes = torrent_fetched_bytes(&stats);
+                    let progress_grew = progress_bytes > last_progress_bytes;
+                    let fetched_grew = fetched_bytes > last_fetched_bytes;
+                    if progress_grew {
                         last_progress_at = Instant::now();
+                    }
+                    if progress_grew || fetched_grew {
+                        // 作者: long
+                        // 选中文件的 piece 进度和 librqbit 已接收字节都算作有效活动；
+                        // 只建立连接但没有收到任何数据时不能无限延长“下载中”状态。
+                        last_activity_at = Instant::now();
                         last_progress_bytes = progress_bytes;
+                        last_fetched_bytes = fetched_bytes;
                     } else if total_bytes > 0
                         && progress_bytes < total_bytes
-                        && last_progress_at.elapsed() >= TORRENT_STALL_TIMEOUT
+                        && (last_activity_at.elapsed() >= TORRENT_NO_PEER_TIMEOUT
+                            || last_progress_at.elapsed() >= TORRENT_STALL_TIMEOUT)
                     {
                         if runtime_registered {
                             crate::torrent_details::unregister_runtime_handle(
@@ -2492,6 +2514,14 @@ fn torrent_rate_limits(speed_limit_bps: Option<u64>) -> LimitsConfig {
     }
 }
 
+fn torrent_fetched_bytes(stats: &librqbit::TorrentStats) -> u64 {
+    stats
+        .live
+        .as_ref()
+        .map(|live| live.snapshot.fetched_bytes)
+        .unwrap_or_default()
+}
+
 fn torrent_only_files(request: &DownloadRequest) -> Option<Vec<usize>> {
     // 作者: long
     // 空选择表示下载整个种子；只有用户明确选择文件时才传给 librqbit，保持旧任务和单文件种子的默认行为不变。
@@ -2938,7 +2968,12 @@ async fn torrent_source(
     match protocol {
         Protocol::Magnet => Ok(AddTorrent::from_url(source.to_string())),
         Protocol::Torrent if source.starts_with("http://") || source.starts_with("https://") => {
-            Ok(AddTorrent::from_url(source.to_string()))
+            // 作者: long
+            // 远程 .torrent 先由 FluxDown 读取成字节，再与本地种子统一走 from_bytes。
+            // 这样 metadata 预览和正式下载使用同一份内容，避免 librqbit 的 URL 加载路径
+            // 在 metadata 成功后没有继续向 Tracker announce，导致任务 0 B/s 后立即失败。
+            let bytes = read_torrent_bytes_from_url(source).await?;
+            Ok(AddTorrent::from_bytes(bytes))
         }
         Protocol::Torrent => {
             let bytes = fs::read(source).await?;
@@ -4300,6 +4335,32 @@ mod tests {
         .unwrap();
 
         assert!(matches!(add, AddTorrent::Url(_)));
+    }
+
+    #[tokio::test]
+    async fn reads_http_torrent_into_bytes_before_session_add() {
+        // 作者: long
+        // 这个回归用例锁定远程种子的加载边界：HTTP 地址必须先读取为字节，
+        // 这样正式 session 才会和本地种子走同一条 from_bytes 路径并正常 announce。
+        const TORRENT: &[u8] =
+            b"d8:announce31:http://tracker.example/announce4:infod4:name4:demoe6:lengthi3eee";
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/fixture.torrent", server.local_addr().unwrap());
+        let server_task = tokio::spawn(async move {
+            let (mut stream, _) = server.accept().await.unwrap();
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request).await.unwrap();
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/x-bittorrent\r\nConnection: close\r\n\r\n",
+                TORRENT.len()
+            );
+            stream.write_all(header.as_bytes()).await.unwrap();
+            stream.write_all(TORRENT).await.unwrap();
+        });
+
+        let add = torrent_source(&source, Protocol::Torrent).await.unwrap();
+        assert!(matches!(add, AddTorrent::TorrentFileBytes(_)));
+        server_task.await.unwrap();
     }
 
     #[tokio::test]

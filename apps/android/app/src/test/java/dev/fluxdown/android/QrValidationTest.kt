@@ -52,4 +52,32 @@ class QrValidationTest {
 
         assertNull(result)
     }
+
+    @Test
+    fun rejectsUnknownDownloadProtocolBeforeQueueing() {
+        assertEquals("无法识别或暂不支持该链接协议", downloadSourceIssue("foo://bar", "unknown"))
+        assertNull(downloadSourceIssue("https://example.test/file.bin", "https"))
+    }
+
+    @Test
+    fun torrentRetryRestoresPersistedSafDirectory() {
+        assertEquals(
+            "content://com.android.externalstorage.documents/tree/primary%3AFluxDown",
+            torrentRetryOutputPath(
+                taskOutputPath = "/data/user/0/dev.fluxdown.mobile.kotlin/files/saf-staging/android-old",
+                persistedSafTarget = " content://com.android.externalstorage.documents/tree/primary%3AFluxDown ",
+            ),
+        )
+    }
+
+    @Test
+    fun torrentRetryFallsBackWhenSafDirectoryIsUnavailable() {
+        assertEquals(
+            "/data/user/0/dev.fluxdown.mobile.kotlin/files/downloads",
+            torrentRetryOutputPath(
+                taskOutputPath = "/data/user/0/dev.fluxdown.mobile.kotlin/files/downloads",
+                persistedSafTarget = "",
+            ),
+        )
+    }
 }

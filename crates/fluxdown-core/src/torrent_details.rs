@@ -8,7 +8,6 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, OnceLock},
-    time::Duration,
 };
 
 use librqbit::{AddTorrent, AddTorrentOptions, ManagedTorrent, Session};
@@ -364,6 +363,16 @@ fn static_details_from_magnet(source: &str) -> TorrentDetails {
 /// 新建任务需要先看到真实文件树再选择内容；librqbit 的 list_only 会用 port=0
 /// 请求 tracker，部分 tracker 会拒绝。零文件选择保留正常 peer 发现但不下载内容，
 /// 获取 metadata 后停止会话，临时目录仅容纳引擎创建的空占位文件并自动释放。
+fn magnet_metadata_options() -> AddTorrentOptions {
+    AddTorrentOptions {
+        only_files: Some(Vec::new()),
+        // 作者: long
+        // metadata 预览也要主动刷新 Tracker；否则详情页可能按默认间隔等待，移动网络下会迟迟拿不到 Peer。
+        force_tracker_interval: Some(crate::downloader::TORRENT_TRACKER_REFRESH_INTERVAL),
+        ..Default::default()
+    }
+}
+
 async fn metadata_details_from_magnet(source: &str) -> Result<TorrentDetails, DownloadError> {
     let metadata_dir = tempfile::tempdir()?;
     let session = Session::new_with_opts(
@@ -376,13 +385,10 @@ async fn metadata_details_from_magnet(source: &str) -> Result<TorrentDetails, Do
     })?;
 
     let response = tokio::time::timeout(
-        Duration::from_secs(30),
+        crate::downloader::TORRENT_METADATA_TIMEOUT,
         session.add_torrent(
             AddTorrent::from_url(source.to_string()),
-            Some(AddTorrentOptions {
-                only_files: Some(Vec::new()),
-                ..Default::default()
-            }),
+            Some(magnet_metadata_options()),
         ),
     )
     .await;
@@ -497,6 +503,17 @@ e";
         );
         assert!(details.files.is_empty());
         assert!(details.error.is_some());
+    }
+
+    #[test]
+    fn magnet_metadata_options_keep_preview_without_download_and_refresh_tracker() {
+        let options = magnet_metadata_options();
+
+        assert_eq!(options.only_files, Some(Vec::new()));
+        assert_eq!(
+            options.force_tracker_interval,
+            Some(crate::downloader::TORRENT_TRACKER_REFRESH_INTERVAL)
+        );
     }
 
     #[test]
