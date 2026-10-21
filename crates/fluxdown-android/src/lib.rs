@@ -269,3 +269,75 @@ pub extern "system" fn Java_dev_fluxdown_android_core_RustCoreBridge_queueRemove
         call_two(fluxdown_ffi::fluxdown_queue_remove, path, id)
     })
 }
+
+// 作者: long
+// Android 上没有 stderr 可看，librqbit/tokio 的 tracing 与 Rust panic 只能写进 logcat。
+// 否则 P2P 这类"任务卡在 0 B/s"的静默失败在真机上完全无法定位。
+#[cfg(target_os = "android")]
+mod logcat {
+    use std::io::{self, Write};
+
+    use std::os::raw::{c_char, c_int};
+
+    const TAG: &std::ffi::CStr = c"fluxdown-rust";
+    pub const INFO: c_int = 4;
+    pub const DEBUG: c_int = 3;
+    pub const ERROR: c_int = 6;
+
+    unsafe extern "C" {
+        fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int;
+    }
+
+    pub fn log(level: c_int, message: &str) {
+        for line in message.lines() {
+            let Ok(line) = std::ffi::CString::new(line) else {
+                continue;
+            };
+            unsafe {
+                __android_log_write(level, TAG.as_ptr(), line.as_ptr());
+            }
+        }
+    }
+
+    pub struct Writer;
+
+    impl Write for Writer {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            log(DEBUG, &String::from_utf8_lossy(buf));
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_fluxdown_android_core_RustCoreBridge_initLoggingNative(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    verbose: jni::sys::jboolean,
+) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::panic::set_hook(Box::new(|info| {
+            logcat::log(logcat::ERROR, &format!("rust panic: {info}"));
+        }));
+        // 作者: long
+        // 调试包放开 DEBUG（DHT/Tracker/peer 全量日志），正式包只留 WARN，
+        // 避免 logcat 被 librqbit 的每帧日志刷屏。
+        let level = if verbose != 0 {
+            tracing_subscriber::filter::LevelFilter::DEBUG
+        } else {
+            tracing_subscriber::filter::LevelFilter::WARN
+        };
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(level)
+            .with_ansi(false)
+            .with_target(true)
+            .with_writer(|| logcat::Writer)
+            .try_init();
+    });
+}

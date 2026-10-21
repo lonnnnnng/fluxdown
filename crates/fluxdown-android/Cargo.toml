@@ -14,3 +14,4 @@ crate-type = ["cdylib"]
 [dependencies]
 fluxdown-ffi = { path = "../fluxdown-ffi" }
 jni.workspace = true
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }

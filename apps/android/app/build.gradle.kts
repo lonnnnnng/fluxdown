@@ -100,6 +100,9 @@ android {
 
     buildFeatures {
         compose = true
+        // 作者: long
+        // Rust 侧日志级别按构建类型区分，需要 BuildConfig.DEBUG。
+        buildConfig = true
     }
 
     packaging {
@@ -108,6 +111,13 @@ android {
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+
+    testOptions {
+        unitTests {
+            // Robolectric 需要真实资源与清单才能 inflate Compose 主题。
+            isIncludeAndroidResources = true
         }
     }
 }
@@ -138,5 +148,13 @@ dependencies {
     androidTestImplementation("com.google.errorprone:error_prone_annotations:2.36.0")
     androidTestImplementation("androidx.tracing:tracing:1.2.0")
     androidTestImplementation("com.google.zxing:core:3.4.1")
+    // 作者: long
+    // 属性面板这类纯展示组件用 Robolectric + Compose 测试锁定字段。
+    // 不走 androidTest 是因为 Espresso 在 API 31+ 会反射调用已被移除的
+    // InputManager.getInstance()，导致所有 Compose instrumentation 测试在 onIdle 阶段崩溃。
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test.ext:junit:1.3.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4:1.7.5")
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.7.5")
     debugImplementation("androidx.compose.ui:ui-tooling:1.7.5")
 }

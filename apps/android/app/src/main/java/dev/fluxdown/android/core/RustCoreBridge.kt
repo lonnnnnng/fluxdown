@@ -1,5 +1,9 @@
 package dev.fluxdown.android.core
 
+import dev.fluxdown.android.BuildConfig
+import dev.fluxdown.android.ui.i18n.Str
+import dev.fluxdown.android.ui.i18n.trApp
+
 /**
  * Kotlin 到 Rust ABI 1 的最薄桥接层。
  *
@@ -19,10 +23,15 @@ object RustCoreBridge {
     init {
         try {
             System.loadLibrary("fluxdown_android")
+            // 作者: long
+            // 把 Rust 侧 tracing 与 panic 接到 logcat，真机上排查 P2P/TLS 一类静默失败只能靠它。
+            initLoggingNative(BuildConfig.DEBUG)
         } catch (error: Throwable) {
             loadFailure = error
         }
     }
+
+    private external fun initLoggingNative(verbose: Boolean)
 
     fun version(): String = callOrError { versionNative() }
 
@@ -70,12 +79,12 @@ object RustCoreBridge {
     private fun callOrError(block: () -> String): String {
         val failure = loadFailure
         if (failure != null) {
-            return errorEnvelope("Rust 核心未加载: ${failure.message ?: failure::class.simpleName}")
+            return errorEnvelope(trApp(Str.RustNotLoaded, failure.message ?: failure::class.simpleName ?: ""))
         }
         return try {
             block()
         } catch (error: Throwable) {
-            errorEnvelope("调用 Rust 核心失败: ${error.message ?: error::class.simpleName}")
+            errorEnvelope(trApp(Str.RustCallFailed, error.message ?: error::class.simpleName ?: ""))
         }
     }
 
