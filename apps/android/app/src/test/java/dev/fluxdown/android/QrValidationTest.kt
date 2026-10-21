@@ -1,5 +1,9 @@
 package dev.fluxdown.android
 
+import dev.fluxdown.android.data.downloadSourceIssue
+import dev.fluxdown.android.data.firstValidatedQrDownloadSource
+import dev.fluxdown.android.data.torrentResourceDirectoryLabel
+import dev.fluxdown.android.data.torrentRetryOutputPath
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

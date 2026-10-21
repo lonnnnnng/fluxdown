@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import dev.fluxdown.android.core.RustCoreBridge
+import dev.fluxdown.android.platform.AndroidCredentialVault
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,6 +24,8 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import dev.fluxdown.android.ui.i18n.Str
+import dev.fluxdown.android.ui.i18n.trOff
 
 /**
  * Android 下载前台服务。
@@ -37,7 +40,9 @@ class DownloadForegroundService : Service() {
         const val ACTION_STOP = "dev.fluxdown.android.action.STOP_DOWNLOAD"
         const val EXTRA_STORE_PATH = "storePath"
         private const val CHANNEL_ID = "fluxdown.kotlin.downloads"
+        private const val CHANNEL_ID_COMPLETED = "fluxdown.kotlin.completed"
         private const val NOTIFICATION_ID = 4201
+        private const val COMPLETION_NOTIFICATION_ID = 4202
         private const val SETTINGS = "fluxdown.kotlin.settings"
     }
 
@@ -96,7 +101,7 @@ class DownloadForegroundService : Service() {
             val start = RustCoreBridge.queueRunQueued(path, buildQueueOptions(path))
             val runId = parseDataString(start, "runId")
             if (runId == null) {
-                val error = parseError(start) ?: "Rust 下载队列启动失败"
+                val error = parseError(start) ?: trOff(this, Str.SvcQueueStartFailed)
                 Log.w("FluxDownService", "queue runner start failed: $error")
                 updateNotification(summary, error)
                 delay(2_000)
@@ -122,6 +127,10 @@ class DownloadForegroundService : Service() {
             val finalSummary = readSummary(path)
             updateNotification(finalSummary, terminalError.takeIf { terminalState == "failed" })
             if (finalSummary.running == 0 && finalSummary.queued == 0) {
+                // 作者: long
+                // S2 完成通知：前台进度通知随服务停止而消失，所以“下载完成”必须单独发一条，
+                // 由设置开关 notifyOnComplete 控制（默认开）。
+                notifyCompletion(finalSummary, terminalError.takeIf { terminalState == "failed" })
                 delay(600)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -225,13 +234,53 @@ class DownloadForegroundService : Service() {
 
     private fun parseError(envelope: String): String? = runCatching {
         val root = JSONObject(envelope)
-        if (root.optBoolean("ok", false)) null else root.optString("error").ifBlank { "Rust 核心返回未知错误" }
+        if (root.optBoolean("ok", false)) null else root.optString("error").ifBlank { trOff(this, Str.RustUnknownError) }
     }.getOrNull()
 
     private fun updateNotification(summary: QueueSummary, error: String?) {
         getSystemService(NotificationManager::class.java).notify(
             NOTIFICATION_ID,
             buildNotification(summary.running, summary.finished, summary.total, summary.progressPercent, error),
+        )
+    }
+
+    /**
+     * 作者: long
+     * 完成通知独立于前台服务通知：服务停止会移除进度通知，用户看不到“已下载完”的结果，
+     * 这条通知可单独关闭（S2），失败时也能把失败原因带出去。
+     */
+    private fun notifyCompletion(summary: QueueSummary, error: String?) {
+        val enabled = getSharedPreferences(SETTINGS, MODE_PRIVATE).getBoolean("notifyOnComplete", true)
+        if (!enabled) return
+        if (summary.total == 0 && error == null) return
+        val text = when {
+            error != null -> trOff(this, Str.DownloadFailedWith, error)
+            summary.finished > 0 -> trOff(this, Str.CompletedTasksCount, summary.finished)
+            else -> trOff(this, Str.QueueEnded)
+        }
+        runCatching {
+            getSystemService(NotificationManager::class.java).notify(
+                COMPLETION_NOTIFICATION_ID,
+                NotificationCompat.Builder(this, CHANNEL_ID_COMPLETED)
+                    .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setContentTitle(trOff(applicationContext, Str.ChannelDone))
+                    .setContentText(text)
+                    .setContentIntent(contentIntent())
+                    .setAutoCancel(true)
+                    .build(),
+            )
+        }
+    }
+
+    private fun contentIntent(): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(
+            this,
+            NOTIFICATION_ID,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     }
 
@@ -245,27 +294,26 @@ class DownloadForegroundService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "下载任务", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "FluxDown Kotlin 下载进度"
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, trOff(applicationContext, Str.ChannelProgress), NotificationManager.IMPORTANCE_LOW).apply {
+                description = trOff(applicationContext, Str.ChannelProgressDesc)
+            },
+        )
+        // 完成通知用 DEFAULT 重要性，才能有声音/横幅提示，和常驻的进度通知区分开。
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID_COMPLETED, trOff(applicationContext, Str.ChannelDone), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = trOff(applicationContext, Str.ChannelDoneDesc)
             },
         )
     }
 
     private fun buildNotification(running: Int, finished: Int, total: Int, progress: Int, error: String?): Notification {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            NOTIFICATION_ID,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val pendingIntent = contentIntent()
         val text = when {
-            error != null -> "下载失败：$error"
-            total > 0 -> "进行中 $running · 已完成 $finished/$total"
-            else -> "下载队列正在运行"
+            error != null -> trOff(this, Str.DownloadFailedWith, error)
+            total > 0 -> trOff(this, Str.QueueProgressSummary, running, finished, total)
+            else -> trOff(this, Str.QueueRunning)
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)

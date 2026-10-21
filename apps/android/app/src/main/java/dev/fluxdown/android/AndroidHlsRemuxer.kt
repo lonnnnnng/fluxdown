@@ -5,6 +5,8 @@ import android.media.MediaMuxer
 import android.media.MediaCodec
 import java.io.File
 import java.nio.ByteBuffer
+import dev.fluxdown.android.ui.i18n.Str
+import dev.fluxdown.android.ui.i18n.trApp
 
 /**
  * Android 原生 TS -> MP4 轻量转封装器。
@@ -17,9 +19,9 @@ internal object AndroidHlsRemuxer {
     private const val BUFFER_SIZE = 1024 * 1024
 
     fun remuxTransportStream(source: File, target: File): Result<Long> = runCatching {
-        require(source.isFile && source.length() > 0L) { "TS 文件不存在或为空" }
+        require(source.isFile && source.length() > 0L) { trApp(Str.RemuxNoTs) }
         target.parentFile?.mkdirs()
-        if (target.exists() && !target.delete()) error("无法覆盖 MP4 输出文件")
+        if (target.exists() && !target.delete()) error(trApp(Str.RemuxCannotOverwrite))
 
         val extractor = MediaExtractor()
         var muxer: MediaMuxer? = null
@@ -39,7 +41,7 @@ internal object AndroidHlsRemuxer {
                     trackMap[index] = muxerInstance.addTrack(format)
                 }
             }
-            require(trackMap.isNotEmpty()) { "TS 中没有可写入 MP4 的音视频轨道" }
+            require(trackMap.isNotEmpty()) { trApp(Str.RemuxNoTrack) }
 
             muxerInstance.start()
             started = true
@@ -66,7 +68,7 @@ internal object AndroidHlsRemuxer {
             }
             muxerInstance.stop()
             started = false
-            require(target.isFile && target.length() > 0L) { "MP4 转封装结果为空" }
+            require(target.isFile && target.length() > 0L) { trApp(Str.RemuxEmpty) }
             target.length()
         } finally {
             if (started) runCatching { muxer?.stop() }
