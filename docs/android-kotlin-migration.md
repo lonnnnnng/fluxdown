@@ -1,6 +1,58 @@
 # Android Kotlin 重写进度
 
-核对日期：2026-10-02。当前源码版本：`1.0.28-kotlin-alpha.6`。
+核对日期：2026-10-22。当前源码版本：`1.0.28-kotlin-alpha.6`。
+
+## 2026-10-22 UI 分层重构 + 通用设置 + 12 协议真机矩阵
+
+本轮把 Kotlin 端从"功能可用"推到"可维护 + 有据可查"，四件事一起收口。
+
+### 1. UI 分层重构（`ui/` + `viewmodel/` + `data/` + `platform/`）
+
+`MainActivity.kt` 从 3,381 行降到 58 行（只剩 Activity 壳），代码按职责拆到四个包，最大单文件 527 行：
+
+- `data/`：`QueueTask`、`QueueParsing`（JSON 兼容解析，含 `optNullableString` 修 org.json 把 `null` 读成字面量 `"null"` 的坑）、`Formatters`、`SourceRules`、`KotlinSettings`、`QueueRepository`（唯一持有 FFI 队列入口）、`ProtocolDetector`、`ClipboardRules`、`TorrentSelections`、`AppInfo`。
+- `platform/`：`AndroidCredentialVault`（Keystore AES/GCM）、`AndroidSettingsStore`（两个 SharedPreferences 的唯一出入口，键名与旧版完全一致）、`SafStorage`、`TaskFileResolver`、`TaskFileDispatcher`、`SafCopyCoordinator`、`HlsRemuxCoordinator`、`TorrentMetadataClient`、`QueueServiceController`、`NetworkStatus`、`ClipboardSourceReader`、`SftpKnownHostsStore`、`AndroidUpdateChecker`、`AndroidStorageProbe`、`OutputLocationFormatter`。
+- `viewmodel/`：`NativeViewModel`（快照轮询 + 状态机）、`NewTaskController`、`SettingsController`、`NativeUiState`。
+- `ui/`：`FluxDownApp`、`Theme`（52 个语义色 token，浅色/深色两套）、`queue/`、`settings/`、`newtask/`、`i18n/`。
+
+重构前后 `connectedDebugAndroidTest` 均为 27 跑 / 3 跳 / 0 失败，行为无回归。
+
+### 2. 任务属性面板
+
+长按任务 → "属性"，展示文件名、源链接、输出路径、协议、状态、文件大小、开始/结束时间、总耗时、速度、错误信息。耗时与平均速度由 `startedAtMs`/`finishedAtMs`/`downloadedBytes` 真实计算（进行中显示"进行中"，并追加当前瞬时速度）。协议标签按路径后缀优先识别（`index.m3u8` → HLS，`x.torrent` → Torrent），避免把 HTTPS 承载的 HLS 标成 HTTPS。
+
+### 3. 移动端通用设置（不照抄 Flutter，按下载器常规能力补齐）
+
+新增 6 项，全部写入既有 settings prefs 并真机验证重启保持：
+
+| 设置 | 行为 |
+| --- | --- |
+| 仅在 Wi-Fi 下下载 | 非 Wi-Fi 时不启动队列，任务页显示琥珀色暂停条，接回 Wi-Fi 自动续跑 |
+| 下载完成通知 | 队列结束时单独发一条完成/失败通知（进度通知随前台服务停止而消失），可关；Android 13+ 未授权时给"去开启"引导 |
+| 主题 | 跟随系统 / 浅色 / 深色，52 种 122 处硬编码颜色收敛为语义 token |
+| 语言 | 简体中文 / English，270 条文案抽到 `ui/i18n/Strings.kt`，切换即时生效 |
+| 剪贴板识别 | 应用获得焦点时读剪贴板，识别到下载链接则在任务页顶部提示"新建"；同一链接只提示一次 |
+| 清理已完成 + 记住筛选 | 一键删除已完成/已移交任务记录（不删文件），队列筛选状态持久化 |
+
+语言切换的明确边界：Rust 核心返回的失败原因（如"下载资源不存在或已失效"）不参与 i18n。
+
+### 4. 12 类协议真机验证矩阵
+
+一条命令跑完并生成报告：
+
+```bash
+ANDROID_SERIAL=wsvwypiz7xwslvl7 scripts/verify-android-kotlin-protocols.sh
+```
+
+结果：内建协议 **11/11 通过**（队列终态 `finished`，落盘 SHA-256 与源文件逐一比对），ed2k 为"移交外部客户端"边界。详见 `docs/android-kotlin-protocol-report-20261022.md`。
+
+夹具全部绑定回环地址再经 `adb reverse` 映射到设备，不依赖局域网、也不受本机防火墙/代理影响。本轮踩到并修掉的三个坑，对后续同类验证同样适用：
+
+1. **私有种子会让 librqbit 丢弃对端**：Transmission 对 `transmission-create -p`（私有）种子发的 extended handshake 不含 `m` 字典，而 librqbit 把 `m` 当必填字段，报 `error reading message: missing field 'm'` 后立即断开——表现为"tracker 有 peer、却一个连接都不发起"。夹具改用非私有种子后 Torrent/Magnet 双双通过。
+2. **自签证书要在 URL 上显式 opt-in**：`?allowBadCertificate=true`，HTTPS/WebDAVS/FTPS 三条都依赖它。
+3. **SFTP 夹具要真实现 stat/open**：paramiko 的 `SFTPServerInterface` 默认全部返回 `SFTP_OP_UNSUPPORTED`，必须用 `os.stat` + `SFTPAttributes.from_stat` 自己实现，否则客户端只会看到一句"下载失败"。
+
+同时给 Rust 侧补了 logcat 日志通道（`RustCoreBridge.initLoggingNative(verbose)`，debug 包开 DEBUG 级），这次 torrent 的根因就是靠它定位的；此前 Android 侧 Rust 日志完全不可见。
 
 ## 2026-10-02 Kotlin Android Alpha 6 发布前复验
 
