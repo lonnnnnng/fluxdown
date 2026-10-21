@@ -94,14 +94,24 @@ def main() -> None:
     parser.add_argument("--bind", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--directory", default=os.getcwd())
+    parser.add_argument("--tls-cert", default="")
+    parser.add_argument("--tls-key", default="")
     args = parser.parse_args()
 
     handler = partial(RangeRequestHandler, directory=args.directory)
     server = ThreadingHTTPServer((args.bind, args.port), handler)
+    scheme = "http"
+    if args.tls_cert and args.tls_key:
+        import ssl
+
+        tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls_context.load_cert_chain(args.tls_cert, args.tls_key)
+        server.socket = tls_context.wrap_socket(server.socket, server_side=True)
+        scheme = "https"
     # 作者: long
     # 端口传 0 时系统会分配可用端口，日志必须输出真实端口，方便本地验证脚本直接读取服务地址。
     host, port = server.server_address[:2]
-    print(f"Serving {args.directory} on http://{host}:{port}", flush=True)
+    print(f"Serving {args.directory} on {scheme}://{host}:{port}", flush=True)
     server.serve_forever()
 
 
