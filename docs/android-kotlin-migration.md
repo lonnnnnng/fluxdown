@@ -8,14 +8,16 @@
 
 ### 1. UI 分层重构（`ui/` + `viewmodel/` + `data/` + `platform/`）
 
-`MainActivity.kt` 从 3,381 行降到 58 行（只剩 Activity 壳），代码按职责拆到四个包，最大单文件 527 行：
+`MainActivity.kt` 从 3,381 行降到 45 行（只剩 Activity 壳），代码按职责拆到四个包，最大单文件 549 行：
 
 - `data/`：`QueueTask`、`QueueParsing`（JSON 兼容解析，含 `optNullableString` 修 org.json 把 `null` 读成字面量 `"null"` 的坑）、`Formatters`、`SourceRules`、`KotlinSettings`、`QueueRepository`（唯一持有 FFI 队列入口）、`ProtocolDetector`、`ClipboardRules`、`TorrentSelections`、`AppInfo`。
 - `platform/`：`AndroidCredentialVault`（Keystore AES/GCM）、`AndroidSettingsStore`（两个 SharedPreferences 的唯一出入口，键名与旧版完全一致）、`SafStorage`、`TaskFileResolver`、`TaskFileDispatcher`、`SafCopyCoordinator`、`HlsRemuxCoordinator`、`TorrentMetadataClient`、`QueueServiceController`、`NetworkStatus`、`ClipboardSourceReader`、`SftpKnownHostsStore`、`AndroidUpdateChecker`、`AndroidStorageProbe`、`OutputLocationFormatter`。
 - `viewmodel/`：`NativeViewModel`（快照轮询 + 状态机）、`NewTaskController`、`SettingsController`、`NativeUiState`。
 - `ui/`：`FluxDownApp`、`Theme`（52 个语义色 token，浅色/深色两套）、`queue/`、`settings/`、`newtask/`、`i18n/`。
 
-重构前后 `connectedDebugAndroidTest` 均为 27 跑 / 3 跳 / 0 失败，行为无回归。
+重构前后既有 instrumentation 用例均 0 失败，行为无回归；当前默认套件为 29 跑 / 3 跳 / 0 失败（新增的协议矩阵用例默认 `assumeTrue` 跳过，需 `-e protocolMatrix true` 才执行）。
+
+四个包的规模：`data/` 10 文件 645 行、`platform/` 16 文件 1,086 行、`viewmodel/` 7 文件 1,182 行、`ui/` 15 文件 3,161 行。
 
 ### 2. 任务属性面板
 

@@ -78,7 +78,7 @@
 
 第一阶段已建立 `apps/android` 原生 Compose 宿主和 Rust JNI bridge，现阶段与 Flutter 并存，使用独立包名和 arm64-only 构建。当前已接通 Rust 异步队列运行、状态轮询、并发/线程/重试/限速透传、真实 HTTP/Torrent 下载、暂停/继续、失败重试、完成任务重新下载和 Torrent 多文件选择；已在 Redmi 真机完成本地 HTTP、局域网 Peer 资源和 Android SAF 目录复制验证。已完成任务操作面板、FileProvider 本地文件打开/分享、SAF `content://` 文件打开/分享、凭据失效后的可操作失败提示，以及 HLS variant 编号/保留 TS 参数透传和持久化。一级页面系统返回已增加退出确认，扫码页面已接入 CameraX + ML Kit，并完成真实二维码位图识别、手持相机实拍回填和真机 instrumentation；前台服务已完成通知权限、后台保活和队列摘要通知验证。Rust HLS 分片缓存现已具备来源摘要、长度/SHA-256 完整性校验和临时文件提交，最终合并改为按序流式读取；Android 双轨/B 帧/多音频夹具、仅音频/仅视频、空/损坏 TS、Rust 回环队列和 HTTP 416 回退自动化已通过，但完整多音轨选择仍受设备媒体栈能力限制。Kotlin Release 已准备 `key.properties` 签名入口但尚未配置正式证书；后续重点是更长/复杂媒体和 iPhone 真机，在正式签名与跨端验收完成前，不把 Kotlin 预览包当作正式 Android Release。
 
-2026-10-22 完成一轮结构与能力收口：代码按 `ui/` + `viewmodel/` + `data/` + `platform/` 分层，`MainActivity.kt` 从 3,381 行降到 58 行（最大单文件 527 行），重构前后 `connectedDebugAndroidTest` 均 27 跑/3 跳/0 失败；新增任务属性面板（含真实耗时/平均速度计算）；补齐 6 项移动端通用设置（仅 Wi-Fi 下载、完成通知、三态主题、中英双语、剪贴板链接识别、一键清理已完成并记住筛选）；并以一条命令跑完 12 类协议真机矩阵，内建 11 类全部 `finished` 且落盘 SHA-256 与源文件一致、ed2k 为移交边界，证据见 `docs/android-kotlin-protocol-report-20261022.md`。本轮同时给 Rust 侧补上 logcat 日志通道（debug 包开 DEBUG 级），此前 Android 侧 Rust 日志不可见。
+2026-10-22 完成一轮结构与能力收口：代码按 `ui/` + `viewmodel/` + `data/` + `platform/` 分层，`MainActivity.kt` 从 3,381 行降到 45 行（最大单文件 549 行），重构前后 instrumentation 均 0 失败（当前默认套件 29 跑/3 跳/0 失败）；新增任务属性面板（含真实耗时/平均速度计算）；补齐 6 项移动端通用设置（仅 Wi-Fi 下载、完成通知、三态主题、中英双语、剪贴板链接识别、一键清理已完成并记住筛选）；并以一条命令跑完 12 类协议真机矩阵，内建 11 类全部 `finished` 且落盘 SHA-256 与源文件一致、ed2k 为移交边界，证据见 `docs/android-kotlin-protocol-report-20261022.md`。本轮同时给 Rust 侧补上 logcat 日志通道（debug 包开 DEBUG 级），此前 Android 侧 Rust 日志不可见。
 
 | 编号 | 方向 | 交付条件 |
 | --- | --- | --- |

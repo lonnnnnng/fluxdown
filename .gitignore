@@ -14,3 +14,6 @@
 .DS_Store
 __pycache__/
 *.pyc
+
+# pi agent 运行期状态（goal 契约、workflow journal 等），不入库
+/.pi/
