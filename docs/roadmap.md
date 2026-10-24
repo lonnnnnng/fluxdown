@@ -1,6 +1,6 @@
 # 路线图
 
-核对日期：2026-10-22。源码基线：`android-kotlin-migration` / 当前工作树（P2-05 凭据与连接安全，桌面端与移动端 SFTP known_hosts 配置入口已补齐）；当前 Kotlin 预览源码版本：`1.0.28-kotlin-alpha.6`，桌面稳定版为 `1.0.27`。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
+核对日期：2026-10-24。源码基线：`android-kotlin-migration` / 当前工作树（P2-05 凭据与连接安全，桌面端与移动端 SFTP known_hosts 配置入口已补齐）；当前 Kotlin 预览源码版本：`1.0.28-kotlin-alpha.7`，桌面稳定版为 `1.0.27`。本文按源码汇总功能，运行结论引用已有报告和本轮验证，不把隔离 UI 或命令层结果写成原生 GUI/移动端全量验收。
 
 状态口径：**已实现**表示有实际代码和入口；**部分实现**表示仍有端侧差异或功能缺口；**待验证**表示缺少目标版本、目标设备的运行证据；**规划**表示尚未交付。构建成功、模拟数据 UI 测试、历史真机通过不能互相替代。
 
@@ -17,7 +17,7 @@
 | 失败重试 | 桌面与移动设置支持自动重试 0-10 次，默认 3；0 表示不重试。CLI `start/run` 有重试参数；仅连接中断、超时、HTTP 408/429/5xx 等瞬态错误自动重试。 | 重试不包含首次尝试；认证、权限、磁盘满、资源失效、无 peer 和协议参数错误直接失败并给出操作提示。 |
 | 网速限制 | 各端下载路径已有可选限速；桌面/core 支持每任务限速覆盖默认配置。 | 不配置时不主动限速，但不保证任何资源都能跑满带宽；字段名保留历史 `mbps`，界面显示 `MB/s`（字节），内部按 `1024²` 字节/秒换算。 |
 | 生命周期与恢复 | 添加、开始、暂停、继续、重新下载、删除；本地队列持久化，异常中断恢复和快速暂停后继续已有处理与回归测试。 | 断点续传依赖协议、服务器及部分文件；不能承诺所有资源都从原字节位置恢复。 |
-| 文件完整性 | 桌面、CLI、移动新建任务支持可选 SHA-256，最终单文件不匹配时按失败处理。 | Torrent 多文件目录不是一个可直接套用单文件 SHA-256 的产物。 |
+| 文件完整性 | 桌面、CLI、移动新建任务支持可选 SHA-256，最终单文件不匹配时按失败处理。 | Android Kotlin 新建弹框已支持可选 SHA-256 输入并透传 Rust；Torrent 多文件目录不是一个可直接套用单文件 SHA-256 的产物。 |
 
 ### 各端入口与体验
 
@@ -52,7 +52,7 @@
 
 | 平台 | 当前源码与既有证据 | 历史运行证据 | 仍待补验 |
 | --- | --- | --- | --- |
-| Android | Kotlin arm64 工作树 `1.0.28-kotlin-alpha.6` 已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）完成 Gradle JVM 单测、默认真机 instrumentation `24/24`（另有 `3` 项按环境跳过）、ReleaseTest HTTP 与 Torrent/Magnet 回归、局域网 Torrent/Magnet 重复入队参数化回归、Activity 退后台前台服务回归、传输中断自动恢复和系统级 Wi-Fi 切换回归；真实二维码识别、双轨/B 帧/多音频、仅音频、仅视频、空/损坏 TS、Rust 回环队列、HTTP 416 回退、503 瞬态重试、HLS 分片 `48/48`、公网 HLS 和无 Peer 自动重试=1 真机回归均有证据；手持相机实拍回填也已人工确认；R8/资源收缩后的 arm64 Release APK 已重新构建并通过真机 UI 下载验收。 | 同设备已通过暂停、继续、重启恢复、Torrent/Magnet metadata 多文件选择、目录详情和任务指标；本轮二维码、媒体轨道保留、HLS 缓存/流式合并、过期 Range 文件清理、重复入队、Activity 退后台、响应体中断恢复、Wi-Fi 切换后的 Range 恢复、公网 HLS 和无 Peer 重试耗尽均有自动化或真机证据。 | ed2k 仍按外部 handler 边界；完整多音轨 rendition、真实系统 ENOSPC、系统低内存回收/长期后台和正式签名分发按环境补验。 |
+| Android | Kotlin arm64 Alpha 7（发布 APK 正式签名；发布包 SHA-256 `fd99236c…174d1`）已在 Redmi Note 8 Pro（Android 16，`wsvwypiz7xwslvl7`）启动验收；JVM 单测 `37/37` 通过；releaseTest R8 混淆变体协议矩阵已跑通内建 `11/11`，落盘 SHA-256 全部一致，ed2k 为移交边界。默认真机 instrumentation、二维码/媒体/HLS/队列恢复等既有证据仍有效，报告见 `docs/android-kotlin-protocol-report-20261024.md`。 | 同设备已通过暂停、继续、重启恢复、Torrent/Magnet metadata 多文件选择、目录详情和任务指标；本轮二维码、媒体轨道保留、HLS 缓存/流式合并、过期 Range 文件清理、重复入队、Activity 退后台、响应体中断恢复、Wi-Fi 切换后的 Range 恢复、公网 HLS 和无 Peer 重试耗尽均有自动化或真机证据。 | ed2k 仍按外部 handler 边界；完整多音轨 rendition、真实系统 ENOSPC、系统低内存回收/长期后台仍待环境补验。正式签名分发已通过 Alpha 7 发布链路完成；当前仍是预览包名，不做 Google Play 上架。 |
 | iOS simulator | `FLUXDOWN_IOS_INCLUDE_TS_HLS=1 FLUXDOWN_IOS_BOOT_SIMULATOR=1 npm run verify:ios:integration` 已通过当前工作树：HTTP、fMP4 HLS、BYTERANGE HLS、TS HLS 均真实落盘；Rust queue integration 的 HTTP/HLS/variant 也通过；`npm run verify:ios:ui` 已真实启动 App 并完成任务页/设置页切换和存储统计检查。 | App 内历史 HTTP、fMP4/BYTERANGE/TS HLS smoke。 | 新建任务表单的 simulator UI 断言、iPhone 真机扫码、目录选择、分享/打开、Torrent/Magnet 仍待签名设备。 |
 | iPhone 真机 | unsigned device app 构建及 FFI 导出检查；没有签名 IPA。 | 尚无完整真机验收。 | 签名安装后扫码、目录选择、打开/分享、HTTP/HLS/Torrent/Magnet 和恢复流程。 |
 | macOS 桌面 | 当前工作树 `.app` 前台 GUI 协议回归通过：HTTP、HTTPS、WebDAV、WebDAVS、FTP、FTPS、HLS、SFTP、SMB、Torrent、Magnet 真实落盘并校验 SHA-256，ed2k 完成系统移交；CLI 队列控制回归也通过。该证据尚未重新打包为 `1.0.27` DMG。 | 2026-08-05 原生 GUI 12 类协议流程。 | 当前版托盘、更新和更多手工交互仍可继续补验；本轮证据见 `docs/artifacts/macos-desktop-gui-protocol-e2e-20260927.json`。 |
@@ -76,7 +76,7 @@
 
 ### Android Kotlin 重写（进行中）
 
-第一阶段已建立 `apps/android` 原生 Compose 宿主和 Rust JNI bridge，现阶段与 Flutter 并存，使用独立包名和 arm64-only 构建。当前已接通 Rust 异步队列运行、状态轮询、并发/线程/重试/限速透传、真实 HTTP/Torrent 下载、暂停/继续、失败重试、完成任务重新下载和 Torrent 多文件选择；已在 Redmi 真机完成本地 HTTP、局域网 Peer 资源和 Android SAF 目录复制验证。已完成任务操作面板、FileProvider 本地文件打开/分享、SAF `content://` 文件打开/分享、凭据失效后的可操作失败提示，以及 HLS variant 编号/保留 TS 参数透传和持久化。一级页面系统返回已增加退出确认，扫码页面已接入 CameraX + ML Kit，并完成真实二维码位图识别、手持相机实拍回填和真机 instrumentation；前台服务已完成通知权限、后台保活和队列摘要通知验证。Rust HLS 分片缓存现已具备来源摘要、长度/SHA-256 完整性校验和临时文件提交，最终合并改为按序流式读取；Android 双轨/B 帧/多音频夹具、仅音频/仅视频、空/损坏 TS、Rust 回环队列和 HTTP 416 回退自动化已通过，但完整多音轨选择仍受设备媒体栈能力限制。Kotlin Release 已准备 `key.properties` 签名入口但尚未配置正式证书；后续重点是更长/复杂媒体和 iPhone 真机，在正式签名与跨端验收完成前，不把 Kotlin 预览包当作正式 Android Release。
+第一阶段已建立 `apps/android` 原生 Compose 宿主和 Rust JNI bridge，现阶段与 Flutter 并存，使用独立包名和 arm64-only 构建；Alpha 7 已通过正式签名发布，但仍属于预览包。当前已接通 Rust 异步队列运行、状态轮询、并发/线程/重试/限速透传、真实 HTTP/Torrent 下载、暂停/继续、失败重试、完成任务重新下载和 Torrent 多文件选择；已在 Redmi 真机完成本地 HTTP、局域网 Peer 资源和 Android SAF 目录复制验证。已完成任务操作面板、FileProvider 本地文件打开/分享、SAF `content://` 文件打开/分享、凭据失效后的可操作失败提示，以及 HLS variant 编号/保留 TS 参数透传和持久化。一级页面系统返回已增加退出确认，扫码页面已接入 CameraX + ML Kit，并完成真实二维码位图识别、手持相机实拍回填和真机 instrumentation；前台服务已完成通知权限、后台保活和队列摘要通知验证。Rust HLS 分片缓存现已具备来源摘要、长度/SHA-256 完整性校验和临时文件提交，最终合并改为按序流式读取；Android 双轨/B 帧/多音频夹具、仅音频/仅视频、空/损坏 TS、Rust 回环队列和 HTTP 416 回退自动化已通过，但完整多音轨选择仍受设备媒体栈能力限制。Kotlin Release 已配置 `key.properties` 签名入口，Alpha 7 正式证书已通过 CI 注入并发布；`releaseTest` 变体复用 Release R8 规则并提供测试专用 keep。后续重点是更长/复杂媒体和 iPhone 真机，不把预览包名当作正式 Android 产品包。
 
 2026-10-22 完成一轮结构与能力收口：代码按 `ui/` + `viewmodel/` + `data/` + `platform/` 分层，`MainActivity.kt` 从 3,381 行降到 45 行（最大单文件 549 行），重构前后 instrumentation 均 0 失败（当前默认套件 29 跑/3 跳/0 失败）；新增任务属性面板（含真实耗时/平均速度计算）；补齐 6 项移动端通用设置（仅 Wi-Fi 下载、完成通知、三态主题、中英双语、剪贴板链接识别、一键清理已完成并记住筛选）；并以一条命令跑完 12 类协议真机矩阵，内建 11 类全部 `finished` 且落盘 SHA-256 与源文件一致、ed2k 为移交边界，证据见 `docs/android-kotlin-protocol-report-20261022.md`。本轮同时给 Rust 侧补上 logcat 日志通道（debug 包开 DEBUG 级），此前 Android 侧 Rust 日志不可见。
 
@@ -87,7 +87,7 @@
 | P2-03 | 队列格式演进 | **已完成**：Rust canonical schema v2、`deleted_task_ids` tombstone、旁路锁、原子回写、迁移前快照、`.queue-migration/manifest.json` 事务标记、启动恢复、按 `updatedAt` 冲突合并和全量 upsert 均已覆盖；未知状态不会降级成 queued。Rust core/FFI、Flutter analyze/test、canonical 回退读取和 Android 真机迁移/删除 tombstone/HLS 队列回归通过。 |
 | P2-04 | ed2k 外部客户端集成 | **已完成（移交通路边界）**：桌面优先调用 aMule `ed2k` CLI，缺失时使用系统 URL handler；Android/iOS 使用 `url_launcher`。成功移交统一落为 `handed-off`/`handedOff`，保存后端和时间，不冒充 `finished`；无 handler 明确失败，暂停/继续拒绝移交终态，显式重试才清理移交信息。第三方客户端的进度、完成回传、最终路径和客户端选择不在 FluxDown 可控范围内，因此不虚构为已实现。 |
 | P2-05 | 凭据与连接安全 | **已完成（支持边界）**：桌面/CLI 使用系统凭据库引用，支持 HTTP/HTTPS、WebDAV(S)、FTP(S)、SFTP、SMB；SFTP 支持 known_hosts、SSH agent 和单跳跳板，错误指纹不自动重试。移动端使用 Android Keystore/iOS Keychain 保存密码、SFTP 私钥和口令；密码凭据可通过 Rust FFI 运行时参数或 Dart 请求临时使用，私钥固定走 Dart SFTP 握手，任务 JSON 只保存引用。Android 真机和 iOS simulator 的私钥、known_hosts、错误指纹回归通过；移动端 ssh-agent、跳板机及 iOS 物理真机仍明确不支持/待环境补验。 |
-| P2-06 | 正式签名与合规分发 | Android Kotlin 已补齐与 Flutter 一致的 `key.properties` 配置入口和 debug 回退门禁；正式证书、升级兼容验证、Windows Authenticode、macOS 签名/公证、iOS 签名安装、传递依赖许可证材料和移动端 GPL 义务审查仍未完成。 |
+| P2-06 | 正式签名与合规分发 | Android Kotlin Alpha 7 已完成正式证书生成、CI 签名注入、GitHub prerelease 发布和同证书覆盖升级验证；当前仍为预览包名，不做 Google Play 上架。Windows Authenticode、macOS 签名/公证、iOS 签名安装、传递依赖许可证材料和移动端 GPL 义务审查仍未完成。 |
 
 当前正式签名边界：`1.0.17` Android APK 使用 `Android Debug` 测试证书，Windows 未做 Authenticode，macOS 为 ad-hoc，iOS 只提供构建验证包。脚本或 secrets 配置入口存在，不代表正式分发已就绪，详见 [发行说明](releases/1.0.17.md)。
 

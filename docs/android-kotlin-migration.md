@@ -1,6 +1,6 @@
 # Android Kotlin 重写进度
 
-核对日期：2026-10-22。当前源码版本：`1.0.28-kotlin-alpha.6`。
+核对日期：2026-10-24。当前源码版本：`1.0.28-kotlin-alpha.7`。
 
 ## 2026-10-22 UI 分层重构 + 通用设置 + 12 协议真机矩阵
 
@@ -15,7 +15,7 @@
 - `viewmodel/`：`NativeViewModel`（快照轮询 + 状态机）、`NewTaskController`、`SettingsController`、`NativeUiState`。
 - `ui/`：`FluxDownApp`、`Theme`（52 个语义色 token，浅色/深色两套）、`queue/`、`settings/`、`newtask/`、`i18n/`。
 
-重构前后既有 instrumentation 用例均 0 失败，行为无回归；当前默认套件为 29 跑 / 3 跳 / 0 失败（新增的协议矩阵用例默认 `assumeTrue` 跳过，需 `-e protocolMatrix true` 才执行）。
+重构前后既有 instrumentation 用例均 0 失败，行为无回归；当前默认套件为 26 项测试、0 失败、4 跳过（XML 汇总；协议矩阵默认按环境参数跳过，显式传入协议矩阵参数才执行）。
 
 四个包的规模：`data/` 10 文件 645 行、`platform/` 16 文件 1,086 行、`viewmodel/` 7 文件 1,182 行、`ui/` 15 文件 3,161 行。
 
@@ -46,7 +46,7 @@
 ANDROID_SERIAL=wsvwypiz7xwslvl7 scripts/verify-android-kotlin-protocols.sh
 ```
 
-结果：内建协议 **11/11 通过**（队列终态 `finished`，落盘 SHA-256 与源文件逐一比对），ed2k 为"移交外部客户端"边界。详见 `docs/android-kotlin-protocol-report-20261022.md`。
+结果：内建协议 **11/11 通过**（队列终态 `finished`，落盘 SHA-256 与源文件逐一比对），ed2k 为"移交外部客户端"边界。详见 `docs/android-kotlin-protocol-report-20261024.md`（releaseTest 变体）。
 
 夹具全部绑定回环地址再经 `adb reverse` 映射到设备，不依赖局域网、也不受本机防火墙/代理影响。本轮踩到并修掉的三个坑，对后续同类验证同样适用：
 
@@ -56,15 +56,15 @@ ANDROID_SERIAL=wsvwypiz7xwslvl7 scripts/verify-android-kotlin-protocols.sh
 
 同时给 Rust 侧补了 logcat 日志通道（`RustCoreBridge.initLoggingNative(verbose)`，debug 包开 DEBUG 级），这次 torrent 的根因就是靠它定位的；此前 Android 侧 Rust 日志完全不可见。
 
-## 2026-10-02 Kotlin Android Alpha 6 发布前复验
+## 2026-10-02 Kotlin Android Alpha 6 发布前复验（历史记录）
 
 - Release APK 继续启用 R8 与资源收缩，只包含 `arm64-v8a`；Alpha 7 已配置正式签名并发布到 GitHub，发布 APK 指纹见 `docs/releases/1.0.28-kotlin-alpha.7.md`。
 - 新增 `releaseTest` instrumentation 变体：使用 `.releaseTest` 独立包名复用 Release 混淆规则，补充 AndroidX tracing 与 Kotlin runner 运行时保留规则，避免测试 APK 启动阶段因 R8 类名裁剪崩溃；正式 Release 不引入测试专用保留成本。
 - Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）ReleaseTest HTTP 回环下载通过；带真实 Tracker/Transmission Seeder 的 Torrent/Magnet 重复入队、metadata、文件选择、Peer 下载和选中文件 SHA-256 校验均通过。
 - 默认 Debug connected instrumentation 为 `24` 项通过、`3` 项按环境跳过、`0` 失败；Kotlin JVM 单测、Rust core `118/118`、Rust FFI `14/14` 和正式 Release 构建均通过。
-- 本轮只发布 Android Kotlin arm64 Alpha，不重新发布桌面、CLI、iOS 或现有 Flutter Android 资产；不做 Google Play 上架。
+- 本轮只发布 Android Kotlin arm64 Alpha，不重新发布桌面、CLI、iOS 或现有 Flutter Android 资产；不做 Google Play 上架。该条为 Alpha 6 历史记录。
 
-## 2026-10-02 Kotlin Release 复验
+## 2026-10-02 Kotlin Release 复验（历史记录）
 
 - Alpha 7 已重新执行 Release 构建并上传 GitHub；CI APK SHA-256 为 `fd99236c5093ba286223a207e291b4088bfee4d02c120bfb6e6f5a0614b174d1`，正式证书 SHA-256 为 `4945a55f7683a1f8876a746f9942be9dd44afbfbe0defd6165acbfee53c96079`。
 - 将该 Release APK 覆盖安装到 Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）后启动正常，logcat 无 `FATAL EXCEPTION`；任务页和新建下载弹框均可打开，剪切板、扫码、链接输入和文件名输入入口在 R8 后仍可见。
