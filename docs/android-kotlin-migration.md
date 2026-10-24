@@ -58,15 +58,15 @@ ANDROID_SERIAL=wsvwypiz7xwslvl7 scripts/verify-android-kotlin-protocols.sh
 
 ## 2026-10-02 Kotlin Android Alpha 6 发布前复验
 
-- Release APK 继续启用 R8 与资源收缩，只包含 `arm64-v8a`；本地正式 Release 构建通过，当前 APK 为 `24.3 MB`，仍使用 Android Debug 证书，仅用于迁移预览和真机测试。
+- Release APK 继续启用 R8 与资源收缩，只包含 `arm64-v8a`；Alpha 7 已配置正式签名并发布到 GitHub，发布 APK 指纹见 `docs/releases/1.0.28-kotlin-alpha.7.md`。
 - 新增 `releaseTest` instrumentation 变体：使用 `.releaseTest` 独立包名复用 Release 混淆规则，补充 AndroidX tracing 与 Kotlin runner 运行时保留规则，避免测试 APK 启动阶段因 R8 类名裁剪崩溃；正式 Release 不引入测试专用保留成本。
 - Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）ReleaseTest HTTP 回环下载通过；带真实 Tracker/Transmission Seeder 的 Torrent/Magnet 重复入队、metadata、文件选择、Peer 下载和选中文件 SHA-256 校验均通过。
 - 默认 Debug connected instrumentation 为 `24` 项通过、`3` 项按环境跳过、`0` 失败；Kotlin JVM 单测、Rust core `118/118`、Rust FFI `14/14` 和正式 Release 构建均通过。
-- 本轮只发布 Android Kotlin arm64 Alpha，不重新发布桌面、CLI、iOS 或现有 Flutter Android 资产；本轮未执行提交前的正式商店签名验收。
+- 本轮只发布 Android Kotlin arm64 Alpha，不重新发布桌面、CLI、iOS 或现有 Flutter Android 资产；不做 Google Play 上架。
 
 ## 2026-10-02 Kotlin Release 复验
 
-- 按当前工作树重新执行 `npm run mobile:kotlin:release`，R8 与资源收缩成功；产物 `app-release.apk` 为 `24 MB`，SHA-256 为 `656438267bfe3e989d3098db378f582aa1bd6cb6439b56895c533a96b75468c5`，仅包含 `arm64-v8a`。当前没有 `key.properties`，因此仍使用预览用 debug 签名，不作为正式商店包。
+- Alpha 7 已重新执行 Release 构建并上传 GitHub；CI APK SHA-256 为 `fd99236c5093ba286223a207e291b4088bfee4d02c120bfb6e6f5a0614b174d1`，正式证书 SHA-256 为 `4945a55f7683a1f8876a746f9942be9dd44afbfbe0defd6165acbfee53c96079`。
 - 将该 Release APK 覆盖安装到 Redmi Note 8 Pro（`wsvwypiz7xwslvl7`）后启动正常，logcat 无 `FATAL EXCEPTION`；任务页和新建下载弹框均可打开，剪切板、扫码、链接输入和文件名输入入口在 R8 后仍可见。
 - Release UI 真实下载复验：通过 `adb reverse tcp:8765 tcp:8765` 输入本机 HTTP 文件 `lan-p2p-sample.txt`，任务真实完成 `39 B/39 B`；随后输入局域网 `.torrent` `http://192.168.1.8:53839/lan-p2p.torrent`，完成 metadata、文件选择、确认入队和真实 Peer 下载，任务卡显示目录 `lan-p2p-sample`、`39 B/39 B`，无失败任务。
 - Release 自动化验收通过 `-PfluxdownReleaseInstrumentation=true` 启用独立的 `releaseTest` 变体；该变体复用 Release 的 R8/资源收缩规则并使用 `.releaseTest` 包名，不覆盖正式 Release 安装。Redmi 真机上的 ReleaseTest HTTP 回环用例和局域网 Torrent/Magnet 重复入队用例均通过；默认 Debug connected instrumentation 仍作为日常全量回归入口。
@@ -196,7 +196,7 @@ Android Kotlin 重写采用并行迁移，不立即替换现有 Flutter 包：
 - 2026-10-01 HLS 分片真机验收：按 `scripts/build-kotlin-android.sh` 重建 arm64 Debug APK（`57 MB`，SHA-256 `1e2b41d47cc1c79e3e8a594582ea3c488230ee0beeafcc7a040407d46868d039`）并安装到 Redmi Note 8 Pro `wsvwypiz7xwslvl7`；`queueStreamsLongHlsPlaylistThroughRust` 真实跑完 48 段、每段 128 KiB 的本机回环资源，队列快照断言 `hls_segments_written=48`、`hls_segments_total=48`，输出字节完整。connected instrumentation 共 25 项结束、2 项按环境跳过、0 失败，应用启动无 `FATAL EXCEPTION`。
 - 2026-10-01 公网 HLS 真机验收：通过显式参数运行 `queueDownloadsConfiguredPublicHlsThroughRust`，资源为 `https://hd.kuktxu.com/play/dwpklmMe/index.m3u8`；Redmi 真机上的 Kotlin → JNI → Rust 队列最终为 `finished`，断言输出文件非空、分片总数大于 0 且 `hls_segments_written == hls_segments_total`。该用例默认跳过，避免基础套件依赖公网站点。
 - 2026-10-01 Torrent/Magnet 错误弹框真机回归：在 Redmi 真机新建 `https://example.com/invalid.torrent`，metadata 返回 HTTP 404；新建弹框内部显示“Torrent/Magnet 清单获取失败”和具体错误内容，弹框保持打开且未创建任务。
-- 2026-10-01 Kotlin Release 构建检查：`npm run mobile:kotlin:release` 通过，R8 与资源收缩生效，产物 `app-release.apk` 为 `24 MB`、仅包含 `lib/arm64-v8a/libfluxdown_android.so`，此前 Alpha 4 构建版本为 `1.0.28-kotlin-alpha.4`。因 `apps/android/key.properties` 尚不存在，签名仍为 `Android Debug`（仅能用于预览安装），正式证书和升级兼容仍未宣称完成。
+- 2026-10-01 Kotlin Release 构建检查：`npm run mobile:kotlin:release` 通过，R8 与资源收缩生效，产物仅包含 `lib/arm64-v8a/libfluxdown_android.so`。此条是 Alpha 7 之前的历史检查；Alpha 7 已配置正式证书并通过 GitHub Actions 发布。
 - 2026-10-01 Alpha 5 本地产物：版本 `1.0.28-kotlin-alpha.5`、versionCode `2032`，APK `25,465,282` bytes，SHA-256 `0073dddc222565d42a37c62c7de654536adf11db805ac1484e6b9ee61669abd9`；`apkanalyzer` 确认包名 `dev.fluxdown.mobile.kotlin` 且只包含 `arm64-v8a`，`apksigner` v2 校验通过。安装到 Redmi 真机后启动到 `MainActivity`，无 `FATAL EXCEPTION`。
 - 2026-09-30 HLS 输入护栏回归：Rust 对空媒体 playlist（包括只有初始化段、没有实际媒体分片的情况）直接返回 `InvalidM3u8`，新增核心单测通过，避免生成 0 字节“成功”任务。
 - 2026-09-29 HLS master variant 真机回归：本机 HTTP fixture 提供 320x180/64 kbps 与 1280x720/256 kbps 两个 variant，Redmi 真机通过 `adb reverse tcp:8765 tcp:8765` 在新建任务弹框点击“读取 HLS 清晰度”，界面正确显示 `#0`、`#1` 两项；JNI 加载成功，logcat 无 `FATAL EXCEPTION`。同时修正 ML Kit 回调从分析线程写 Compose 状态的问题，识别结果与错误提示统一切回主线程。
@@ -216,7 +216,7 @@ Android Kotlin 重写采用并行迁移，不立即替换现有 Flutter 包：
 - 凭据设置的真实设备闭环已覆盖添加、加密保存、重启回显、新建任务引用选择、带密码 HTTP 下载、SFTP 私钥/`known_hosts` 命中与拒绝，以及删除凭据后重新下载的失败提示；二维码扫描代码已接入 CameraX + ML Kit，实体二维码 instrumentation 和手持相机实拍回填均已通过。
 - HLS 逐文件指标不适用于单一 HLS 资源，当前已补齐逐分片实时指标；系统级 ENOSPC、长期后台异常网络仍待补。真实局域网 Torrent/Magnet 多文件重复下载压力已完成。当前物理 Redmi 分区仍有约 `102.7 GiB` 可用，非 root 环境不能安全制造真实 ENOSPC；Rust 已有 `ErrorKind::StorageFull` 不重试和中文错误单测，Android 真机只保留无效路径/权限等邻近回归，不把它们冒充磁盘已满。
 - 后台恢复已覆盖 Activity 退后台、force-stop 后断点续传和前台服务保活，系统返回退出提示已在真机通过；仍需覆盖系统低内存回收、网络切换和更长时长后台场景。
-- 正式商店签名升级和正式包名切换仍未完成；本次 Alpha 使用本机专用预览签名，仅用于迁移预览和真机安装。
+- 正式签名升级链路已完成；当前仍是预览包名 `dev.fluxdown.mobile.kotlin`，正式包名切换与 Google Play 上架不在本轮范围。
 
 ## 构建
 
@@ -228,9 +228,9 @@ npm run mobile:kotlin:release
 脚本会先构建 `libfluxdown_android.so`，再调用 `apps/mobile/android/gradlew -p apps/android`。构建输出位于
 `apps/android/app/build/outputs/apk/`，不与现有 Flutter APK 混用。
 
-本轮补充证据：上一轮 `npm run mobile:kotlin:debug` 构建并安装到 Redmi `wsvwypiz7xwslvl7` 成功，`lib/arm64-v8a/libfluxdown_android.so` 已包含 HLS variant JNI 导出；上一轮 arm64 Debug APK 为 `60,210,314` bytes，SHA-256 为 `7eb744e42702ee22fe4c514e180c8515f62bdbf08fb76af1bb2655a969c339db`，包名 `dev.fluxdown.mobile.kotlin`、版本 `1.0.28-kotlin-alpha.3`，启动进程和 `MainActivity` 均已回验。本次 Alpha 6 会重新构建 release APK 并以远端 Release 资产为准；当前没有 `apps/android/key.properties`，因此仍使用 Android Debug 证书，不等同于正式商店签名。
+本轮补充证据：上一轮 `npm run mobile:kotlin:debug` 构建并安装到 Redmi `wsvwypiz7xwslvl7` 成功，`lib/arm64-v8a/libfluxdown_android.so` 已包含 HLS variant JNI 导出；上一轮 arm64 Debug APK 为 `60,210,314` bytes，SHA-256 为 `7eb744e42702ee22fe4c514e180c8515f62bdbf08fb76af1bb2655a969c339db`，包名 `dev.fluxdown.mobile.kotlin`、版本 `1.0.28-kotlin-alpha.3`，启动进程和 `MainActivity` 均已回验。Alpha 7 已重新构建 release APK 并以 GitHub Actions 远端 Release 资产为准；正式签名证书和发布 APK 指纹见 `docs/releases/1.0.28-kotlin-alpha.7.md`。
 
-Kotlin Release 签名准备：`apps/android/app/build.gradle.kts` 现在支持 `apps/android/key.properties`，字段与 Flutter Android 工程一致（`storeFile`、`storePassword`、`keyAlias`、`keyPassword`），模板见 `apps/android/key.properties.example`。未配置真实密钥时 Release 明确回退到 debug 签名，仅用于安装测试；配置密钥后才会使用 release signing config。当前仍未配置正式证书，也未切换正式 `applicationId`。
+Kotlin Release 签名配置：`apps/android/app/build.gradle.kts` 支持 `apps/android/key.properties`，字段为 `storeFile`、`storePassword`、`keyAlias`、`keyPassword`，模板见 `apps/android/key.properties.example`。本地 keystore 不入库，GitHub Actions 通过 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 注入；当前 Alpha 7 已用正式签名发布。
 
 ## 切换门槛
 

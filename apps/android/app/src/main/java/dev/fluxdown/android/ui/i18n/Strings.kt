@@ -55,6 +55,9 @@ internal enum class Str(val zh: String, val en: String) {
 
     // ---- 任务属性面板 ----
     FieldFileName("文件名", "File name"),
+    FieldSha256("SHA-256 校验值（可选）", "SHA-256 checksum (optional)"),
+    Sha256Hint("64 位十六进制，可带 sha256: 前缀", "64 hexadecimal characters; optional sha256: prefix"),
+    Sha256Invalid("SHA-256 必须是 64 位十六进制字符", "SHA-256 must contain 64 hexadecimal characters"),
     FieldSource("源链接", "Source URL"),
     FieldOutputPath("输出路径", "Output path"),
     FieldProtocol("协议", "Protocol"),

@@ -85,6 +85,7 @@ internal fun NewTaskDialog(
 ) {
     var source by remember(initialSource) { mutableStateOf(initialSource.orEmpty()) }
     var fileName by remember { mutableStateOf("") }
+    var expectedSha256 by remember { mutableStateOf("") }
     var outputPath by remember { mutableStateOf(defaultOutputPath) }
     var credentialRef by remember { mutableStateOf<String?>(null) }
     var credentialMenuExpanded by remember { mutableStateOf(false) }
@@ -98,6 +99,9 @@ internal fun NewTaskDialog(
     val isHlsSource = detectedProtocol == "m3u8"
     val hlsVariantIndex = hlsVariant.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
     val hlsVariantError = hlsVariant.trim().isNotEmpty() && (hlsVariantIndex == null || hlsVariantIndex < 0)
+    val normalizedSha256 = expectedSha256.trim().removePrefix("sha256:").trim()
+    val sha256Error = normalizedSha256.isNotEmpty() &&
+        (normalizedSha256.length != 64 || normalizedSha256.any { !it.isDigit() && it.lowercaseChar() !in 'a'..'f' })
     val sourceError = downloadSourceIssue(source.trim(), detectedProtocol)
     val busy = newTaskSubmitting || torrentMetadataLoading
     val detectedLabel = when (detectedProtocol) {
@@ -209,6 +213,23 @@ internal fun NewTaskDialog(
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 14.sp, color = FluxPalette.textPrimary),
                     colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(unfocusedContainerColor = FluxPalette.surfaceCard, focusedContainerColor = FluxPalette.surfaceCard, unfocusedBorderColor = FluxPalette.border, focusedBorderColor = FluxPalette.accent),
                 )
+                OutlinedTextField(
+                    value = expectedSha256,
+                    onValueChange = { expectedSha256 = it },
+                    enabled = !busy,
+                    label = { Text(tr(Str.FieldSha256), fontSize = 12.sp) },
+                    supportingText = { Text(if (sha256Error) tr(Str.Sha256Invalid) else tr(Str.Sha256Hint)) },
+                    isError = sha256Error,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = FluxPalette.textPrimary),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        unfocusedContainerColor = FluxPalette.surfaceCard,
+                        focusedContainerColor = FluxPalette.surfaceCard,
+                        unfocusedBorderColor = FluxPalette.border,
+                        focusedBorderColor = FluxPalette.accent,
+                    ),
+                )
                 // 作者: long
                 // 没有输入需要认证的协议时不展示凭据字段，保持新建弹框首屏只聚焦链接、文件名和协议相关选项；
                 // 用户输入 HTTP/FTP/SFTP 等支持凭据的链接后再展开该可选项。
@@ -316,11 +337,11 @@ internal fun NewTaskDialog(
                 }
                 Button(
                     onClick = {
-                        if (sourceError == null && !hlsVariantError && !busy) {
-                            onConfirm(source, fileName, outputPath, credentialRef, "", hlsVariantIndex.takeIf { isHlsSource }, hlsKeepTransportStream && isHlsSource)
+                        if (sourceError == null && !hlsVariantError && !sha256Error && !busy) {
+                            onConfirm(source, fileName, outputPath, credentialRef, expectedSha256.trim(), hlsVariantIndex.takeIf { isHlsSource }, hlsKeepTransportStream && isHlsSource)
                         }
                     },
-                    enabled = sourceError == null && !hlsVariantError && !busy,
+                    enabled = sourceError == null && !hlsVariantError && !sha256Error && !busy,
                     modifier = Modifier.fillMaxWidth().height(44.dp),
                     shape = RoundedCornerShape(8.dp),
                 ) {
