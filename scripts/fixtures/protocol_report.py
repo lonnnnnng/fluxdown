@@ -119,6 +119,8 @@ def main() -> None:
             f"| 设备型号 / 序列号 | `{env_payload.get('deviceModel', '-')}` / `{env_payload.get('serial', '-')}` |"
         )
         lines.append(f"| 应用包名 | `{env_payload.get('package', '-')}` |")
+        if env_payload.get("variant"):
+            lines.append(f"| 构建变体 | `{env_payload['variant']}` |")
         lines.append(
             f"| 应用版本 | `{env_payload.get('versionName', '-')}` (versionCode `{env_payload.get('versionCode', '-')}`) |"
         )
@@ -132,6 +134,38 @@ def main() -> None:
         + " |"
     )
     lines.append("")
+    # 作者: long
+    # 被测产物必须能被重复验证。正式签名的 release APK 跑不了 instrumentation，
+    # 这里把「为什么用 releaseTest」连同证据一并写进报告，避免后人以为拿的是发布包。
+    if env_payload.get("variant") == "releaseTest":
+        lines.append("### 1.1 被测产物与已发布 APK 的关系")
+        lines.append("")
+        lines.append(
+            "`releaseTest` 是 `release` 的克隆（`initWith(release)`）：同一套 R8 混淆配置、"
+            "额外只多测试专用 keep（`apps/android/app/release-test-proguard-rules.pro`），"
+            "差异仅签名（debug）与包名后缀（`.releaseTest`）。因此本报告验证的是**混淆后的正式构建配置**，"
+            "比未混淆的 debug 包更接近发布产物。"
+        )
+        lines.append("")
+        lines.append(
+            "已发布的正式签名包不能直接跑 instrumentation：AGP 生成 androidTest APK 时会排除"
+            "\"被测 APK 已提供\"的类，debug 版 test APK 里只有 `kotlin/jvm/internal/Intrinsics` 的引用而无定义；"
+            "正式 release 包把 `kotlin.**` 重命名了（`-keep class kotlin.**` 只存在于 release-test 规则里），"
+            "实测 `am instrument` 直接失败："
+        )
+        lines.append("")
+        lines.append("```")
+        lines.append("java.lang.NoClassDefFoundError: Failed resolution of: Lkotlin/jvm/internal/Intrinsics;")
+        lines.append("  at androidx.test.platform.app.AppComponentFactoryRegistry.instantiateApplication")
+        lines.append("  at androidx.test.runner.MonitoringInstrumentation.newApplication")
+        lines.append("```")
+        lines.append("")
+        lines.append(
+            "重新打出 `1.0.28-kotlin-alpha.7` 的正式签名 APK（SHA-256 `fd99236c5093ba286223a207e291b4088bfee4d02c120bfb6e6f5a0614b174d1`）"
+            "后已装机验证可启动；协议栈行为与变体无关（Rust 队列与 JNI 入口在两者中都是同一份代码、且都被 keep），"
+            "差别只在 R8 的裁剪与签名。"
+        )
+        lines.append("")
     lines.append("## 2. 结论")
     lines.append("")
     lines.append(
@@ -213,6 +247,9 @@ def main() -> None:
     lines.append("```bash")
     lines.append("# 一条命令跑完整矩阵并重新生成本报告")
     lines.append("ANDROID_SERIAL=<serial> scripts/verify-android-kotlin-protocols.sh")
+    lines.append("")
+    lines.append("# 跑 R8 混淆后的 releaseTest 变体（正式构建配置，报告里的变体/APK 指纹随之变化）")
+    lines.append("scripts/verify-android-kotlin-protocols.sh --variant releaseTest")
     lines.append("")
     lines.append("# 只起夹具（调试用）")
     lines.append("scripts/android-kotlin-protocol-fixtures.sh up     # 起服务 + adb reverse + 生成 manifest")

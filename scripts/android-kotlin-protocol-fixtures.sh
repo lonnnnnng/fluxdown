@@ -15,9 +15,22 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURE_DIR="${FLUXDOWN_FIXTURE_DIR:-${TMPDIR:-/tmp}/fluxdown-android-fixtures}"
-PYTHON="${FLUXDOWN_FIXTURE_PYTHON:-python3}"
+# 作者: long
+# FTP/FTPS/SFTP 需要 pyftpdlib/paramiko，SMB 需要 impacket；系统 python 在 PEP 668 下无法
+# 直接 pip install，所以优先复用本地 venv。以前只给 SMB 做了这层回退，FTP/SFTP 会直接抛
+# ModuleNotFoundError，表现为「fixture ftp failed to listen on port 2121」，排查成本很高。
+if [[ -n "${FLUXDOWN_FIXTURE_PYTHON:-}" ]]; then
+  PYTHON="$FLUXDOWN_FIXTURE_PYTHON"
+elif [[ -x /tmp/fxvenv/bin/python ]]; then
+  PYTHON=/tmp/fxvenv/bin/python
+else
+  PYTHON=python3
+fi
 ADB_BIN="${ADB:-adb}"
 SERIAL="${ANDROID_SERIAL:-}"
+# adb 自己也读 ANDROID_SERIAL：变量存在但为空串时，adb 会当作「序列号为空的设备」
+# 直接报 `adb: error: device '' not found`，表现为夹具全部起不来。这里统一清掉空值。
+[[ -n "$SERIAL" ]] || unset ANDROID_SERIAL
 MANIFEST="$FIXTURE_DIR/manifest.json"
 
 HTTP_PORT="${HTTP_PORT:-9101}"
@@ -164,7 +177,23 @@ make_certs() {
     -addext "subjectAltName=IP:127.0.0.1,DNS:localhost" >/dev/null 2>&1
 }
 
+require_fixture_python_deps() {
+  local missing
+  missing="$("$PYTHON" - <<'PY' 2>/dev/null
+import importlib.util
+missing = [m for m in ("pyftpdlib", "paramiko") if importlib.util.find_spec(m) is None]
+print(" ".join(missing))
+PY
+)" || true
+  if [[ -n "$missing" ]]; then
+    log "fixture python ($PYTHON) 缺少依赖: $missing"
+    log "修复: python3 -m venv /tmp/fxvenv && /tmp/fxvenv/bin/pip install pyftpdlib paramiko impacket"
+    return 1
+  fi
+}
+
 start_fixtures() {
+  require_fixture_python_deps
   : > "$FIXTURE_DIR/pids"
   local pids=()
 

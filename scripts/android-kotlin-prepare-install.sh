@@ -14,6 +14,7 @@
 #   scripts/android-kotlin-prepare-install.sh              # 冲突则卸载（会清应用数据）
 #   scripts/android-kotlin-prepare-install.sh --keep-data  # 冲突则 adb uninstall -k（保留数据）
 #   scripts/android-kotlin-prepare-install.sh --dry-run    # 只报告，不动设备
+#   scripts/android-kotlin-prepare-install.sh --package dev.fluxdown.mobile.kotlin.releaseTest
 #   ANDROID_SERIAL=xxx scripts/android-kotlin-prepare-install.sh
 set -euo pipefail
 
@@ -24,6 +25,7 @@ DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --package) PKG="$2"; shift 2 ;;
     --keep-data) KEEP_DATA=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
