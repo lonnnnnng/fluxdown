@@ -45,6 +45,11 @@ echo "[1/5] 启动协议夹具"
 ANDROID_SERIAL="$SERIAL" bash "$ROOT_DIR/scripts/android-kotlin-protocol-fixtures.sh" up
 
 echo "[2/5] 安装 debug 与 androidTest APK"
+# 作者: long
+# 正式 Release 与 debug 共用 applicationId 但签名不同：装过正式签名包时，installDebug 会直接
+# 失败在 INSTALL_FAILED_UPDATE_INCOMPATIBLE，connected/install 任务看上去像“什么都没跑”。
+# 这里先比对证书摘要，只在确实冲突时卸载（脚本内部会提示数据丢失，--keep-data 可保留数据目录）。
+bash "$ROOT_DIR/scripts/android-kotlin-prepare-install.sh"
 # 用 installDebug + am instrument 而不是 connectedDebugAndroidTest：
 # gradle 的 connected 任务在跑完会卸载 APK，连应用外部私有目录一起删掉，导致结果拉不回来。
 "$ROOT_DIR/apps/mobile/android/gradlew" -p "$ROOT_DIR/apps/android" \
