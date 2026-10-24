@@ -38,8 +38,8 @@ android {
         applicationId = "dev.fluxdown.mobile.kotlin"
         minSdk = 24
         targetSdk = 36
-        versionCode = 2033
-        versionName = "1.0.28-kotlin-alpha.6"
+        versionCode = 2034
+        versionName = "1.0.28-kotlin-alpha.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testProguardFiles("test-proguard-rules.pro")
 
