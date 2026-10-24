@@ -345,6 +345,31 @@ jobs:
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
+      - name: Configure Kotlin Android release signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "Required GitHub Actions secret $name is not configured."
+              exit 1
+            fi
+          done
+          keystore="$RUNNER_TEMP/fluxdown-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          cat > apps/android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=$keystore
+          EOF
+          chmod 600 apps/android/key.properties
       - name: Build Kotlin arm64 release APK
         shell: bash
         run: |
