@@ -30,6 +30,9 @@
 
 本轮回归：Rust core 124、FFI 14、JVM 单测 42、真机默认 instrumentation 套件 `OK (33 tests)`（4 个韧性阶段默认跳过）。
 
+Alpha 9 已用 `releaseTest` 之外的正式签名链路发布；用 `scripts/android-kotlin-prepare-install.sh --target release`
+可以把设备上的 debug 签名包（或旧正式包）清成可覆盖状态——之前脚本只认 debug 证书，准备装正式 APK 时会误判「无需处理」。
+
 ## 2026-10-22 UI 分层重构 + 通用设置 + 12 协议真机矩阵
 
 本轮把 Kotlin 端从"功能可用"推到"可维护 + 有据可查"，四件事一起收口。

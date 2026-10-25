@@ -15,6 +15,7 @@
 #   scripts/android-kotlin-prepare-install.sh --keep-data  # 冲突则 adb uninstall -k（保留数据）
 #   scripts/android-kotlin-prepare-install.sh --dry-run    # 只报告，不动设备
 #   scripts/android-kotlin-prepare-install.sh --package dev.fluxdown.mobile.kotlin.releaseTest
+#   scripts/android-kotlin-prepare-install.sh --target release   # 准备安装正式签名包
 #   ANDROID_SERIAL=xxx scripts/android-kotlin-prepare-install.sh
 set -euo pipefail
 
@@ -22,12 +23,17 @@ PKG="dev.fluxdown.mobile.kotlin"
 SERIAL="${ANDROID_SERIAL:-}"
 KEEP_DATA=0
 DRY_RUN=0
+# 作者: long
+# 目标证书默认是 debug keystore（回归用）；准备安装 GitHub Release 的正式签名 APK 时传
+# --target release，否则「已装 debug 包」会被判成无需处理，随后 adb install 仍然签名冲突。
+TARGET="debug"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --package) PKG="$2"; shift 2 ;;
     --keep-data) KEEP_DATA=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --target) TARGET="$2"; shift 2 ;;
     -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 1 ;;
   esac
@@ -67,7 +73,7 @@ drop_stale_test_package() {
     return 0
   fi
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    echo "stale instrumentation package: $test_pkg（--dry-run 下未卸载）"
+    echo "stale instrumentation package: ${test_pkg}（--dry-run 下未卸载）"
     return 0
   fi
   echo "清理残留 instrumentation 包: $test_pkg"
@@ -120,8 +126,30 @@ debug_cert_digest() {
     | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d ':' | tr 'A-Z' 'a-z'
 }
 
+release_cert_digest() {
+  local props="apps/android/key.properties" store store_pass alias
+  [[ -f "$props" ]] || return 1
+  store="$(sed -n 's/^storeFile=//p' "$props" | head -n 1)"
+  store_pass="$(sed -n 's/^storePassword=//p' "$props" | head -n 1)"
+  alias="$(sed -n 's/^keyAlias=//p' "$props" | head -n 1)"
+  [[ -n "$store" && -n "$store_pass" && -n "$alias" && -f "$store" ]] || return 1
+  keytool -list -v -keystore "$store" -storepass "$store_pass" -alias "$alias" 2>/dev/null \
+    | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d ':' | tr 'A-Z' 'a-z'
+}
+
+case "$TARGET" in
+  debug|release) ;;
+  *) echo "unknown --target: ${TARGET}（可选 debug / release）" >&2; exit 1 ;;
+esac
+
 INSTALLED_DIGEST="$(installed_cert_digest || true)"
-DEBUG_DIGEST="$(debug_cert_digest || true)"
+if [[ "$TARGET" == "release" ]]; then
+  EXPECTED_DIGEST="$(release_cert_digest || true)"
+  EXPECTED_LABEL="release keystore"
+else
+  EXPECTED_DIGEST="$(debug_cert_digest || true)"
+  EXPECTED_LABEL="debug keystore"
+fi
 
 if [[ -z "$INSTALLED_DIGEST" ]]; then
   echo "installed package: $PKG (无法读取证书摘要，按未知签名处理)"
@@ -129,10 +157,10 @@ if [[ -z "$INSTALLED_DIGEST" ]]; then
 fi
 
 echo "installed cert SHA-256: $INSTALLED_DIGEST"
-echo "debug keystore SHA-256: ${DEBUG_DIGEST:-unknown}"
+echo "$EXPECTED_LABEL SHA-256: ${EXPECTED_DIGEST:-unknown}"
 
-if [[ -n "$DEBUG_DIGEST" && "$INSTALLED_DIGEST" == "$DEBUG_DIGEST" ]]; then
-  echo "已装包就是 debug 签名，installDebug / connectedDebugAndroidTest 可直接覆盖安装。"
+if [[ -n "$EXPECTED_DIGEST" && "$INSTALLED_DIGEST" == "$EXPECTED_DIGEST" ]]; then
+  echo "已装包就是目标签名（$TARGET），可直接覆盖安装。"
   exit 0
 fi
 
@@ -142,7 +170,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 fi
 
 if [[ "$KEEP_DATA" -eq 1 ]]; then
-  echo "签名不一致 → adb uninstall -k $PKG（保留应用数据目录）"
+  echo "签名不一致 → adb uninstall -k ${PKG}（保留应用数据目录）"
   adb_cmd shell pm uninstall -k "$PKG" >/dev/null
 else
   echo "签名不一致 → adb uninstall $PKG"

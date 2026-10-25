@@ -56,7 +56,7 @@ case "$VARIANT" in
     GRADLE_EXTRA=(-PfluxdownReleaseInstrumentation=true)
     ;;
   *)
-    echo "unknown variant: $VARIANT（可选 debug | releaseTest）" >&2
+    echo "unknown variant: ${VARIANT}（可选 debug | releaseTest）" >&2
     exit 1
     ;;
 esac
