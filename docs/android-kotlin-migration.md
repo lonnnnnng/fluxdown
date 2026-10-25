@@ -1,6 +1,34 @@
 # Android Kotlin 重写进度
 
-核对日期：2026-10-24。当前源码版本：`1.0.28-kotlin-alpha.8`。
+核对日期：2026-10-25。当前源码版本：`1.0.28-kotlin-alpha.8`。
+
+## 2026-10-25 错误码本地化 + HLS 音轨选择 + 韧性验证
+
+本轮补上三处"能跑但不能说清"的缺口：失败原因可以跟着界面语言走，HLS 多音轨可以选，进程被杀/设备 idle/磁盘写满这些极端场景有可复跑的真机证据。
+
+### 1. Rust 失败原因改用稳定错误码（⑤）
+
+- Rust `DownloadError::user_failure()` 返回 `{code, message}`，`USER_FACING_ERROR_CODES` 登记 56 个稳定码；`DownloadTask.error_code` 随队列落盘（`fail_with_code`），`set_state` 与 `reset_for_restart` 会清掉。
+- Kotlin `ui/i18n/ErrorText.kt` 把码映射到 `Str.Err*`（56 条中英文案），任务卡、操作面板、属性面板统一按语言渲染；未知码回退 Rust 原文。
+- 守护测试：`ErrorTextTest` 直接读 Rust 常量，校验"每个码都有文案 / 没有孤儿文案 / 中英都非空且不同"；真机用 `queueRecordsStableErrorCodeForHttpNotFound`、`queueRecordsStableErrorCodeForDiskFullOutput` 验证码真的落进队列文件。
+
+### 2. HLS 多音轨选择（⑥）
+
+- Rust 解析 `EXT-X-MEDIA` 音频组，新增 `hls_audio_renditions(source)` FFI 与 `hlsAudioIndex` 队列字段；音轨与视频分开落盘为 `<视频stem>.audio.<label>.ts`（移动端没有 ffmpeg，无法与视频混流），任务快照用 `hls_audio_path` 记录产物，属性面板可见。
+- 只有用户显式选择音轨时才额外下载，默认行为不变，12 协议矩阵的产物摘要不受影响。
+- 索引越界返回 `hls_audio_out_of_range`；新增 3 个 Rust 测试与 2 个真机用例（`queueDownloadsSelectedHlsAudioTrackThroughRust`、`hlsAudioRenditionsListsExtMediaTracks`）。
+
+### 3. 韧性验证：进程被杀 / 设备 idle / 真实 ENOSPC（⑦）
+
+一条命令 ``scripts/verify-android-kotlin-resilience.sh`` 跑三个场景：
+
+- **进程被杀恢复**：48 MiB 载荷按 2 MiB/s 限速下载，`am force-stop` 打断；恢复后任务为 `paused` + `error_code=interrupted`，已下载字节保留；`queueResume` 后服务端只收到 1 次非 0 偏移的 `Range` 请求，最终文件大小与 SHA-256 均与源一致。
+- **设备 idle 长时下载**：下载跑在真实前台服务里，`dumpsys deviceidle force-idle`（`deep=IDLE`）期间把整个载荷下完，摘要一致。
+- **真实 ENOSPC**：macOS 1 MiB HFS+ 磁盘镜像上跑同一条 Rust 下载路径，CLI 退出码 1 并报「磁盘空间不足」；设备侧无 root 无法让 `/data` 真写满，错误码映射另有 Rust 单测（`ErrorKind::StorageFull` → `disk_full`）。
+- ``scripts/range-http-server.py`` 新增服务级 `--bytes-per-second` 限速（多连接按总带宽计算）和带 `Range` 头的访问日志，续传是被服务端日志证明的。
+- 证据：``docs/android-kotlin-resilience-report-20261025.md``。
+
+本轮回归：Rust core 124、FFI 14、JVM 单测 42、真机默认 instrumentation 套件 `OK (33 tests)`（4 个韧性阶段默认跳过）。
 
 ## 2026-10-22 UI 分层重构 + 通用设置 + 12 协议真机矩阵
 
@@ -214,8 +242,8 @@ Android Kotlin 重写采用并行迁移，不立即替换现有 Flutter 包：
 ## 剩余能力缺口
 
 - 凭据设置的真实设备闭环已覆盖添加、加密保存、重启回显、新建任务引用选择、带密码 HTTP 下载、SFTP 私钥/`known_hosts` 命中与拒绝，以及删除凭据后重新下载的失败提示；二维码扫描代码已接入 CameraX + ML Kit，实体二维码 instrumentation 和手持相机实拍回填均已通过。
-- HLS 逐文件指标不适用于单一 HLS 资源，当前已补齐逐分片实时指标；系统级 ENOSPC、长期后台异常网络仍待补。真实局域网 Torrent/Magnet 多文件重复下载压力已完成。当前物理 Redmi 分区仍有约 `102.7 GiB` 可用，非 root 环境不能安全制造真实 ENOSPC；Rust 已有 `ErrorKind::StorageFull` 不重试和中文错误单测，Android 真机只保留无效路径/权限等邻近回归，不把它们冒充磁盘已满。
-- 后台恢复已覆盖 Activity 退后台、force-stop 后断点续传和前台服务保活，系统返回退出提示已在真机通过；仍需覆盖系统低内存回收、网络切换和更长时长后台场景。
+- HLS 逐文件指标不适用于单一 HLS 资源，当前已补齐逐分片实时指标，并支持显式选择 `EXT-X-MEDIA` 音轨单独落盘；系统级 ENOSPC 已在 macOS 1 MiB 卷上用同一条 Rust 路径验证，设备侧仍只能覆盖无效路径/权限等邻近回归。真实局域网 Torrent/Magnet 多文件重复下载压力已完成。当前物理 Redmi 分区仍有约 `102.7 GiB` 可用，非 root 环境不能安全制造真实 ENOSPC；Rust 已有 `ErrorKind::StorageFull` 不重试和中文错误单测，Android 真机只保留无效路径/权限等邻近回归，不把它们冒充磁盘已满。
+- 后台恢复已覆盖 Activity 退后台、force-stop 后断点续传、前台服务保活和系统 idle 期间的长时下载（`dumpsys deviceidle force-idle` 下 48 MiB 载荷完整落盘）；系统低内存回收走的是同一条 recover 路径，由 `am force-stop` 场景证明，仍缺真机 LMK 计数器证据。
 - 正式签名升级链路已完成；当前仍是预览包名 `dev.fluxdown.mobile.kotlin`，正式包名切换与 Google Play 上架不在本轮范围。
 
 ## 构建

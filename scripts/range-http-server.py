@@ -4,13 +4,42 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import sys
+import threading
+import time
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+
+class GlobalRateLimiter:
+    """服务级令牌桶：多连接下载时也按总带宽限速，而不是每条连接各算一份。"""
+
+    def __init__(self, rate: int) -> None:
+        self.rate = rate
+        self._lock = threading.Lock()
+        self._next_free = time.monotonic()
+
+    def consume(self, amount: int) -> None:
+        if self.rate <= 0 or amount <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            start = max(now, self._next_free)
+            self._next_free = start + amount / self.rate
+            delay = self._next_free - now
+        if delay > 0:
+            time.sleep(delay)
 
 
 class RangeRequestHandler(SimpleHTTPRequestHandler):
     range_start: int | None = None
     range_end: int | None = None
+    # 作者: long
+    # 长时下载验证需要可控的吞吐量：按字节预算限速，同时把 Range 请求头写进日志，
+    # 这样“断点续传”是被服务端日志证明的，而不是靠客户端自称。
+    bytes_per_second: int = 0
+    chunk_bytes: int = 64 * 1024
+    limiter: "GlobalRateLimiter" = GlobalRateLimiter(0)
 
     def end_headers(self) -> None:
         self.send_header("Accept-Ranges", "bytes")
@@ -58,15 +87,28 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
 
     def copyfile(self, source, outputfile) -> None:
         if self.range_start is None or self.range_end is None:
-            return super().copyfile(source, outputfile)
+            file_size = os.fstat(source.fileno()).st_size
+            self._stream(source, file_size, outputfile)
+            return
 
         remaining = self.range_end - self.range_start + 1
+        self._stream(source, remaining, outputfile)
+
+    def _stream(self, source, remaining: int, outputfile) -> None:
+        chunk_bytes = self.chunk_bytes if self.bytes_per_second > 0 else 1024 * 1024
         while remaining > 0:
-            chunk = source.read(min(1024 * 1024, remaining))
+            chunk = source.read(min(chunk_bytes, remaining))
             if not chunk:
                 break
             outputfile.write(chunk)
             remaining -= len(chunk)
+            self.limiter.consume(len(chunk))
+
+    def log_message(self, fmt: str, *args) -> None:
+        sys.stderr.write(
+            "%s - %s [range=%s]\n" % (self.address_string(), fmt % args, self.headers.get("Range") or "-")
+        )
+        sys.stderr.flush()
 
     def _parse_range(self, file_size: int) -> tuple[int | None, int | None]:
         header = self.headers.get("Range")
@@ -96,8 +138,13 @@ def main() -> None:
     parser.add_argument("--directory", default=os.getcwd())
     parser.add_argument("--tls-cert", default="")
     parser.add_argument("--tls-key", default="")
+    parser.add_argument("--bytes-per-second", type=int, default=0, help="限速：0 表示不限速")
+    parser.add_argument("--chunk-bytes", type=int, default=64 * 1024)
     args = parser.parse_args()
 
+    RangeRequestHandler.bytes_per_second = max(args.bytes_per_second, 0)
+    RangeRequestHandler.chunk_bytes = max(args.chunk_bytes, 1024)
+    RangeRequestHandler.limiter = GlobalRateLimiter(RangeRequestHandler.bytes_per_second)
     handler = partial(RangeRequestHandler, directory=args.directory)
     server = ThreadingHTTPServer((args.bind, args.port), handler)
     scheme = "http"

@@ -540,6 +540,171 @@ class RustQueueInstrumentationTest {
         )
     }
 
+    // 作者: long
+    // ⑦ 韧性验证：真机进程被杀 / 设备进入 idle 的长时下载由宿主脚本分阶段驱动。
+    // 阶段之间进程会真的死掉，所以队列文件、产物和任务号都必须落在外部存储上，
+    // 且只能由宿主脚本用 -e resiliencePhase 选择当前阶段，避免默认套件误跑。
+    @Test
+    fun resiliencePhaseStartThrottledDownload() {
+        val arguments = InstrumentationRegistry.getArguments()
+        assumeTrue("仅阶段 start 运行", arguments.getString("resiliencePhase") == "start")
+        val root = resilienceRoot().apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val store = File(root, RESILIENCE_STORE_NAME)
+        val output = File(root, "downloads").apply { mkdirs() }
+        val add = RustCoreBridge.queueAdd(
+            store.absolutePath,
+            JSONObject()
+                .put("source", requireNotNull(arguments.getString("resilienceUrl")))
+                .put("outputDir", output.absolutePath)
+                .put("fileName", RESILIENCE_FILE_NAME)
+                .toString(),
+        )
+        assertTrue("韧性场景入队失败: $add", parseOk(add))
+        val taskId = JSONObject(add).getJSONObject("data").getString("id")
+        File(root, RESILIENCE_TASK_NAME).writeText(taskId)
+        // threadCount = 1：只有单连接写最终文件时才有真正的 Range 续传语义。
+        startQueue(store, concurrency = 1, threadCount = 1)
+        // 作者: long
+        // 队列在应用内部存储（Rust 写不到外置存储的私有目录），宿主需要看到进度，
+        // 所以这里把进度镜像到外置私有目录，并一直跑到进程被杀。
+        val probe = resilienceProbeFile()
+        while (true) {
+            val task = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+            probe.writeText(
+                JSONObject()
+                    .put("state", task.optString("state"))
+                    .put("downloadedBytes", task.optLong("downloaded_bytes"))
+                    .toString(),
+            )
+            Thread.sleep(250)
+        }
+    }
+
+    @Test
+    fun resiliencePhaseVerifyRecoveryAfterProcessKill() {
+        val arguments = InstrumentationRegistry.getArguments()
+        assumeTrue("仅阶段 verify 运行", arguments.getString("resiliencePhase") == "verify")
+        val root = resilienceRoot()
+        val store = File(root, RESILIENCE_STORE_NAME)
+        assumeTrue("阶段一没有留下队列文件，跳过", store.isFile)
+        val taskId = File(root, RESILIENCE_TASK_NAME).readText().trim()
+        val beforeKill = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+        assertEquals("进程被杀时任务应仍处于 running", "running", beforeKill.optString("state"))
+        val partialFile = File(root, "downloads/$RESILIENCE_FILE_NAME")
+        val partialBytes = partialFile.length()
+        assertTrue("被杀前应已落盘部分数据: $partialBytes B", partialBytes > 0)
+        assertTrue(
+            "进程被杀前不应已经下完: $partialBytes B",
+            partialBytes < arguments.getString("resilienceBytes")!!.toLong(),
+        )
+
+        val recovery = RustCoreBridge.queueRecoverInterrupted(store.absolutePath)
+        assertTrue("恢复中断任务失败: $recovery", parseOk(recovery))
+        val recovered = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+        assertEquals("系统回收后的任务应转为 paused", "paused", recovered.optString("state"))
+        assertEquals("中断原因必须带稳定错误码", "interrupted", recovered.optString("error_code"))
+        assertTrue(
+            "恢复后不应丢弃已下载字节: ${recovered.optLong("downloaded_bytes")}",
+            recovered.optLong("downloaded_bytes") > 0,
+        )
+        assertTrue("恢复后部分文件被清理: ${partialFile.length()} B", partialFile.length() >= partialBytes)
+
+        // 前台服务恢复中断任务走的也是这一步：recover 只标 paused，必须显式 resume 才会被 runner 拾取。
+        val resume = RustCoreBridge.queueResume(store.absolutePath, taskId)
+        assertTrue("恢复为可继续失败: $resume", parseOk(resume))
+        val resumed = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+        assertEquals("resume 后任务应重新排队: $resumed", "queued", resumed.optString("state"))
+        assertEquals("resume 不应清掉已下载字节", recovered.optLong("downloaded_bytes"), resumed.optLong("downloaded_bytes"))
+        startQueue(store, concurrency = 1, threadCount = 1)
+        waitForTaskState(store, taskId, "finished", 240_000)
+        assertEquals(
+            "续传完成后的文件摘要必须与源一致",
+            arguments.getString("resilienceSha").orEmpty().lowercase(),
+            sha256(partialFile.readBytes()),
+        )
+        assertEquals(
+            "续传完成后的文件大小必须与源一致",
+            arguments.getString("resilienceBytes")!!.toLong(),
+            partialFile.length(),
+        )
+    }
+
+    @Test
+    fun resiliencePhaseForegroundServiceDownloadSurvivesIdle() {
+        val arguments = InstrumentationRegistry.getArguments()
+        assumeTrue("仅阶段 idle 运行", arguments.getString("resiliencePhase") == "idle")
+        val root = resilienceRoot().apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val store = File(root, RESILIENCE_STORE_NAME)
+        val output = File(root, "downloads").apply { mkdirs() }
+        val add = RustCoreBridge.queueAdd(
+            store.absolutePath,
+            JSONObject()
+                .put("source", requireNotNull(arguments.getString("resilienceUrl")))
+                .put("outputDir", output.absolutePath)
+                .put("fileName", RESILIENCE_FILE_NAME)
+                .toString(),
+        )
+        assertTrue("idle 场景入队失败: $add", parseOk(add))
+        val taskId = JSONObject(add).getJSONObject("data").getString("id")
+        File(root, RESILIENCE_TASK_NAME).writeText(taskId)
+        // 作者: long
+        // 走真实前台服务：设备进入 Doze 时只有前台服务（dataSync）才被允许继续联网。
+        // 用例必须一直等到下载结束——instrumentation 一收尾，系统就会 force-stop 被测进程。
+        val serviceIntent = Intent(context, DownloadForegroundService::class.java).apply {
+            action = DownloadForegroundService.ACTION_START
+            putExtra(DownloadForegroundService.EXTRA_STORE_PATH, store.absolutePath)
+        }
+        ContextCompat.startForegroundService(context, serviceIntent)
+
+        val probe = resilienceProbeFile()
+        val deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(8)
+        var task = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+        while (System.nanoTime() < deadline && task.optString("state") != "finished" && task.optString("state") != "failed") {
+            probe.writeText(
+                JSONObject()
+                    .put("state", task.optString("state"))
+                    .put("downloadedBytes", task.optLong("downloaded_bytes"))
+                    .toString(),
+            )
+            Thread.sleep(250)
+            task = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+        }
+        probe.writeText(
+            JSONObject()
+                .put("state", task.optString("state"))
+                .put("downloadedBytes", task.optLong("downloaded_bytes"))
+                .toString(),
+        )
+        assertEquals("前台服务应把任务推进到完成: $task", "finished", task.optString("state"))
+        val file = File(output, RESILIENCE_FILE_NAME)
+        assertEquals(
+            "idle 期间下载的文件大小必须与源一致",
+            arguments.getString("resilienceBytes")!!.toLong(),
+            file.length(),
+        )
+        assertEquals(
+            "idle 期间下载的文件摘要必须与源一致",
+            arguments.getString("resilienceSha").orEmpty().lowercase(),
+            sha256(file.readBytes()),
+        )
+    }
+
+    private fun resilienceRoot(): File = File(context.filesDir, "resilience")
+
+    private fun resilienceProbeFile(): File {
+        // 外置私有目录在某些 ROM 上需要亲手创建（edit: 框架不一定替应用建 files/ 子目录）。
+        val base = requireNotNull(context.getExternalFilesDir(null)) { "外置私有目录不可用" }
+        val probeDir = File(base, "resilience")
+        assertTrue("无法创建进度探针目录: ${probeDir.absolutePath}", probeDir.isDirectory || probeDir.mkdirs())
+        return File(probeDir, "progress.json")
+    }
+
     private fun runDuplicateP2pPair(
         source: String,
         rootName: String,
@@ -1431,6 +1596,11 @@ class RustQueueInstrumentationTest {
     }
 
     private companion object {
+        // ⑦ 韧性阶段之间进程会重启，文件名与存储名必须固定。
+        private const val RESILIENCE_FILE_NAME = "resilience.bin"
+        private const val RESILIENCE_STORE_NAME = "queue.json"
+        private const val RESILIENCE_TASK_NAME = "task-id.txt"
+
         private fun readHeaders(input: BufferedInputStream): String {
             var window = ""
             var firstLine = ""
