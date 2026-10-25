@@ -474,7 +474,10 @@ async fn run_one(
             // 作者: long
             // 自动重试必须依据原始错误类型决定；先记录分类结果，再把安全且可操作的提示写入任务，避免认证/权限/磁盘错误反复执行。
             retryable = error.is_retryable();
-            task.fail(error.user_message());
+            // 作者: long
+            // 同时写入稳定错误码：桌面/CLI 继续用中文文案，移动端按错误码本地化。
+            let failure = error.user_failure();
+            task.fail_with_code(failure.message, failure.code);
             None
         }
     };

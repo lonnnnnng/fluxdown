@@ -75,6 +75,7 @@ internal fun parseTasks(envelope: String): List<QueueTask> = runCatching {
                     startedAtMs = task.optNullableLong("started_at_ms", "startedAtMs"),
                     finishedAtMs = task.optNullableLong("finished_at_ms", "finishedAtMs"),
                     error = task.optNullableString("error"),
+                    errorCode = task.optNullableString("error_code", "errorCode"),
                     outputDir = rawOutputDir,
                     torrentName = task.optNullableString("torrent_name", "torrentName"),
                     torrentFiles = torrentFiles,

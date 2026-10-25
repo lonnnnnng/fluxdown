@@ -70,7 +70,10 @@ internal fun TaskPropertiesDialog(task: QueueTask, onDismiss: () -> Unit) {
                         PropertyRow(tr(Str.FieldFinishedAt), formatDateTime(task.finishedAtMs))
                         PropertyRow(tr(Str.FieldElapsed), formatDuration(task.startedAtMs, task.finishedAtMs, LocalLanguage.current))
                         PropertyRow(tr(Str.FieldSpeed), speedText)
-                        PropertyRow(tr(Str.FieldError), task.error?.takeIf { it.isNotBlank() } ?: tr(Str.None))
+                        PropertyRow(
+                            tr(Str.FieldError),
+                            localizedError(task.errorCode, task.error) ?: tr(Str.None),
+                        )
                     }
                 }
             }

@@ -1196,6 +1196,110 @@ class RustQueueInstrumentationTest {
         }
     }
 
+    /**
+     * 作者: long
+     * ⑤ 本地化契约的真机闭环：Rust 必须把稳定错误码写进队列 JSON，
+     * 界面再按 `error_code` 取中英文案。这里锁死"错误码真的过桥了"，
+     * 避免后续只保留中文 error 文本、让英文界面重新露中文。
+     */
+    @Test
+    fun queueRecordsStableErrorCodeForHttpNotFound() {
+        val server = StatusLoopbackHttpServer(status = 404)
+        val root = File(context.cacheDir, "rust-error-code-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val output = File(root, "downloads").apply { mkdirs() }
+        var runId: String? = null
+        try {
+            val add = RustCoreBridge.queueAdd(
+                store.absolutePath,
+                JSONObject()
+                    .put("source", server.url)
+                    .put("outputDir", output.absolutePath)
+                    .put("fileName", "missing.bin")
+                    .toString(),
+            )
+            assertTrue("入队失败: $add", parseOk(add))
+            val taskId = JSONObject(add).getJSONObject("data").getString("id")
+            runId = startQueue(store, retryAttempts = 0)
+            waitForRunTerminal(runId, 30_000)
+            val task = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+            assertEquals("404 应判定失败: $task", "failed", task.optString("state"))
+            assertEquals("Rust 未写入稳定错误码: $task", "http_not_found", task.optString("error_code"))
+            assertTrue("失败文案不应为空: $task", task.optString("error").isNotBlank())
+        } finally {
+            runId?.let { forgetRunWhenTerminal(it) }
+            server.close()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun queueRecordsStableErrorCodeForDiskFullOutput() {
+        // 输出目录不存在且无法创建 → storage_permission / invalid_output_path，
+        // 关键是错误码要稳定，文案留给界面本地化。
+        val server = StatusLoopbackHttpServer(status = 200)
+        val root = File(context.cacheDir, "rust-error-code-output-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val blocked = File(root, "blocked-file").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        var runId: String? = null
+        try {
+            val add = RustCoreBridge.queueAdd(
+                store.absolutePath,
+                JSONObject()
+                    .put("source", server.url)
+                    .put("outputDir", File(blocked, "downloads").absolutePath)
+                    .put("fileName", "fixture.bin")
+                    .toString(),
+            )
+            assertTrue("入队失败: $add", parseOk(add))
+            val taskId = JSONObject(add).getJSONObject("data").getString("id")
+            runId = startQueue(store, retryAttempts = 0)
+            waitForRunTerminal(runId, 30_000)
+            val task = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+            assertEquals("输出路径不可用应失败: $task", "failed", task.optString("state"))
+            val code = task.optString("error_code")
+            assertTrue("错误码应可本地化，实际为 '$code': $task", code in setOf("invalid_output_path", "storage_permission", "io_error"))
+        } finally {
+            runId?.let { forgetRunWhenTerminal(it) }
+            server.close()
+            root.deleteRecursively()
+        }
+    }
+
+    private class StatusLoopbackHttpServer(private val status: Int) : AutoCloseable {
+        private val server = ServerSocket(0, 4, java.net.InetAddress.getByName("127.0.0.1"))
+        private val thread = Thread(::serve, "fluxdown-android-test-status-http")
+        val url = "http://127.0.0.1:${server.localPort}/status.bin"
+
+        init { thread.start() }
+
+        private fun serve() {
+            while (!server.isClosed) {
+                runCatching { server.accept() }.getOrNull()?.let { socket ->
+                    Thread({ respond(socket) }, "fluxdown-android-test-status-http-client").start()
+                }
+            }
+        }
+
+        private fun respond(socket: Socket) {
+            socket.use { client ->
+                runCatching {
+                    val input = BufferedInputStream(client.getInputStream())
+                    readHeaders(input)
+                    val writer = client.getOutputStream()
+                    val reason = if (status == 404) "Not Found" else "OK"
+                    writer.write("HTTP/1.1 $status $reason\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
+                    writer.flush()
+                }
+            }
+        }
+
+        override fun close() {
+            server.close()
+            thread.join(2_000)
+        }
+    }
+
     private companion object {
         private fun readHeaders(input: BufferedInputStream): String {
             var window = ""

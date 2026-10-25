@@ -21,6 +21,8 @@ internal data class QueueTask(
     val startedAtMs: Long?,
     val finishedAtMs: Long?,
     val error: String?,
+    /** Rust 写入的稳定错误码；旧队列或未分类错误为 null，界面回退展示 [error]。 */
+    val errorCode: String? = null,
     val outputDir: String,
     val torrentName: String?,
     val torrentFiles: List<TorrentFileSelection>,

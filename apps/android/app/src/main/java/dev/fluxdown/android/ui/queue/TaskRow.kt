@@ -156,8 +156,9 @@ internal fun TaskRow(task: QueueTask, model: NativeViewModel) {
                             )
                         }
                     }
-                    if (task.state == "failed" && !task.error.isNullOrBlank()) {
-                        Text(task.error, color = FluxPalette.danger, fontSize = 9.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val failure = localizedError(task.errorCode, task.error)
+                    if (task.state == "failed" && failure != null) {
+                        Text(failure, color = FluxPalette.danger, fontSize = 9.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }

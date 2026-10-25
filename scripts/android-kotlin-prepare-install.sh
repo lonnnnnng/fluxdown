@@ -56,6 +56,26 @@ is_installed() {
   grep -qx "package:$PKG" <<<"$listing"
 }
 
+# 作者: long
+# instrumentation APK（<pkg>.test）也会因为证书不一致挡住安装，报错形如
+#   INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package <pkg>.test signatures do not match
+# 它不承载任何需要保留的数据，直接清掉即可。
+drop_stale_test_package() {
+  local test_pkg="$PKG.test" listing
+  listing="$(installed_packages || true)"
+  if ! grep -qx "package:$test_pkg" <<<"$listing"; then
+    return 0
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "stale instrumentation package: $test_pkg（--dry-run 下未卸载）"
+    return 0
+  fi
+  echo "清理残留 instrumentation 包: $test_pkg"
+  adb_cmd uninstall "$test_pkg" >/dev/null 2>&1 || adb_cmd shell pm uninstall "$test_pkg" >/dev/null 2>&1 || true
+}
+
+drop_stale_test_package
+
 if ! is_installed; then
   echo "installed package: none ($PKG 未安装，无需处理签名冲突)"
   exit 0

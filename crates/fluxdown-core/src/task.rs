@@ -125,6 +125,9 @@ pub struct DownloadTask {
     #[serde(default)]
     pub hls_keep_transport_stream: bool,
     pub error: Option<String>,
+    /// 稳定错误码（跳端接口契约）；旧队列或未分类错误为 None，界面回退展示 `error` 文案。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
     pub created_at_ms: u128,
     pub updated_at_ms: u128,
     #[serde(default)]
@@ -180,6 +183,7 @@ impl DownloadTask {
             hls_segments_written: None,
             hls_segments_total: None,
             error: None,
+            error_code: None,
             created_at_ms: millis,
             updated_at_ms: millis,
             started_at_ms: None,
@@ -219,6 +223,7 @@ impl DownloadTask {
                 }
                 self.finished_at_ms = None;
                 self.error = None;
+                self.error_code = None;
                 self.handoff_backend = None;
                 self.handed_off_at_ms = None;
             }
@@ -229,12 +234,14 @@ impl DownloadTask {
                 self.handed_off_at_ms = None;
                 if state == DownloadState::Finished {
                     self.error = None;
+                    self.error_code = None;
                 }
             }
             DownloadState::Queued => {
                 self.finished_at_ms = None;
                 self.current_speed_bytes_per_second = 0;
                 self.error = None;
+                self.error_code = None;
                 self.handoff_backend = None;
                 self.handed_off_at_ms = None;
             }
@@ -247,6 +254,7 @@ impl DownloadTask {
                 self.finished_at_ms = None;
                 self.current_speed_bytes_per_second = 0;
                 self.error = None;
+                self.error_code = None;
                 self.handed_off_at_ms = Some(millis);
             }
         }
@@ -303,6 +311,13 @@ impl DownloadTask {
     pub fn fail(&mut self, error: impl Into<String>) {
         self.set_state(DownloadState::Failed);
         self.error = Some(error.into());
+        self.error_code = None;
+    }
+
+    /// 失败时必须同时写入稳定错误码，移动端据此本地化。
+    pub fn fail_with_code(&mut self, error: impl Into<String>, code: impl Into<String>) {
+        self.fail(error);
+        self.error_code = Some(code.into());
     }
 
     pub fn pause_after_interruption(&mut self) {
@@ -310,6 +325,7 @@ impl DownloadTask {
         // 进程异常退出后持久化队列里会残留 running；恢复成 paused 能保留断点，同时释放并发槽位。
         self.set_state(DownloadState::Paused);
         self.error = Some("任务中断，已暂停，可继续下载".to_string());
+        self.error_code = Some("interrupted".to_string());
     }
 
     pub fn reset_for_restart(&mut self) {
@@ -319,6 +335,7 @@ impl DownloadTask {
         self.hls_segments_written = None;
         self.hls_segments_total = None;
         self.error = None;
+        self.error_code = None;
         self.started_at_ms = None;
         self.finished_at_ms = None;
         self.handoff_backend = None;
@@ -619,6 +636,32 @@ fn now_ms() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fail_with_code_round_trips_through_queue_json() {
+        let mut task = DownloadTask::from_request(DownloadRequest::new(
+            "https://example.com/file.bin",
+            "/tmp",
+        ));
+        task.fail_with_code("磁盘空间不足", "disk_full");
+
+        let json = serde_json::to_value(&task).unwrap();
+        assert_eq!(json["error_code"], "disk_full");
+        assert_eq!(json["state"], "failed");
+
+        let restored: DownloadTask = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.error_code.as_deref(), Some("disk_full"));
+
+        // 旧队列没有 error_code 字段时必须能反序列化，界面回退展示 error 文案。
+        let mut legacy = serde_json::to_value(&task).unwrap();
+        legacy.as_object_mut().unwrap().remove("error_code");
+        let restored: DownloadTask = serde_json::from_value(legacy).unwrap();
+        assert_eq!(restored.error_code, None);
+        assert_eq!(restored.error.as_deref(), Some("磁盘空间不足"));
+
+        task.set_state(DownloadState::Queued);
+        assert_eq!(task.error_code, None);
+    }
 
     #[test]
     fn deserializes_legacy_task_without_runtime_metrics() {

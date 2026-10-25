@@ -58,10 +58,11 @@ internal fun TaskActionsDialog(
         text = {
             Column(Modifier.fillMaxWidth()) {
                 Text(task.displayName, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = FluxPalette.textSecondary)
-                if (task.state == "failed" && !task.error.isNullOrBlank()) {
+                val failure = localizedError(task.errorCode, task.error)
+                if (task.state == "failed" && failure != null) {
                     Spacer(Modifier.height(6.dp))
                     Text(tr(Str.FieldFailureReason), fontSize = 11.sp, color = FluxPalette.danger)
-                    Text(task.error, fontSize = 11.sp, color = FluxPalette.dangerText, maxLines = 6, overflow = TextOverflow.Ellipsis)
+                    Text(failure, fontSize = 11.sp, color = FluxPalette.dangerText, maxLines = 6, overflow = TextOverflow.Ellipsis)
                 }
                 Spacer(Modifier.height(8.dp))
                 if (task.state == "running") {

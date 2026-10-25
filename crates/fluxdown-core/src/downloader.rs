@@ -210,109 +210,238 @@ impl DownloadError {
         }
     }
 
+    /// 面向用户的可读文案。桌面/CLI 直接展示该中文文本。
+    ///
+    /// 移动端不要把这个字符串当接口契约：[`Self::user_failure`] 会同时给出稳定错误码，
+    /// 界面按错误码本地化，文案只作为未知错误码时的兜底。
     pub fn user_message(&self) -> String {
+        self.user_failure().message
+    }
+
+    /// 稳定错误码 + 中文兜底文案。
+    pub fn user_failure(&self) -> UserFacingError {
         match self {
-            Self::Http(error) => http_error_user_message(error),
-            Self::Io(error) => io_error_user_message(error),
+            Self::Http(error) => http_error_user_failure(error),
+            Self::Io(error) => io_error_user_failure(error),
             Self::IncompleteTransfer {
                 protocol,
                 expected_bytes,
                 actual_bytes,
-            } => format!(
-                "{} {}",
-                protocol.as_str().to_ascii_uppercase(),
+            } => {
+                let prefix = protocol.as_str().to_ascii_uppercase();
                 if actual_bytes < expected_bytes {
-                    format!(
-                        "传输中断：已下载 {actual_bytes}/{expected_bytes} 字节，请检查网络后重试。"
+                    UserFacingError::new(
+                        "incomplete_transfer",
+                        format!(
+                            "{prefix} 传输中断：已下载 {actual_bytes}/{expected_bytes} 字节，请检查网络后重试。"
+                        ),
                     )
                 } else {
-                    format!(
-                        "本地文件大小异常：已有 {actual_bytes} 字节，远端为 {expected_bytes} 字节，请重新下载。"
+                    UserFacingError::new(
+                        "local_size_anomaly",
+                        format!(
+                            "{prefix} 本地文件大小异常：已有 {actual_bytes} 字节，远端为 {expected_bytes} 字节，请重新下载。"
+                        ),
                     )
                 }
+            }
+            Self::Ftp(error) => ftp_error_user_failure(error),
+            Self::FtpsDataTls { .. } => UserFacingError::new(
+                "ftps_session_reuse",
+                "FTPS 数据连接失败：服务器要求复用 TLS 会话，当前内建引擎暂不兼容该服务端配置。",
             ),
-            Self::Ftp(error) => ftp_error_user_message(error),
-            Self::FtpsDataTls { .. } => {
-                "FTPS 数据连接失败：服务器要求复用 TLS 会话，当前内建引擎暂不兼容该服务端配置。"
-                    .to_string()
-            }
-            Self::Sftp(error) => protocol_error_user_message("SFTP", error.message()),
-            Self::SftpHostKeyVerification { .. } => {
-                "SFTP 主机身份校验失败，请检查 known_hosts 中的主机指纹和端口。".to_string()
-            }
-            Self::CredentialUnavailable { .. } => {
-                "下载凭据不可用，请检查系统凭据库中的引用和权限。".to_string()
-            }
-            Self::CredentialConflict => {
-                "下载链接已经包含用户名或密码，不能同时使用凭据引用。".to_string()
-            }
-            Self::CredentialUnsupportedProtocol(protocol) => format!(
-                "{} 协议当前不能使用凭据引用，请直接使用协议支持的认证方式。",
-                protocol.as_str().to_ascii_uppercase()
+            Self::Sftp(error) => protocol_error_user_failure("SFTP", "sftp", error.message()),
+            Self::SftpHostKeyVerification { .. } => UserFacingError::new(
+                "sftp_host_key",
+                "SFTP 主机身份校验失败，请检查 known_hosts 中的主机指纹和端口。",
             ),
-            Self::Smb(error) => smb_error_user_message(error),
-            Self::TorrentStalled { .. } => {
-                "暂无可用 Peer 或 Tracker 未响应，请检查网络、Tracker 后稍后重试。".to_string()
-            }
-            Self::Torrent(error) => protocol_error_user_message("Torrent", &error.to_string()),
-            Self::UnsupportedProtocol(protocol) => format!(
-                "暂不支持 {} 协议，请检查链接或改用受支持的下载方式。",
-                protocol.as_str()
+            Self::CredentialUnavailable { .. } => UserFacingError::new(
+                "credential_unavailable",
+                "下载凭据不可用，请检查系统凭据库中的引用和权限。",
             ),
-            Self::MissingBackend { command, .. } => {
-                format!("缺少外部下载组件 `{command}`，请安装后重试。")
+            Self::CredentialConflict => UserFacingError::new(
+                "credential_conflict",
+                "下载链接已经包含用户名或密码，不能同时使用凭据引用。",
+            ),
+            Self::CredentialUnsupportedProtocol(protocol) => UserFacingError::new(
+                "credential_unsupported_protocol",
+                format!(
+                    "{} 协议当前不能使用凭据引用，请直接使用协议支持的认证方式。",
+                    protocol.as_str().to_ascii_uppercase()
+                ),
+            ),
+            Self::Smb(error) => smb_error_user_failure(error),
+            Self::TorrentStalled { .. } => UserFacingError::new(
+                "torrent_stalled",
+                "暂无可用 Peer 或 Tracker 未响应，请检查网络、Tracker 后稍后重试。",
+            ),
+            Self::Torrent(error) => {
+                protocol_error_user_failure("Torrent", "torrent", &error.to_string())
             }
-            Self::ExternalBackendFailed { .. } => {
-                "外部下载组件执行失败，请检查组件状态后重试。".to_string()
-            }
-            Self::HandoffFailed { .. } => {
-                "无法移交给系统或外部应用，请确认已安装可处理该链接的应用。".to_string()
-            }
-            Self::MissingFileName(_) => {
-                "无法从链接识别文件名，请在新建任务时手动填写文件名。".to_string()
-            }
+            Self::UnsupportedProtocol(protocol) => UserFacingError::new(
+                "unsupported_protocol",
+                format!(
+                    "暂不支持 {} 协议，请检查链接或改用受支持的下载方式。",
+                    protocol.as_str()
+                ),
+            ),
+            Self::MissingBackend { command, .. } => UserFacingError::new(
+                "missing_backend",
+                format!("缺少外部下载组件 `{command}`，请安装后重试。"),
+            ),
+            Self::ExternalBackendFailed { .. } => UserFacingError::new(
+                "external_backend_failed",
+                "外部下载组件执行失败，请检查组件状态后重试。",
+            ),
+            Self::HandoffFailed { .. } => UserFacingError::new(
+                "handoff_failed",
+                "无法移交给系统或外部应用，请确认已安装可处理该链接的应用。",
+            ),
+            Self::MissingFileName(_) => UserFacingError::new(
+                "missing_file_name",
+                "无法从链接识别文件名，请在新建任务时手动填写文件名。",
+            ),
             Self::InvalidUrl(_)
             | Self::InvalidFtpUrl(_)
             | Self::InvalidSftpUrl(_)
-            | Self::InvalidSmbUrl(_) => {
-                "下载链接格式无效，请检查协议、主机和文件路径。".to_string()
+            | Self::InvalidSmbUrl(_) => UserFacingError::new(
+                "invalid_url",
+                "下载链接格式无效，请检查协议、主机和文件路径。",
+            ),
+            Self::HttpRange(_) => UserFacingError::new(
+                "http_range",
+                "服务器的分段下载响应无效，请降低下载线程数或更换下载源。",
+            ),
+            Self::InvalidM3u8 => {
+                UserFacingError::new("invalid_playlist", "HLS 播放列表无效或没有可下载分片。")
             }
-            Self::HttpRange(_) => {
-                "服务器的分段下载响应无效，请降低下载线程数或更换下载源。".to_string()
+            Self::UnsupportedHlsKeyMethod(_) => UserFacingError::new(
+                "hls_unsupported_encryption",
+                "HLS 使用了暂不支持的加密方式，无法下载该资源。",
+            ),
+            Self::InvalidHlsKey(_) | Self::HlsDecrypt(_) => UserFacingError::new(
+                "hls_key_invalid",
+                "HLS 密钥无效或分片解密失败，请检查资源是否已过期。",
+            ),
+            Self::InvalidHlsByteRange(_) => UserFacingError::new(
+                "hls_range_invalid",
+                "HLS 分片范围无效，请检查播放列表或更换下载源。",
+            ),
+            Self::HlsRemux(_) => UserFacingError::new(
+                "hls_remux_failed",
+                "HLS 转封装失败，请确认 FFmpeg 可用，或改为保留 TS 文件。",
+            ),
+            Self::HlsVariantOutOfRange { available, .. } => UserFacingError::new(
+                "hls_variant_out_of_range",
+                format!("所选 HLS 清晰度已失效，当前可用清晰度共 {available} 个，请重新选择。"),
+            ),
+            Self::TorrentSourceUnreadable(_) => UserFacingError::new(
+                "torrent_source_unreadable",
+                "Torrent 文件无法读取，请检查文件是否存在且有访问权限。",
+            ),
+            Self::Paused => {
+                UserFacingError::new("paused", "下载已暂停，可在任务列表中继续。")
             }
-            Self::InvalidM3u8 => "HLS 播放列表无效或没有可下载分片。".to_string(),
-            Self::UnsupportedHlsKeyMethod(_) => {
-                "HLS 使用了暂不支持的加密方式，无法下载该资源。".to_string()
-            }
-            Self::InvalidHlsKey(_) | Self::HlsDecrypt(_) => {
-                "HLS 密钥无效或分片解密失败，请检查资源是否已过期。".to_string()
-            }
-            Self::InvalidHlsByteRange(_) => {
-                "HLS 分片范围无效，请检查播放列表或更换下载源。".to_string()
-            }
-            Self::HlsRemux(_) => {
-                "HLS 转封装失败，请确认 FFmpeg 可用，或改为保留 TS 文件。".to_string()
-            }
-            Self::HlsVariantOutOfRange { available, .. } => {
-                format!("所选 HLS 清晰度已失效，当前可用清晰度共 {available} 个，请重新选择。")
-            }
-            Self::TorrentSourceUnreadable(_) => {
-                "Torrent 文件无法读取，请检查文件是否存在且有访问权限。".to_string()
-            }
-            Self::Paused => "下载已暂停，可在任务列表中继续。".to_string(),
-            Self::InvalidSha256 { .. } => {
-                "SHA-256 格式无效，请填写 64 位十六进制校验值。".to_string()
-            }
-            Self::Sha256UnsupportedOutput { .. } => {
-                "该任务输出为文件夹，暂不支持单文件 SHA-256 校验。".to_string()
-            }
+            Self::InvalidSha256 { .. } => UserFacingError::new(
+                "sha256_invalid",
+                "SHA-256 格式无效，请填写 64 位十六进制校验值。",
+            ),
+            Self::Sha256UnsupportedOutput { .. } => UserFacingError::new(
+                "sha256_unsupported_output",
+                "该任务输出为文件夹，暂不支持单文件 SHA-256 校验。",
+            ),
             Self::Sha256Mismatch {
                 expected,
                 actual,
                 path,
-            } => format!(
-                "SHA-256 mismatch（校验不一致）：期望 {expected}，实际 {actual}，文件 {path}。请删除损坏文件后重新下载。"
+            } => UserFacingError::new(
+                "sha256_mismatch",
+                format!(
+                    "SHA-256 mismatch（校验不一致）：期望 {expected}，实际 {actual}，文件 {path}。请删除损坏文件后重新下载。"
+                ),
             ),
+        }
+    }
+}
+
+/// 移动端 `ui/i18n/ErrorText.kt` 必须覆盖的错误码全集。
+///
+/// 这是唯一的接口契约来源：Kotlin 侧的 `ErrorTextTest` 直接读这个常量，
+/// 新增错误码时忘记登记界面文案会立刻测出来。
+pub const USER_FACING_ERROR_CODES: &[&str] = &[
+    "http_auth",
+    "http_not_found",
+    "http_timeout",
+    "http_rate_limited",
+    "http_server_error",
+    "http_status",
+    "network_timeout",
+    "network_error",
+    "http_range",
+    "incomplete_transfer",
+    "local_size_anomaly",
+    "disk_full",
+    "storage_permission",
+    "invalid_output_path",
+    "network_interrupted",
+    "io_error",
+    "invalid_url",
+    "unsupported_protocol",
+    "missing_backend",
+    "external_backend_failed",
+    "handoff_failed",
+    "missing_file_name",
+    "invalid_playlist",
+    "hls_unsupported_encryption",
+    "hls_key_invalid",
+    "hls_range_invalid",
+    "hls_remux_failed",
+    "hls_variant_out_of_range",
+    "ftp_auth",
+    "ftp_not_found",
+    "ftps_tls",
+    "ftps_session_reuse",
+    "ftp_interrupted",
+    "ftp_failed",
+    "sftp_auth",
+    "sftp_not_found",
+    "sftp_interrupted",
+    "sftp_failed",
+    "sftp_host_key",
+    "smb_auth",
+    "smb_access_denied",
+    "smb_not_found",
+    "smb_disk_full",
+    "smb_interrupted",
+    "smb_failed",
+    "torrent_stalled",
+    "torrent_failed",
+    "torrent_source_unreadable",
+    "credential_unavailable",
+    "credential_conflict",
+    "credential_unsupported_protocol",
+    "interrupted",
+    "sha256_invalid",
+    "sha256_unsupported_output",
+    "sha256_mismatch",
+    "paused",
+];
+
+/// 一次失败的稳定错误码 + 面向用户的中文文案。
+///
+/// 错误码是跨端契约：移动端按码本地化，桌面/CLI 直接显示文案。
+/// 新增变体时必须同时给出错误码，避免界面只能展示中文原文。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserFacingError {
+    pub code: String,
+    pub message: String,
+}
+
+impl UserFacingError {
+    fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
         }
     }
 }
@@ -340,22 +469,40 @@ fn http_error_is_retryable(error: &reqwest::Error) -> bool {
         || detail.contains("broken pipe")
 }
 
-fn http_error_user_message(error: &reqwest::Error) -> String {
+fn http_error_user_failure(error: &reqwest::Error) -> UserFacingError {
     match error.status() {
-        Some(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) => {
-            "认证失败，请检查下载链接中的账号、密码或访问权限。".to_string()
-        }
-        Some(StatusCode::NOT_FOUND | StatusCode::GONE) => {
-            "下载资源不存在或已失效，请检查链接后重试。".to_string()
-        }
-        Some(StatusCode::REQUEST_TIMEOUT) => "服务器响应超时，请检查网络后重试。".to_string(),
-        Some(StatusCode::TOO_MANY_REQUESTS) => "服务器请求过于频繁，请稍后重试。".to_string(),
-        Some(status) if status.is_server_error() => {
-            format!("服务器暂时不可用（HTTP {status}），请稍后重试。")
-        }
-        Some(status) => format!("下载请求失败（HTTP {status}），请检查链接和访问权限。"),
-        None if error.is_timeout() => "网络请求超时，请检查网络后重试。".to_string(),
-        None => "网络连接失败，请检查网络、代理或服务器地址后重试。".to_string(),
+        Some(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) => UserFacingError::new(
+            "http_auth",
+            "认证失败，请检查下载链接中的账号、密码或访问权限。",
+        ),
+        Some(StatusCode::NOT_FOUND | StatusCode::GONE) => UserFacingError::new(
+            "http_not_found",
+            "下载资源不存在或已失效，请检查链接后重试。",
+        ),
+        Some(StatusCode::REQUEST_TIMEOUT) => UserFacingError::new(
+            "http_timeout",
+            "服务器响应超时，请检查网络后重试。",
+        ),
+        Some(StatusCode::TOO_MANY_REQUESTS) => UserFacingError::new(
+            "http_rate_limited",
+            "服务器请求过于频繁，请稍后重试。",
+        ),
+        Some(status) if status.is_server_error() => UserFacingError::new(
+            "http_server_error",
+            format!("服务器暂时不可用（HTTP {status}），请稍后重试。"),
+        ),
+        Some(status) => UserFacingError::new(
+            "http_status",
+            format!("下载请求失败（HTTP {status}），请检查链接和访问权限。"),
+        ),
+        None if error.is_timeout() => UserFacingError::new(
+            "network_timeout",
+            "网络请求超时，请检查网络后重试。",
+        ),
+        None => UserFacingError::new(
+            "network_error",
+            "网络连接失败，请检查网络、代理或服务器地址后重试。",
+        ),
     }
 }
 
@@ -376,23 +523,32 @@ fn io_error_is_retryable(error: &std::io::Error) -> bool {
     )
 }
 
-fn io_error_user_message(error: &std::io::Error) -> String {
+fn io_error_user_failure(error: &std::io::Error) -> UserFacingError {
     match error.kind() {
-        std::io::ErrorKind::StorageFull => {
-            "磁盘空间不足，请释放空间或更换下载保存位置。".to_string()
-        }
+        std::io::ErrorKind::StorageFull => UserFacingError::new(
+            "disk_full",
+            "磁盘空间不足，请释放空间或更换下载保存位置。",
+        ),
         std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem => {
-            "当前下载保存位置不可写，请重新选择目录并授予访问权限。".to_string()
+            UserFacingError::new(
+                "storage_permission",
+                "当前下载保存位置不可写，请重新选择目录并授予访问权限。",
+            )
         }
         std::io::ErrorKind::NotADirectory
         | std::io::ErrorKind::IsADirectory
-        | std::io::ErrorKind::AlreadyExists => {
-            "下载保存位置无效，请重新选择一个可写目录。".to_string()
-        }
-        kind if io_error_is_retryable(error) => {
-            format!("网络传输中断（{kind:?}），请检查网络后重试。")
-        }
-        _ => "文件读写失败，请检查下载保存位置和存储设备后重试。".to_string(),
+        | std::io::ErrorKind::AlreadyExists => UserFacingError::new(
+            "invalid_output_path",
+            "下载保存位置无效，请重新选择一个可写目录。",
+        ),
+        kind if io_error_is_retryable(error) => UserFacingError::new(
+            "network_interrupted",
+            format!("网络传输中断（{kind:?}），请检查网络后重试。"),
+        ),
+        _ => UserFacingError::new(
+            "io_error",
+            "文件读写失败，请检查下载保存位置和存储设备后重试。",
+        ),
     }
 }
 
@@ -409,25 +565,33 @@ fn ftp_error_is_retryable(error: &suppaftp::FtpError) -> bool {
     }
 }
 
-fn ftp_error_user_message(error: &suppaftp::FtpError) -> String {
+fn ftp_error_user_failure(error: &suppaftp::FtpError) -> UserFacingError {
     match error {
         suppaftp::FtpError::UnexpectedResponse(response)
             if matches!(response.status.code(), 430 | 530 | 532) =>
         {
-            "FTP 认证失败，请检查账号、密码和目录权限。".to_string()
+            UserFacingError::new("ftp_auth", "FTP 认证失败，请检查账号、密码和目录权限。")
         }
         suppaftp::FtpError::UnexpectedResponse(response)
             if matches!(response.status.code(), 550) =>
         {
-            "FTP 文件不存在或没有访问权限，请检查远程路径。".to_string()
+            UserFacingError::new(
+                "ftp_not_found",
+                "FTP 文件不存在或没有访问权限，请检查远程路径。",
+            )
         }
-        suppaftp::FtpError::SecureError(_) => {
-            "FTPS 证书或 TLS 握手失败，请检查服务端证书和连接模式。".to_string()
-        }
-        _ if ftp_error_is_retryable(error) => {
-            "FTP 连接中断或服务器暂时不可用，请检查网络后重试。".to_string()
-        }
-        _ => "FTP 下载失败，请检查服务器地址、远程路径和连接模式。".to_string(),
+        suppaftp::FtpError::SecureError(_) => UserFacingError::new(
+            "ftps_tls",
+            "FTPS 证书或 TLS 握手失败，请检查服务端证书和连接模式。",
+        ),
+        _ if ftp_error_is_retryable(error) => UserFacingError::new(
+            "ftp_interrupted",
+            "FTP 连接中断或服务器暂时不可用，请检查网络后重试。",
+        ),
+        _ => UserFacingError::new(
+            "ftp_failed",
+            "FTP 下载失败，请检查服务器地址、远程路径和连接模式。",
+        ),
     }
 }
 
@@ -450,7 +614,7 @@ fn protocol_error_is_retryable(message: &str) -> bool {
     )
 }
 
-fn protocol_error_user_message(protocol: &str, message: &str) -> String {
+fn protocol_error_user_failure(protocol: &str, code_prefix: &str, message: &str) -> UserFacingError {
     let normalized = message.to_ascii_lowercase();
     if contains_any(
         &normalized,
@@ -461,32 +625,63 @@ fn protocol_error_user_message(protocol: &str, message: &str) -> String {
             "password",
         ],
     ) {
-        return format!("{protocol} 认证失败，请检查账号、密码和访问权限。");
+        return UserFacingError::new(
+            format!("{code_prefix}_auth"),
+            format!("{protocol} 认证失败，请检查账号、密码和访问权限。"),
+        );
     }
     if contains_any(&normalized, &["not found", "no such file"]) {
-        return format!("{protocol} 文件不存在，请检查远程路径。");
+        return UserFacingError::new(
+            format!("{code_prefix}_not_found"),
+            format!("{protocol} 文件不存在，请检查远程路径。"),
+        );
     }
     if contains_any(&normalized, &["peer", "tracker", "no download progress"]) {
-        return "暂无可用 Peer 或 Tracker 未响应，请检查网络、Tracker 后稍后重试。".to_string();
+        return UserFacingError::new(
+            "torrent_stalled",
+            "暂无可用 Peer 或 Tracker 未响应，请检查网络、Tracker 后稍后重试。",
+        );
     }
     if protocol_error_is_retryable(message) {
-        return format!("{protocol} 连接中断或服务器暂时不可用，请检查网络后重试。");
+        return UserFacingError::new(
+            format!("{code_prefix}_interrupted"),
+            format!("{protocol} 连接中断或服务器暂时不可用，请检查网络后重试。"),
+        );
     }
-    format!("{protocol} 下载失败，请检查链接、服务端配置和访问权限。")
+    UserFacingError::new(
+        format!("{code_prefix}_failed"),
+        format!("{protocol} 下载失败，请检查链接、服务端配置和访问权限。"),
+    )
 }
 
-fn smb_error_user_message(error: &smb2::Error) -> String {
+fn smb_error_user_failure(error: &smb2::Error) -> UserFacingError {
     match error.kind() {
-        SmbErrorKind::AuthRequired | SmbErrorKind::SigningRequired => {
-            "SMB 认证失败，请检查账号、密码、域和签名设置。".to_string()
-        }
-        SmbErrorKind::AccessDenied => "SMB 文件没有访问权限，请检查共享目录权限。".to_string(),
-        SmbErrorKind::NotFound => "SMB 文件或共享目录不存在，请检查路径。".to_string(),
-        SmbErrorKind::DiskFull => "SMB 服务端磁盘空间不足，无法继续下载。".to_string(),
+        SmbErrorKind::AuthRequired | SmbErrorKind::SigningRequired => UserFacingError::new(
+            "smb_auth",
+            "SMB 认证失败，请检查账号、密码、域和签名设置。",
+        ),
+        SmbErrorKind::AccessDenied => UserFacingError::new(
+            "smb_access_denied",
+            "SMB 文件没有访问权限，请检查共享目录权限。",
+        ),
+        SmbErrorKind::NotFound => UserFacingError::new(
+            "smb_not_found",
+            "SMB 文件或共享目录不存在，请检查路径。",
+        ),
+        SmbErrorKind::DiskFull => UserFacingError::new(
+            "smb_disk_full",
+            "SMB 服务端磁盘空间不足，无法继续下载。",
+        ),
         SmbErrorKind::ConnectionLost | SmbErrorKind::TimedOut | SmbErrorKind::SessionExpired => {
-            "SMB 连接中断或会话已过期，请检查网络后重试。".to_string()
+            UserFacingError::new(
+                "smb_interrupted",
+                "SMB 连接中断或会话已过期，请检查网络后重试。",
+            )
         }
-        _ => "SMB 下载失败，请检查共享地址、路径和服务端配置。".to_string(),
+        _ => UserFacingError::new(
+            "smb_failed",
+            "SMB 下载失败，请检查共享地址、路径和服务端配置。",
+        ),
     }
 }
 
@@ -4014,6 +4209,97 @@ mod tests {
         };
         assert!(no_peer.is_retryable());
         assert!(no_peer.user_message().contains("Peer"));
+    }
+
+    #[test]
+    fn user_facing_error_codes_are_unique_and_snake_case() {
+        let codes = USER_FACING_ERROR_CODES;
+        let unique: std::collections::BTreeSet<_> = codes.iter().collect();
+        assert_eq!(unique.len(), codes.len(), "错误码列表存在重复项");
+        for code in codes {
+            assert!(!code.is_empty());
+            assert!(
+                code.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
+                "错误码必须是小写下划线风格: {code}"
+            );
+        }
+    }
+
+    #[test]
+    fn user_failures_expose_stable_error_codes() {
+        // 作者: long
+        // 错误码是移动端本地化的接口契约，改动文案时不允许顺带改动这些值。
+        let cases = [
+            (
+                DownloadError::Io(std::io::Error::from(std::io::ErrorKind::StorageFull)),
+                "disk_full",
+            ),
+            (
+                DownloadError::Io(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+                "storage_permission",
+            ),
+            (
+                DownloadError::IncompleteTransfer {
+                    protocol: Protocol::Ftp,
+                    expected_bytes: 10,
+                    actual_bytes: 4,
+                },
+                "incomplete_transfer",
+            ),
+            (
+                DownloadError::IncompleteTransfer {
+                    protocol: Protocol::Sftp,
+                    expected_bytes: 4,
+                    actual_bytes: 10,
+                },
+                "local_size_anomaly",
+            ),
+            (DownloadError::InvalidM3u8, "invalid_playlist"),
+            (
+                DownloadError::TorrentStalled {
+                    downloaded_bytes: 0,
+                    total_bytes: 10,
+                    elapsed_secs: 45,
+                },
+                "torrent_stalled",
+            ),
+            (
+                DownloadError::InvalidUrl("nope".to_string()),
+                "invalid_url",
+            ),
+            (DownloadError::Paused, "paused"),
+            (
+                DownloadError::InvalidSha256 {
+                    value: "zz".to_string(),
+                },
+                "sha256_invalid",
+            ),
+            (
+                DownloadError::CredentialConflict,
+                "credential_conflict",
+            ),
+        ];
+        for (error, expected) in cases {
+            let failure = error.user_failure();
+            assert_eq!(failure.code, expected, "unexpected code for {error:?}");
+            assert!(!failure.message.is_empty());
+            assert_eq!(failure.message, error.user_message());
+        }
+
+        let sftp_auth = DownloadError::Sftp(ssh2::Error::new(
+            ssh2::ErrorCode::Session(-18),
+            "authentication failed",
+        ));
+        assert_eq!(sftp_auth.user_failure().code, "sftp_auth");
+
+        let smb_timeout = DownloadError::Smb(smb2::Error::Timeout);
+        assert_eq!(smb_timeout.user_failure().code, "smb_interrupted");
+
+        let ftps_tls = DownloadError::FtpsDataTls {
+            source: suppaftp::FtpError::SecureError("handshake failed".into()),
+        };
+        assert_eq!(ftps_tls.user_failure().code, "ftps_session_reuse");
     }
 
     #[test]
