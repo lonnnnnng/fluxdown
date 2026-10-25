@@ -1,5 +1,6 @@
 package dev.fluxdown.android.viewmodel
 
+import dev.fluxdown.android.data.HlsAudioOption
 import dev.fluxdown.android.data.HlsVariantOption
 import dev.fluxdown.android.data.KotlinSettings
 import dev.fluxdown.android.data.QueueTask
@@ -46,6 +47,7 @@ internal data class NativeUiState(
     val hlsVariantsSource: String? = null,
     val hlsVariantsLoading: Boolean = false,
     val hlsVariantsError: String? = null,
+    val hlsAudioRenditions: List<HlsAudioOption> = emptyList(),
     /** S5 启动时识别到的剪贴板下载源；非 null 时任务页顶部展示提示条。 */
     val clipboardSuggestion: String? = null,
     /** S1：已按「仅在 Wi-Fi 下下载」暂停，等待 Wi-Fi 恢复后自动继续。 */

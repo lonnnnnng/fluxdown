@@ -38,6 +38,7 @@ internal fun errorTextKey(code: String?): Str? = when (code) {
     "hls_range_invalid" -> Str.ErrHlsRangeInvalid
     "hls_remux_failed" -> Str.ErrHlsRemuxFailed
     "hls_variant_out_of_range" -> Str.ErrHlsVariantOutOfRange
+    "hls_audio_out_of_range" -> Str.ErrHlsAudioOutOfRange
     "ftp_auth" -> Str.ErrFtpAuth
     "ftp_not_found" -> Str.ErrFtpNotFound
     "ftps_tls" -> Str.ErrFtpsTls

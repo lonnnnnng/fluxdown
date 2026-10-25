@@ -28,6 +28,10 @@ internal data class QueueTask(
     val torrentFiles: List<TorrentFileSelection>,
     val torrentFileIndices: Set<Int>,
     val hlsVariantIndex: Int?,
+    /** 用户显式选定的 HLS 音轨下标（EXT-X-MEDIA 音频列表下标）；null 表示不下载额外音轨。 */
+    val hlsAudioIndex: Int? = null,
+    /** 音轨落盘路径；仅当选定音轨且下载成功时有值。 */
+    val hlsAudioPath: String? = null,
     val hlsKeepTransportStream: Boolean,
     val hlsRemuxedToMp4: Boolean,
     val credentialRef: String?,
@@ -97,4 +101,19 @@ internal data class HlsVariantOption(
     val codecs: String?,
     val resolution: String?,
     val frameRate: Double?,
+)
+
+/**
+ * 作者: long
+ * HLS master playlist 里 EXT-X-MEDIA 声明的音轨。
+ * 移动端没有 ffmpeg，无法把音轨与视频混流，所以选定后单独落盘为独立文件；
+ * [index] 是音频子列表下标（与 Rust `hls_audio_renditions` 一致），不是全量 EXT-X-MEDIA 下标。
+ */
+internal data class HlsAudioOption(
+    val index: Int,
+    val groupId: String,
+    val name: String,
+    val language: String?,
+    val isDefault: Boolean,
+    val channels: String?,
 )

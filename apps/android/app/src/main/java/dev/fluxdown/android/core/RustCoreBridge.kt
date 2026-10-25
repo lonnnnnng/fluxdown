@@ -41,6 +41,9 @@ object RustCoreBridge {
 
     fun hlsVariants(source: String): String = callOrError { hlsVariantsNative(source) }
 
+    fun hlsAudioRenditions(source: String): String =
+        callOrError { hlsAudioRenditionsNative(source) }
+
     fun torrentDetailsAsync(source: String, taskId: String = ""): String =
         callOrError { torrentDetailsAsyncNative(source, taskId) }
 
@@ -95,6 +98,7 @@ object RustCoreBridge {
     private external fun abiNative(): String
     private external fun detectNative(source: String): String
     private external fun hlsVariantsNative(source: String): String
+    private external fun hlsAudioRenditionsNative(source: String): String
     private external fun torrentDetailsAsyncNative(source: String, taskId: String): String
     private external fun queueListNative(storePath: String): String
     private external fun queueRecoverInterruptedNative(storePath: String): String

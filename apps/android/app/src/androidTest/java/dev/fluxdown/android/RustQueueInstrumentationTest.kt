@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -124,6 +125,65 @@ class RustQueueInstrumentationTest {
             runId?.let { forgetRunWhenTerminal(it) }
             server.close()
             root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun queueDownloadsSelectedHlsAudioTrackThroughRust() {
+        // 作者: long
+        // 移动端没有 ffmpeg，音轨无法与视频混流，所以选定音轨的产物是同目录下的独立文件；
+        // 这里断言队列里确实记录了音轨路径，且落盘字节来自选中的那条轨道。
+        val server = HlsAudioLoopbackHttpServer()
+        val root = File(context.cacheDir, "rust-hls-audio-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = File(root, "queue.json")
+        val output = File(root, "downloads").apply { mkdirs() }
+        var runId: String? = null
+        try {
+            val add = RustCoreBridge.queueAdd(
+                store.absolutePath,
+                JSONObject()
+                    .put("source", server.masterUrl)
+                    .put("outputDir", output.absolutePath)
+                    .put("fileName", "clip.ts")
+                    .put("hlsAudioIndex", 1)
+                    .put("hlsKeepTransportStream", true)
+                    .toString(),
+            )
+            assertTrue("HLS 音轨任务入队失败: $add", parseOk(add))
+            val taskId = JSONObject(add).getJSONObject("data").getString("id")
+            runId = startQueue(store, concurrency = 1, threadCount = 2)
+            waitForTaskState(store, taskId, "finished", 60_000)
+            waitForRunTerminal(runId, 60_000)
+
+            val task = queueTask(RustCoreBridge.queueList(store.absolutePath), taskId)
+            assertEquals("finished", task.optString("state"))
+            val audioPath = task.optString("hls_audio_path").takeIf { it.isNotBlank() }
+            assertNotNull("队列没有记录音轨路径", audioPath)
+            val audioFile = File(audioPath!!)
+            assertTrue("音轨文件不存在: $audioPath", audioFile.isFile)
+            assertEquals(HlsAudioLoopbackHttpServer.JAPANESE_AUDIO.toList(), audioFile.readBytes().toList())
+            assertEquals(HlsAudioLoopbackHttpServer.VIDEO.toList(), File(output, "clip.ts").readBytes().toList())
+        } finally {
+            runId?.let { forgetRunWhenTerminal(it) }
+            server.close()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun hlsAudioRenditionsListsExtMediaTracks() {
+        val server = HlsAudioLoopbackHttpServer()
+        try {
+            val envelope = RustCoreBridge.hlsAudioRenditions(server.masterUrl)
+            assertTrue("读取音轨失败: $envelope", parseOk(envelope))
+            val tracks = JSONObject(envelope).getJSONArray("data")
+            assertEquals(2, tracks.length())
+            assertEquals("English", tracks.getJSONObject(0).getString("name"))
+            assertEquals("en", tracks.getJSONObject(0).getString("language"))
+            assertEquals("Japanese", tracks.getJSONObject(1).getString("name"))
+            assertEquals(1, tracks.getJSONObject(1).getInt("index"))
+        } finally {
+            server.close()
         }
     }
 
@@ -1103,6 +1163,76 @@ class RustQueueInstrumentationTest {
         override fun close() {
             server.close()
             thread.join(2_000)
+        }
+    }
+
+    private class HlsAudioLoopbackHttpServer : AutoCloseable {
+        private val server = ServerSocket(0, 8, java.net.InetAddress.getByName("127.0.0.1"))
+        private val thread = Thread(::serve, "fluxdown-android-test-hls-audio-http")
+        val masterUrl = "http://127.0.0.1:${server.localPort}/master.m3u8"
+
+        init { thread.start() }
+
+        private fun bodyFor(path: String): Pair<String, ByteArray>? = when (path) {
+            "/master.m3u8" -> "application/vnd.apple.mpegurl" to (
+                "#EXTM3U\n" +
+                    "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\",NAME=\"English\",LANGUAGE=\"en\",DEFAULT=YES,URI=\"audio-en.m3u8\"\n" +
+                    "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\",NAME=\"Japanese\",LANGUAGE=\"ja\",URI=\"audio-ja.m3u8\"\n" +
+                    "#EXT-X-STREAM-INF:BANDWIDTH=256000,AUDIO=\"aac\"\n" +
+                    "video.m3u8\n"
+                ).toByteArray(Charsets.US_ASCII)
+            "/video.m3u8" -> "application/vnd.apple.mpegurl" to
+                "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1.0,\nv-0.ts\n#EXT-X-ENDLIST\n".toByteArray(Charsets.US_ASCII)
+            "/audio-en.m3u8" -> "application/vnd.apple.mpegurl" to
+                "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1.0,\naen-0.ts\n#EXT-X-ENDLIST\n".toByteArray(Charsets.US_ASCII)
+            "/audio-ja.m3u8" -> "application/vnd.apple.mpegurl" to
+                "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1.0,\naja-0.ts\n#EXT-X-ENDLIST\n".toByteArray(Charsets.US_ASCII)
+            "/v-0.ts" -> "video/mp2t" to VIDEO
+            "/aen-0.ts" -> "video/mp2t" to ENGLISH_AUDIO
+            "/aja-0.ts" -> "video/mp2t" to JAPANESE_AUDIO
+            else -> null
+        }
+
+        private fun serve() {
+            while (!server.isClosed) {
+                runCatching { server.accept() }.getOrNull()?.let { socket ->
+                    Thread({ respond(socket) }, "fluxdown-android-test-hls-audio-client").start()
+                }
+            }
+        }
+
+        private fun respond(socket: Socket) {
+            socket.use { client ->
+                val request = BufferedInputStream(client.getInputStream())
+                val path = readHeaders(request).split(' ').getOrNull(1)?.substringBefore('?') ?: "/"
+                val resolved = bodyFor(path)
+                runCatching {
+                    val writer = client.getOutputStream().bufferedWriter()
+                    if (resolved == null) {
+                        writer.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                        writer.flush()
+                        return
+                    }
+                    val (contentType, body) = resolved
+                    writer.write(
+                        "HTTP/1.1 200 OK\r\nContent-Type: $contentType\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n",
+                    )
+                    writer.flush()
+                    client.getOutputStream().write(body)
+                    client.getOutputStream().flush()
+                }
+            }
+        }
+
+        override fun close() {
+            server.close()
+            thread.join(2_000)
+        }
+
+        companion object {
+            val VIDEO = "video-track-bytes".toByteArray()
+            val ENGLISH_AUDIO = "english-audio-track".toByteArray()
+            val JAPANESE_AUDIO = "japanese-audio-track".toByteArray()
         }
     }
 

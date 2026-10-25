@@ -69,6 +69,7 @@ internal fun NewTaskDialog(
     defaultOutputPath: String,
     credentialReferences: List<String>,
     hlsVariants: List<HlsVariantOption>,
+    hlsAudioRenditions: List<HlsAudioOption>,
     hlsVariantsSource: String?,
     hlsVariantsLoading: Boolean,
     hlsVariantsError: String?,
@@ -79,7 +80,7 @@ internal fun NewTaskDialog(
     newTaskError: String?,
     onSourceChanged: () -> Unit,
     onDismiss: () -> Unit,
-    onConfirm: (String, String, String, String?, String, Int?, Boolean) -> Unit,
+    onConfirm: (String, String, String, String?, String, Int?, Int?, Boolean) -> Unit,
     /** S5 从剪贴板建议进入时预填的下载源。 */
     initialSource: String? = null,
 ) {
@@ -90,6 +91,7 @@ internal fun NewTaskDialog(
     var credentialRef by remember { mutableStateOf<String?>(null) }
     var credentialMenuExpanded by remember { mutableStateOf(false) }
     var hlsVariant by remember { mutableStateOf("") }
+    var hlsAudio by remember { mutableStateOf("") }
     var hlsKeepTransportStream by remember { mutableStateOf(false) }
     var showScanner by rememberSaveable { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
@@ -99,6 +101,8 @@ internal fun NewTaskDialog(
     val isHlsSource = detectedProtocol == "m3u8"
     val hlsVariantIndex = hlsVariant.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
     val hlsVariantError = hlsVariant.trim().isNotEmpty() && (hlsVariantIndex == null || hlsVariantIndex < 0)
+    val hlsAudioIndex = hlsAudio.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
+    val hlsAudioError = hlsAudio.trim().isNotEmpty() && (hlsAudioIndex == null || hlsAudioIndex < 0)
     val normalizedSha256 = expectedSha256.trim().removePrefix("sha256:").trim()
     val sha256Error = normalizedSha256.isNotEmpty() &&
         (normalizedSha256.length != 64 || normalizedSha256.any { !it.isDigit() && it.lowercaseChar() !in 'a'..'f' })
@@ -322,6 +326,42 @@ internal fun NewTaskDialog(
                         )
                         Text(tr(Str.KeepTransportStream), fontSize = 12.sp, color = FluxPalette.textStrongAlt2)
                     }
+                    // 作者: long
+                    // 音轨只在 master playlist 真的声明了 EXT-X-MEDIA 音频组时出现；
+                    // 移动端没有 ffmpeg 无法混流，所以选定音轨会额外落盘为独立文件，
+                    // 默认不选，保持“一键下载”产物仍是单一视频文件。
+                    if (hlsVariantsSource == source.trim() && hlsAudioRenditions.isNotEmpty()) {
+                        Text(tr(Str.HlsAudioCount, hlsAudioRenditions.size), fontSize = 11.sp, color = FluxPalette.textMuted)
+                        Column(
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(FluxPalette.background).padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            hlsAudioRenditions.forEach { option ->
+                                val details = listOfNotNull(
+                                    option.name.takeIf { it.isNotBlank() },
+                                    option.language?.takeIf { it.isNotBlank() },
+                                    option.channels?.takeIf { it.isNotBlank() },
+                                    tr(Str.HlsAudioDefault).takeIf { option.isDefault },
+                                ).joinToString(" · ")
+                                TextButton(
+                                    onClick = { hlsAudio = option.index.toString() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                ) {
+                                    Text("#${option.index} ${details.ifBlank { tr(Str.HlsAudioNoInfo) }}", modifier = Modifier.weight(1f), fontSize = 11.sp)
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = hlsAudio,
+                            onValueChange = { value -> hlsAudio = value.filter(Char::isDigit) },
+                            label = { Text(tr(Str.HlsAudioLabel), fontSize = 12.sp) },
+                            supportingText = { Text(if (hlsAudioError) tr(Str.InvalidHlsAudioIndex) else tr(Str.HlsAudioHint)) },
+                            isError = hlsAudioError,
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                    }
                 }
                 if (torrentMetadataLoading) {
                     LinearProgressIndicator(
@@ -337,11 +377,11 @@ internal fun NewTaskDialog(
                 }
                 Button(
                     onClick = {
-                        if (sourceError == null && !hlsVariantError && !sha256Error && !busy) {
-                            onConfirm(source, fileName, outputPath, credentialRef, expectedSha256.trim(), hlsVariantIndex.takeIf { isHlsSource }, hlsKeepTransportStream && isHlsSource)
+                        if (sourceError == null && !hlsVariantError && !hlsAudioError && !sha256Error && !busy) {
+                            onConfirm(source, fileName, outputPath, credentialRef, expectedSha256.trim(), hlsVariantIndex.takeIf { isHlsSource }, hlsAudioIndex.takeIf { isHlsSource }, hlsKeepTransportStream && isHlsSource)
                         }
                     },
-                    enabled = sourceError == null && !hlsVariantError && !sha256Error && !busy,
+                    enabled = sourceError == null && !hlsVariantError && !hlsAudioError && !sha256Error && !busy,
                     modifier = Modifier.fillMaxWidth().height(44.dp),
                     shape = RoundedCornerShape(8.dp),
                 ) {

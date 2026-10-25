@@ -121,6 +121,8 @@ pub enum DownloadError {
     InvalidFtpUrl(String),
     #[error("HLS variant index {index} is out of range; {available} variants available")]
     HlsVariantOutOfRange { index: usize, available: usize },
+    #[error("HLS audio rendition index {index} is out of range; {available} available")]
+    HlsAudioOutOfRange { index: usize, available: usize },
     #[error("torrent source unreadable: {0}")]
     TorrentSourceUnreadable(String),
     #[error("invalid sftp url: {0}")]
@@ -196,6 +198,7 @@ impl DownloadError {
             | Self::HlsRemux(_)
             | Self::InvalidFtpUrl(_)
             | Self::HlsVariantOutOfRange { .. }
+            | Self::HlsAudioOutOfRange { .. }
             | Self::TorrentSourceUnreadable(_)
             | Self::InvalidSftpUrl(_)
             | Self::SftpHostKeyVerification { .. }
@@ -335,13 +338,15 @@ impl DownloadError {
                 "hls_variant_out_of_range",
                 format!("所选 HLS 清晰度已失效，当前可用清晰度共 {available} 个，请重新选择。"),
             ),
+            Self::HlsAudioOutOfRange { available, .. } => UserFacingError::new(
+                "hls_audio_out_of_range",
+                format!("所选 HLS 音轨已失效，请重新选择音轨（共 {available} 条）。"),
+            ),
             Self::TorrentSourceUnreadable(_) => UserFacingError::new(
                 "torrent_source_unreadable",
                 "Torrent 文件无法读取，请检查文件是否存在且有访问权限。",
             ),
-            Self::Paused => {
-                UserFacingError::new("paused", "下载已暂停，可在任务列表中继续。")
-            }
+            Self::Paused => UserFacingError::new("paused", "下载已暂停，可在任务列表中继续。"),
             Self::InvalidSha256 { .. } => UserFacingError::new(
                 "sha256_invalid",
                 "SHA-256 格式无效，请填写 64 位十六进制校验值。",
@@ -368,6 +373,7 @@ impl DownloadError {
 ///
 /// 这是唯一的接口契约来源：Kotlin 侧的 `ErrorTextTest` 直接读这个常量，
 /// 新增错误码时忘记登记界面文案会立刻测出来。
+#[allow(dead_code)] // 只有 Kotlin 侧 ErrorTextTest 读源码校验，Rust 内部不直接引用。
 pub const USER_FACING_ERROR_CODES: &[&str] = &[
     "http_auth",
     "http_not_found",
@@ -397,6 +403,7 @@ pub const USER_FACING_ERROR_CODES: &[&str] = &[
     "hls_range_invalid",
     "hls_remux_failed",
     "hls_variant_out_of_range",
+    "hls_audio_out_of_range",
     "ftp_auth",
     "ftp_not_found",
     "ftps_tls",
@@ -479,14 +486,12 @@ fn http_error_user_failure(error: &reqwest::Error) -> UserFacingError {
             "http_not_found",
             "下载资源不存在或已失效，请检查链接后重试。",
         ),
-        Some(StatusCode::REQUEST_TIMEOUT) => UserFacingError::new(
-            "http_timeout",
-            "服务器响应超时，请检查网络后重试。",
-        ),
-        Some(StatusCode::TOO_MANY_REQUESTS) => UserFacingError::new(
-            "http_rate_limited",
-            "服务器请求过于频繁，请稍后重试。",
-        ),
+        Some(StatusCode::REQUEST_TIMEOUT) => {
+            UserFacingError::new("http_timeout", "服务器响应超时，请检查网络后重试。")
+        }
+        Some(StatusCode::TOO_MANY_REQUESTS) => {
+            UserFacingError::new("http_rate_limited", "服务器请求过于频繁，请稍后重试。")
+        }
         Some(status) if status.is_server_error() => UserFacingError::new(
             "http_server_error",
             format!("服务器暂时不可用（HTTP {status}），请稍后重试。"),
@@ -495,10 +500,9 @@ fn http_error_user_failure(error: &reqwest::Error) -> UserFacingError {
             "http_status",
             format!("下载请求失败（HTTP {status}），请检查链接和访问权限。"),
         ),
-        None if error.is_timeout() => UserFacingError::new(
-            "network_timeout",
-            "网络请求超时，请检查网络后重试。",
-        ),
+        None if error.is_timeout() => {
+            UserFacingError::new("network_timeout", "网络请求超时，请检查网络后重试。")
+        }
         None => UserFacingError::new(
             "network_error",
             "网络连接失败，请检查网络、代理或服务器地址后重试。",
@@ -525,10 +529,9 @@ fn io_error_is_retryable(error: &std::io::Error) -> bool {
 
 fn io_error_user_failure(error: &std::io::Error) -> UserFacingError {
     match error.kind() {
-        std::io::ErrorKind::StorageFull => UserFacingError::new(
-            "disk_full",
-            "磁盘空间不足，请释放空间或更换下载保存位置。",
-        ),
+        std::io::ErrorKind::StorageFull => {
+            UserFacingError::new("disk_full", "磁盘空间不足，请释放空间或更换下载保存位置。")
+        }
         std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem => {
             UserFacingError::new(
                 "storage_permission",
@@ -614,7 +617,11 @@ fn protocol_error_is_retryable(message: &str) -> bool {
     )
 }
 
-fn protocol_error_user_failure(protocol: &str, code_prefix: &str, message: &str) -> UserFacingError {
+fn protocol_error_user_failure(
+    protocol: &str,
+    code_prefix: &str,
+    message: &str,
+) -> UserFacingError {
     let normalized = message.to_ascii_lowercase();
     if contains_any(
         &normalized,
@@ -656,22 +663,19 @@ fn protocol_error_user_failure(protocol: &str, code_prefix: &str, message: &str)
 
 fn smb_error_user_failure(error: &smb2::Error) -> UserFacingError {
     match error.kind() {
-        SmbErrorKind::AuthRequired | SmbErrorKind::SigningRequired => UserFacingError::new(
-            "smb_auth",
-            "SMB 认证失败，请检查账号、密码、域和签名设置。",
-        ),
+        SmbErrorKind::AuthRequired | SmbErrorKind::SigningRequired => {
+            UserFacingError::new("smb_auth", "SMB 认证失败，请检查账号、密码、域和签名设置。")
+        }
         SmbErrorKind::AccessDenied => UserFacingError::new(
             "smb_access_denied",
             "SMB 文件没有访问权限，请检查共享目录权限。",
         ),
-        SmbErrorKind::NotFound => UserFacingError::new(
-            "smb_not_found",
-            "SMB 文件或共享目录不存在，请检查路径。",
-        ),
-        SmbErrorKind::DiskFull => UserFacingError::new(
-            "smb_disk_full",
-            "SMB 服务端磁盘空间不足，无法继续下载。",
-        ),
+        SmbErrorKind::NotFound => {
+            UserFacingError::new("smb_not_found", "SMB 文件或共享目录不存在，请检查路径。")
+        }
+        SmbErrorKind::DiskFull => {
+            UserFacingError::new("smb_disk_full", "SMB 服务端磁盘空间不足，无法继续下载。")
+        }
         SmbErrorKind::ConnectionLost | SmbErrorKind::TimedOut | SmbErrorKind::SessionExpired => {
             UserFacingError::new(
                 "smb_interrupted",
@@ -749,6 +753,9 @@ pub struct DownloadSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub segments_total: Option<usize>,
     pub sha256: Option<String>,
+    /// 单独下载的 HLS 音轨文件；未选择音轨时为 None。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_path: Option<PathBuf>,
 }
 
 /// 单次运行的 SFTP 跳板配置；不参与任务序列化，避免把跳板凭据写入队列。
@@ -799,6 +806,9 @@ pub struct DownloadOptions {
     pub hls_variant_index: Option<usize>,
     #[serde(default)]
     pub hls_keep_transport_stream: bool,
+    /// HLS master playlist 的 `EXT-X-MEDIA` 音频轨道下标；None 表示不单独下载音轨。
+    #[serde(default)]
+    pub hls_audio_index: Option<usize>,
     /// 可选 OpenSSH known_hosts 文件；设置后 SFTP 连接必须匹配主机密钥。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sftp_known_hosts: Option<PathBuf>,
@@ -821,6 +831,7 @@ impl Default for DownloadOptions {
             restart_existing: false,
             hls_variant_index: None,
             hls_keep_transport_stream: false,
+            hls_audio_index: None,
             sftp_known_hosts: None,
             sftp_jump: None,
             runtime_credential: None,
@@ -837,6 +848,7 @@ impl DownloadOptions {
             restart_existing: false,
             hls_variant_index: None,
             hls_keep_transport_stream: false,
+            hls_audio_index: None,
             sftp_known_hosts: None,
             sftp_jump: None,
             runtime_credential: None,
@@ -856,6 +868,11 @@ impl DownloadOptions {
     ) -> Self {
         self.hls_variant_index = hls_variant_index;
         self.hls_keep_transport_stream = hls_keep_transport_stream;
+        self
+    }
+
+    pub fn with_hls_audio_index(mut self, hls_audio_index: Option<usize>) -> Self {
+        self.hls_audio_index = hls_audio_index;
         self
     }
 
@@ -1100,6 +1117,8 @@ impl DownloadEngine {
                     segments_written: None,
                     segments_total: None,
                     sha256: None,
+
+                    audio_path: None,
                 });
             }
 
@@ -1158,6 +1177,8 @@ impl DownloadEngine {
             segments_written: None,
             segments_total: None,
             sha256: None,
+
+            audio_path: None,
         })
     }
 
@@ -1330,6 +1351,8 @@ impl DownloadEngine {
             segments_written: None,
             segments_total: None,
             sha256: None,
+
+            audio_path: None,
         }))
     }
 
@@ -1479,6 +1502,8 @@ impl DownloadEngine {
             segments_written: None,
             segments_total: None,
             sha256: None,
+
+            audio_path: None,
         })
     }
 
@@ -1691,6 +1716,8 @@ impl DownloadEngine {
             segments_written: None,
             segments_total: None,
             sha256: None,
+
+            audio_path: None,
         })
     }
 
@@ -1749,6 +1776,7 @@ impl DownloadEngine {
         let playlist = m3u8_rs::parse_playlist_res(playlist_text.as_bytes())
             .map_err(|_| DownloadError::InvalidM3u8)?;
 
+        let mut audio_rendition_url = None;
         let (media_playlist, media_playlist_url, media_playlist_text) = match playlist {
             m3u8_rs::Playlist::MediaPlaylist(media) => {
                 (media, playlist_url.clone(), playlist_text.clone())
@@ -1766,6 +1794,27 @@ impl DownloadEngine {
                     })?,
                     None => master.variants.first().ok_or(DownloadError::InvalidM3u8)?,
                 };
+                // 作者: long
+                // `EXT-X-MEDIA` 音频轨道与视频 variant 是两条独立播放列表，下载器不能靠拼接
+                // TS 分片把两者合流；这里只在用户显式选择音轨时单独下载该轨道，产物是同目录
+                // 下的独立音轨文件（移动端没有 ffmpeg，无法就地混流）。
+                if let Some(index) = request.hls_audio_index.or(options.hls_audio_index) {
+                    let renditions = hls_audio_renditions_of(&master);
+                    let rendition =
+                        renditions
+                            .get(index)
+                            .ok_or_else(|| DownloadError::HlsAudioOutOfRange {
+                                index,
+                                available: renditions.len(),
+                            })?;
+                    let uri = rendition.uri.clone().ok_or(DownloadError::InvalidM3u8)?;
+                    audio_rendition_url = Some((
+                        playlist_url
+                            .join(&uri)
+                            .map_err(|_| DownloadError::InvalidM3u8)?,
+                        hls_audio_file_label(rendition),
+                    ));
+                }
                 let variant_url = playlist_url
                     .join(&variant.uri)
                     .map_err(|_| DownloadError::InvalidM3u8)?;
@@ -2055,6 +2104,27 @@ impl DownloadEngine {
             }
         };
 
+        // 作者: long
+        // 音轨复用同一条 media playlist 管线（分片缓存、AES-128 解密、拼接都与视频一致），
+        // 但不接视频的进度回调，避免音轨字节把视频进度顶回去。
+        let mut audio_path = None;
+        if let Some((audio_url, label)) = audio_rendition_url {
+            let stem = output_path
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().to_string())
+                .unwrap_or_else(|| "audio".to_string());
+            let mut audio_request =
+                DownloadRequest::new(audio_url.to_string(), request.output_dir.clone());
+            audio_request.file_name = Some(format!("{stem}.audio.{label}"));
+            let audio_options = options
+                .clone()
+                .with_hls_options(None, true)
+                .with_hls_audio_index(None);
+            let audio_summary =
+                Box::pin(self.download_m3u8(audio_request, None, None, audio_options)).await?;
+            audio_path = Some(audio_summary.output_path);
+        }
+
         Ok(DownloadSummary {
             protocol: Protocol::M3u8,
             backend: Backend::BuiltIn,
@@ -2066,6 +2136,7 @@ impl DownloadEngine {
             segments_written: Some(segments_written),
             segments_total: Some(segment_count),
             sha256: None,
+            audio_path,
         })
     }
 
@@ -2325,6 +2396,8 @@ impl DownloadEngine {
             segments_written: None,
             segments_total: None,
             sha256: None,
+
+            audio_path: None,
         })
     }
 
@@ -2378,6 +2451,8 @@ impl DownloadEngine {
             segments_written: None,
             segments_total: None,
             sha256: None,
+
+            audio_path: None,
         })
     }
 }
@@ -3210,6 +3285,87 @@ pub struct HlsVariantInfo {
     pub codecs: Option<String>,
     pub resolution: Option<String>,
     pub frame_rate: Option<f64>,
+    /// `EXT-X-STREAM-INF:AUDIO` 指向的音频组；None 表示音频已混在该 variant 内。
+    pub audio_group: Option<String>,
+}
+
+/// master playlist 的 `EXT-X-MEDIA` 音频轨道描述。
+///
+/// 作者: long
+/// `index` 是该音轨在音频列表中的下标，界面按它回传 `hls_audio_index`；
+/// 没有 `URI` 的条目表示音频已混在主 variant 里，不能单独下载。
+#[derive(Debug, Clone, Serialize)]
+pub struct HlsAudioRenditionInfo {
+    pub index: usize,
+    pub group_id: String,
+    pub name: String,
+    pub language: Option<String>,
+    pub is_default: bool,
+    pub channels: Option<String>,
+    pub uri: Option<String>,
+}
+
+fn hls_audio_renditions_of(master: &m3u8_rs::MasterPlaylist) -> Vec<HlsAudioRenditionInfo> {
+    master
+        .alternatives
+        .iter()
+        .filter(|media| media.media_type == m3u8_rs::AlternativeMediaType::Audio)
+        .enumerate()
+        .map(|(index, media)| HlsAudioRenditionInfo {
+            index,
+            group_id: media.group_id.clone(),
+            name: media.name.clone(),
+            language: media.language.clone(),
+            is_default: media.default,
+            channels: media.channels.clone(),
+            uri: media.uri.clone(),
+        })
+        .collect()
+}
+
+fn hls_audio_file_label(rendition: &HlsAudioRenditionInfo) -> String {
+    // 作者: long
+    // 音轨文件名要能自解释：优先 NAME（如 "Japanese"），其次 LANGUAGE（如 "ja"），
+    // 最后退化成序号；远端给的名字可能含路径分隔符，必须过一遍文件名消毒。
+    let candidate = if !rendition.name.trim().is_empty() {
+        rendition.name.trim().to_string()
+    } else if let Some(language) = rendition
+        .language
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        language.trim().to_string()
+    } else {
+        format!("track{}", rendition.index)
+    };
+    sanitize_download_file_name(&candidate, "audio")
+}
+
+/// 解析 master playlist 的 `EXT-X-MEDIA` 音频轨道列表，供新建任务时选择音轨。
+///
+/// 源不是 master playlist 时返回空列表；没有独立音频 URI 的条目（默认音频已混在
+/// 视频流里）同样返回，界面据此区分"可选音轨"和"音轨已内嵌"。
+pub async fn hls_audio_renditions(
+    source: &str,
+) -> Result<Vec<HlsAudioRenditionInfo>, DownloadError> {
+    let client = Client::builder()
+        .user_agent(concat!("FluxDown/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|_error| DownloadError::InvalidM3u8)?;
+    let url = Url::parse(source).map_err(|_| DownloadError::InvalidUrl(source.to_string()))?;
+    let text = client
+        .get(url)
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    let playlist =
+        m3u8_rs::parse_playlist_res(text.as_bytes()).map_err(|_| DownloadError::InvalidM3u8)?;
+    let m3u8_rs::Playlist::MasterPlaylist(master) = playlist else {
+        return Ok(Vec::new());
+    };
+    Ok(hls_audio_renditions_of(&master))
 }
 
 /// 解析 master playlist 的清晰度 variant 列表，供用户在新建任务时选择。
@@ -3250,6 +3406,7 @@ pub async fn hls_variants(source: &str) -> Result<Vec<HlsVariantInfo>, DownloadE
                 .as_ref()
                 .map(|resolution| format!("{}x{}", resolution.width, resolution.height)),
             frame_rate: variant.frame_rate,
+            audio_group: variant.audio.clone(),
         })
         .collect())
 }
@@ -3548,6 +3705,7 @@ fn download_sftp_blocking(
         segments_written: None,
         segments_total: None,
         sha256: None,
+        audio_path: None,
     };
     drop(sftp);
     drop(session);
@@ -4008,6 +4166,7 @@ async fn run_ed2k_cli(
         segments_written: None,
         segments_total: None,
         sha256: None,
+        audio_path: None,
     })
 }
 
@@ -4264,10 +4423,7 @@ mod tests {
                 },
                 "torrent_stalled",
             ),
-            (
-                DownloadError::InvalidUrl("nope".to_string()),
-                "invalid_url",
-            ),
+            (DownloadError::InvalidUrl("nope".to_string()), "invalid_url"),
             (DownloadError::Paused, "paused"),
             (
                 DownloadError::InvalidSha256 {
@@ -4275,10 +4431,7 @@ mod tests {
                 },
                 "sha256_invalid",
             ),
-            (
-                DownloadError::CredentialConflict,
-                "credential_conflict",
-            ),
+            (DownloadError::CredentialConflict, "credential_conflict"),
         ];
         for (error, expected) in cases {
             let failure = error.user_failure();
@@ -4447,6 +4600,7 @@ mod tests {
             torrent_files: Vec::new(),
             speed_limit_mbps: None,
             hls_variant_index: None,
+            hls_audio_index: None,
             hls_keep_transport_stream: None,
             task_id: None,
         };
@@ -5540,6 +5694,205 @@ fn main() {{
             fs::read(temp_dir.path().join("master.ts")).await.unwrap(),
             b"high variant only"
         );
+        server_task.abort();
+    }
+
+    /// 作者: long
+    /// ``EXT-X-MEDIA` 声明的音频组必须能被枚举出来：`URI` 缺失的条目表示音频已内嵌在
+    /// variant 里（不能单独下载），界面靠 `uri == None` 区分，所以这里也要保留。
+    #[tokio::test]
+    async fn lists_hls_audio_renditions_from_master_playlist() {
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/master.m3u8", server.local_addr().unwrap());
+        let server_task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = server.accept().await else {
+                    return;
+                };
+                let mut buffer = [0; 1024];
+                let Ok(read) = stream.read(&mut buffer).await else {
+                    continue;
+                };
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let body: Vec<u8> = match path {
+                    "/master.m3u8" => concat!(
+                        "#EXTM3U\n",
+                        "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\",NAME=\"English\",LANGUAGE=\"en\",DEFAULT=YES,URI=\"audio/en.m3u8\"\n",
+                        "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\",NAME=\"Japanese\",LANGUAGE=\"ja\",CHANNELS=\"2\",URI=\"audio/ja.m3u8\"\n",
+                        "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\",NAME=\"Muxed\"\n",
+                        "#EXT-X-STREAM-INF:BANDWIDTH=256000,AUDIO=\"aac\"\n",
+                        "variants/high.m3u8\n",
+                    )
+                    .as_bytes()
+                    .to_vec(),
+                    _ => b"not found".to_vec(),
+                };
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(header.as_bytes()).await;
+                let _ = stream.write_all(&body).await;
+                let _ = stream.shutdown().await;
+            }
+        });
+
+        let renditions = hls_audio_renditions(&source).await.unwrap();
+        assert_eq!(renditions.len(), 3);
+        assert_eq!(renditions[0].index, 0);
+        assert_eq!(renditions[0].name, "English");
+        assert_eq!(renditions[0].language.as_deref(), Some("en"));
+        assert!(renditions[0].is_default);
+        assert_eq!(renditions[0].uri.as_deref(), Some("audio/en.m3u8"));
+        assert_eq!(renditions[1].name, "Japanese");
+        assert_eq!(renditions[1].channels.as_deref(), Some("2"));
+        assert!(!renditions[1].is_default);
+        assert_eq!(renditions[2].name, "Muxed");
+        assert!(renditions[2].uri.is_none());
+        server_task.abort();
+    }
+
+    /// 作者: long
+    /// 选定音轨时视频按原逻辑落盘，音轨单独落成 `<stem>.audio.<label>.ts`，
+    /// 因为移动端没有 ffmpeg 无法把两条流混成一个文件。
+    #[tokio::test]
+    async fn downloads_hls_selected_audio_rendition_as_separate_file() {
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/master.m3u8", server.local_addr().unwrap());
+        let server_task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = server.accept().await else {
+                    return;
+                };
+                let mut buffer = [0; 1024];
+                let Ok(read) = stream.read(&mut buffer).await else {
+                    continue;
+                };
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let (content_type, body): (&str, Vec<u8>) = match path {
+                    "/master.m3u8" => (
+                        "application/vnd.apple.mpegurl",
+                        concat!(
+                            "#EXTM3U\n",
+                            "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\",NAME=\"English\",LANGUAGE=\"en\",DEFAULT=YES,URI=\"audio/en.m3u8\"\n",
+                            "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\",NAME=\"Japanese\",LANGUAGE=\"ja\",URI=\"audio/ja.m3u8\"\n",
+                            "#EXT-X-STREAM-INF:BANDWIDTH=256000,AUDIO=\"aac\"\n",
+                            "variants/high.m3u8\n",
+                        )
+                        .as_bytes()
+                        .to_vec(),
+                    ),
+                    "/variants/high.m3u8" => (
+                        "application/vnd.apple.mpegurl",
+                        b"#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1,\nv-1.ts\n#EXT-X-ENDLIST\n".to_vec(),
+                    ),
+                    "/variants/v-1.ts" => ("video/mp2t", b"video only".to_vec()),
+                    "/audio/ja.m3u8" => (
+                        "application/vnd.apple.mpegurl",
+                        b"#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1,\na-1.ts\n#EXT-X-ENDLIST\n".to_vec(),
+                    ),
+                    "/audio/a-1.ts" => ("video/mp2t", b"japanese audio".to_vec()),
+                    "/audio/en.m3u8" | "/audio/en-1.ts" => (
+                        "text/plain",
+                        b"unselected track must not be requested".to_vec(),
+                    ),
+                    _ => ("text/plain", b"not found".to_vec()),
+                };
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(header.as_bytes()).await;
+                let _ = stream.write_all(&body).await;
+                let _ = stream.shutdown().await;
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut request = DownloadRequest::new(source, temp_dir.path());
+        request.hls_audio_index = Some(1);
+        let summary = DownloadEngine::new().download(request).await.unwrap();
+
+        assert_eq!(
+            fs::read(temp_dir.path().join("master.ts")).await.unwrap(),
+            b"video only"
+        );
+        let audio_path = summary.audio_path.expect("audio path should be reported");
+        let audio_name = audio_path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default();
+        assert!(
+            audio_name.starts_with("master.audio.") && audio_name.ends_with(".ts"),
+            "unexpected audio file name: {audio_name}"
+        );
+        assert_eq!(fs::read(&audio_path).await.unwrap(), b"japanese audio");
+        server_task.abort();
+    }
+
+    /// 作者: long
+    /// 选中的音轨下标失效时必须报稳定错误码，而不是默默下载第一条音轨。
+    #[tokio::test]
+    async fn hls_audio_index_out_of_range_reports_stable_code() {
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = format!("http://{}/master.m3u8", server.local_addr().unwrap());
+        let server_task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = server.accept().await else {
+                    return;
+                };
+                let mut buffer = [0; 1024];
+                let Ok(read) = stream.read(&mut buffer).await else {
+                    continue;
+                };
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let body: Vec<u8> = match path {
+                    "/master.m3u8" => concat!(
+                        "#EXTM3U\n",
+                        "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\",NAME=\"English\",URI=\"audio/en.m3u8\"\n",
+                        "#EXT-X-STREAM-INF:BANDWIDTH=256000,AUDIO=\"aac\"\n",
+                        "variants/high.m3u8\n",
+                    )
+                    .as_bytes()
+                    .to_vec(),
+                    "/variants/high.m3u8" => {
+                        b"#EXTM3U\n#EXTINF:1,\nv-1.ts\n#EXT-X-ENDLIST\n".to_vec()
+                    }
+                    _ => b"not found".to_vec(),
+                };
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(header.as_bytes()).await;
+                let _ = stream.write_all(&body).await;
+                let _ = stream.shutdown().await;
+            }
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut request = DownloadRequest::new(source, temp_dir.path());
+        request.hls_audio_index = Some(9);
+        let error = DownloadEngine::new()
+            .download(request)
+            .await
+            .expect_err("out of range audio index must fail");
+        assert_eq!(error.user_failure().code, "hls_audio_out_of_range");
         server_task.abort();
     }
 

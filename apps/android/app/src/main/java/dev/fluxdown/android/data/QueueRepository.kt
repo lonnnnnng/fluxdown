@@ -42,6 +42,8 @@ internal class QueueRepository(private val storePath: String) {
 
     fun hlsVariants(source: String): String = RustCoreBridge.hlsVariants(source)
 
+    fun hlsAudioRenditions(source: String): String = RustCoreBridge.hlsAudioRenditions(source)
+
     val version: String get() = if (RustCoreBridge.isLoaded) RustCoreBridge.version() else trApp(Str.NotLoaded)
 
     val abi: String get() = if (RustCoreBridge.isLoaded) RustCoreBridge.abi() else "-"

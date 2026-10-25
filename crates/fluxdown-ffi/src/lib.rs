@@ -138,6 +138,22 @@ pub extern "C" fn fluxdown_hls_variants(source: *const c_char) -> *mut c_char {
     string_to_cstr(envelope(output))
 }
 
+/// 读取 HLS master playlist 的音轨（EXT-X-MEDIA）列表，供原生移动端选择音轨。
+///
+/// 作者: long
+/// 与清晰度一样只读 playlist；没有 EXT-X-MEDIA 的播放列表返回空数组。
+#[unsafe(no_mangle)]
+pub extern "C" fn fluxdown_hls_audio_renditions(source: *const c_char) -> *mut c_char {
+    let source = cstr_to_string(source);
+    let output = runtime().block_on(async {
+        let renditions = fluxdown_core::hls_audio_renditions(&source)
+            .await
+            .map_err(|error| error.to_string())?;
+        serde_json::to_value(renditions).map_err(|error| error.to_string())
+    });
+    string_to_cstr(envelope(output))
+}
+
 /// 协议运行时支持状态。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxdown_support(source: *const c_char) -> *mut c_char {
@@ -236,7 +252,7 @@ pub extern "C" fn fluxdown_queue_recover_interrupted(store_path: *const c_char) 
 }
 
 /// 入队任务：`request_json` 为统一任务请求对象
-/// `{"source":..,"outputDir":..,"fileName":..,"credentialRef":..,"expectedSha256":..,"torrentFileIndices":[..],"torrentName":..,"torrentFiles":[..],"speedLimitMbps":..,"hlsVariantIndex":..,"hlsKeepTransportStream":..}`。
+/// `{"source":..,"outputDir":..,"fileName":..,"credentialRef":..,"expectedSha256":..,"torrentFileIndices":[..],"torrentName":..,"torrentFiles":[..],"speedLimitMbps":..,"hlsVariantIndex":..,"hlsAudioIndex":..,"hlsKeepTransportStream":..}`。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxdown_queue_add(
     store_path: *const c_char,
@@ -684,6 +700,13 @@ fn request_from_payload(payload: &serde_json::Value) -> Result<DownloadRequest, 
         .and_then(serde_json::Value::as_u64)
     {
         request.hls_variant_index = Some(index as usize);
+    }
+    if let Some(index) = payload
+        .get("hlsAudioIndex")
+        .or_else(|| payload.get("hls_audio_index"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        request.hls_audio_index = Some(index as usize);
     }
     if let Some(keep_ts) = payload
         .get("hlsKeepTransportStream")

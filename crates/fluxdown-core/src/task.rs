@@ -47,6 +47,9 @@ pub struct DownloadRequest {
     /// HLS 保留 TS 原始流（跳过 ffmpeg 转封装）；None/Some(false) 表示按默认转封装。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hls_keep_transport_stream: Option<bool>,
+    /// HLS `EXT-X-MEDIA` 音频轨道下标；None 表示不单独下载音轨。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hls_audio_index: Option<usize>,
     /// 队列任务 id，透传给下载引擎用于运行时状态关联（如 torrent 会话注册表）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
@@ -66,6 +69,7 @@ impl DownloadRequest {
             speed_limit_mbps: None,
             hls_variant_index: None,
             hls_keep_transport_stream: None,
+            hls_audio_index: None,
             task_id: None,
         }
     }
@@ -124,6 +128,11 @@ pub struct DownloadTask {
     pub hls_variant_index: Option<usize>,
     #[serde(default)]
     pub hls_keep_transport_stream: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hls_audio_index: Option<usize>,
+    /// 单独下载的 HLS 音轨文件路径；未选择音轨时为 None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hls_audio_path: Option<String>,
     pub error: Option<String>,
     /// 稳定错误码（跳端接口契约）；旧队列或未分类错误为 None，界面回退展示 `error` 文案。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -177,6 +186,8 @@ impl DownloadTask {
             speed_limit_mbps: normalize_speed_limit_mbps(request.speed_limit_mbps),
             hls_variant_index: request.hls_variant_index,
             hls_keep_transport_stream: request.hls_keep_transport_stream.unwrap_or(false),
+            hls_audio_index: request.hls_audio_index,
+            hls_audio_path: None,
             total_bytes: None,
             downloaded_bytes: 0,
             current_speed_bytes_per_second: 0,
@@ -209,6 +220,7 @@ impl DownloadTask {
             speed_limit_mbps: normalize_speed_limit_mbps(self.speed_limit_mbps),
             hls_variant_index: self.hls_variant_index,
             hls_keep_transport_stream: Some(self.hls_keep_transport_stream),
+            hls_audio_index: self.hls_audio_index,
             task_id: Some(self.id.clone()),
         }
     }
@@ -224,6 +236,7 @@ impl DownloadTask {
                 self.finished_at_ms = None;
                 self.error = None;
                 self.error_code = None;
+                self.hls_audio_path = None;
                 self.handoff_backend = None;
                 self.handed_off_at_ms = None;
             }
@@ -334,6 +347,7 @@ impl DownloadTask {
         self.current_speed_bytes_per_second = 0;
         self.hls_segments_written = None;
         self.hls_segments_total = None;
+        self.hls_audio_path = None;
         self.error = None;
         self.error_code = None;
         self.started_at_ms = None;

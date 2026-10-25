@@ -18,7 +18,7 @@ pub use credential_store::{
 };
 pub use downloader::{
     CancelToken, DownloadEngine, DownloadError, DownloadOptions, DownloadProgress, DownloadSummary,
-    HlsVariantInfo, SftpJumpOptions, hls_variants,
+    HlsAudioRenditionInfo, HlsVariantInfo, SftpJumpOptions, hls_audio_renditions, hls_variants,
 };
 pub use protocol::{
     Backend, BackendAvailability, DoctorReport, Protocol, RuntimeSupportStatus, SupportStatus,

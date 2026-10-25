@@ -81,6 +81,8 @@ internal fun parseTasks(envelope: String): List<QueueTask> = runCatching {
                     torrentFiles = torrentFiles,
                     torrentFileIndices = torrentFileIndices,
                     hlsVariantIndex = if (task.isNull("hls_variant_index")) null else task.optInt("hls_variant_index", -1).takeIf { it >= 0 },
+                    hlsAudioIndex = task.optNullableInt("hls_audio_index", "hlsAudioIndex"),
+                    hlsAudioPath = task.optNullableString("hls_audio_path", "hlsAudioPath"),
                     hlsKeepTransportStream = rawKeepTs,
                     hlsRemuxedToMp4 = hlsRemuxedToMp4,
                     credentialRef = task.optNullableString("credential_ref", "credentialRef"),
@@ -178,6 +180,27 @@ internal fun parseHlsVariants(envelope: String): List<HlsVariantOption> = runCat
                     codecs = item.optString("codecs").takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) },
                     resolution = item.optString("resolution").takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) },
                     frameRate = if (item.isNull("frame_rate")) null else item.optDouble("frame_rate", 0.0),
+                ),
+            )
+        }
+    }
+}.getOrDefault(emptyList())
+
+internal fun parseHlsAudioRenditions(envelope: String): List<HlsAudioOption> = runCatching {
+    val root = JSONObject(envelope)
+    if (!root.optBoolean("ok", false)) return@runCatching emptyList()
+    val data = root.optJSONArray("data") ?: return@runCatching emptyList()
+    buildList {
+        for (index in 0 until data.length()) {
+            val item = data.optJSONObject(index) ?: continue
+            add(
+                HlsAudioOption(
+                    index = item.optInt("index", index),
+                    groupId = item.optString("group_id"),
+                    name = item.optString("name"),
+                    language = item.optString("language").takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) },
+                    isDefault = item.optBoolean("is_default", false),
+                    channels = item.optString("channels").takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) },
                 ),
             )
         }

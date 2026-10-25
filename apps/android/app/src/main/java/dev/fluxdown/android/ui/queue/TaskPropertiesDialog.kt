@@ -70,6 +70,12 @@ internal fun TaskPropertiesDialog(task: QueueTask, onDismiss: () -> Unit) {
                         PropertyRow(tr(Str.FieldFinishedAt), formatDateTime(task.finishedAtMs))
                         PropertyRow(tr(Str.FieldElapsed), formatDuration(task.startedAtMs, task.finishedAtMs, LocalLanguage.current))
                         PropertyRow(tr(Str.FieldSpeed), speedText)
+                        // 作者: long
+                        // 音轨是单独落盘的独立文件，不在 outputDir 主产物里，
+                        // 这里直接展示 Rust 返回的绝对路径，方便用户定位。
+                        task.hlsAudioPath?.takeIf { it.isNotBlank() }?.let { audio ->
+                            PropertyRow(tr(Str.FieldAudioTrack), audio, mono = true)
+                        }
                         PropertyRow(
                             tr(Str.FieldError),
                             localizedError(task.errorCode, task.error) ?: tr(Str.None),

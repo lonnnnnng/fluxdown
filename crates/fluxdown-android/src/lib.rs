@@ -127,6 +127,17 @@ pub extern "system" fn Java_dev_fluxdown_android_core_RustCoreBridge_hlsVariants
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_fluxdown_android_core_RustCoreBridge_hlsAudioRenditionsNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    source: JString<'_>,
+) -> jstring {
+    with_one_string(&mut env, source, |source| {
+        call_one(fluxdown_ffi::fluxdown_hls_audio_renditions, source)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_fluxdown_android_core_RustCoreBridge_torrentDetailsAsyncNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,

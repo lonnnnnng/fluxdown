@@ -50,6 +50,7 @@ internal class NewTaskController(
         credentialRef: String?,
         expectedSha256: String,
         hlsVariantIndex: Int?,
+        hlsAudioIndex: Int?,
         hlsKeepTransportStream: Boolean,
         onQueued: (() -> Unit)?,
     ) {
@@ -102,6 +103,7 @@ internal class NewTaskController(
             if (expectedSha256.isNotBlank()) request.put("expectedSha256", expectedSha256.trim())
             normalizedCredential?.let { request.put("credentialRef", it) }
             hlsVariantIndex?.let { request.put("hlsVariantIndex", it) }
+            hlsAudioIndex?.let { request.put("hlsAudioIndex", it) }
             if (hlsKeepTransportStream) request.put("hlsKeepTransportStream", true)
             val outcome = enqueue(
                 request,

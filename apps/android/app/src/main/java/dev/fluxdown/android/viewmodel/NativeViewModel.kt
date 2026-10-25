@@ -191,6 +191,7 @@ internal class NativeViewModel(private val context: Context) : ViewModel() {
         credentialRef: String?,
         expectedSha256: String,
         hlsVariantIndex: Int?,
+        hlsAudioIndex: Int?,
         hlsKeepTransportStream: Boolean,
         onQueued: (() -> Unit)? = null,
     ) {
@@ -204,6 +205,7 @@ internal class NativeViewModel(private val context: Context) : ViewModel() {
                 credentialRef = credentialRef,
                 expectedSha256 = expectedSha256,
                 hlsVariantIndex = hlsVariantIndex,
+                hlsAudioIndex = hlsAudioIndex,
                 hlsKeepTransportStream = hlsKeepTransportStream,
                 onQueued = onQueued,
             )

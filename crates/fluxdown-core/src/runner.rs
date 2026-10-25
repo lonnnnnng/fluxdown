@@ -435,6 +435,10 @@ async fn run_one(
                 // 下载完成后以核心下载器确认的真实产物名刷新任务卡片，Torrent/Magnet 不再停留在种子文件名或 magnet-download。
                 task.file_name = Some(display_name);
             }
+            task.hls_audio_path = summary
+                .audio_path
+                .as_ref()
+                .map(|path| path.to_string_lossy().to_string());
             if summary.backend == crate::Backend::BuiltIn {
                 task.set_state(DownloadState::Finished);
                 task.set_progress_with_hls(
@@ -525,6 +529,9 @@ fn request_with_hls_overrides(
     }
     if options.hls_keep_transport_stream {
         request.hls_keep_transport_stream = Some(true);
+    }
+    if options.hls_audio_index.is_some() {
+        request.hls_audio_index = options.hls_audio_index;
     }
     request
 }

@@ -5,6 +5,7 @@ import dev.fluxdown.android.data.KOTLIN_APP_VERSION
 import dev.fluxdown.android.data.KotlinSettings
 import dev.fluxdown.android.data.QueueRepository
 import dev.fluxdown.android.data.parseError
+import dev.fluxdown.android.data.parseHlsAudioRenditions
 import dev.fluxdown.android.data.parseHlsVariants
 import dev.fluxdown.android.platform.AndroidCredentialVault
 import dev.fluxdown.android.platform.AndroidSettingsStore
@@ -87,21 +88,25 @@ internal class SettingsController(
     fun loadHlsVariants(source: String) {
         val requested = source.trim()
         if (!requested.substringBefore('?').substringBefore('#').endsWith(".m3u8", ignoreCase = true)) {
-            updateState { it.copy(hlsVariants = emptyList(), hlsVariantsSource = null, hlsVariantsLoading = false, hlsVariantsError = null) }
+            updateState { it.copy(hlsVariants = emptyList(), hlsAudioRenditions = emptyList(), hlsVariantsSource = null, hlsVariantsLoading = false, hlsVariantsError = null) }
             return
         }
         if (current().hlsVariantsLoading && current().hlsVariantsSource == requested) return
-        updateState { it.copy(hlsVariants = emptyList(), hlsVariantsSource = requested, hlsVariantsLoading = true, hlsVariantsError = null) }
+        updateState { it.copy(hlsVariants = emptyList(), hlsAudioRenditions = emptyList(), hlsVariantsSource = requested, hlsVariantsLoading = true, hlsVariantsError = null) }
         scope.launch(Dispatchers.IO) {
             val envelope = queue.hlsVariants(requested)
             val error = parseError(envelope)
             val result = if (error == null) parseHlsVariants(envelope) else emptyList()
+            // 作者: long
+            // 音轨与清晰度来自同一份 master playlist，一次点击要一起读出来；
+            // 音轨读取失败只影响音轨列表，不应把已拿到的清晰度也清空。
+            val audio = if (error == null) parseHlsAudioRenditions(queue.hlsAudioRenditions(requested)) else emptyList()
             withContext(Dispatchers.Main) {
                 // 作者: long
                 // 网络请求返回可能晚于用户继续编辑链接，只接受仍对应当前地址的结果，避免旧清晰度列表套到新任务。
                 updateState {
                     if (it.hlsVariantsSource == requested) {
-                        it.copy(hlsVariants = result, hlsVariantsLoading = false, hlsVariantsError = error)
+                        it.copy(hlsVariants = result, hlsAudioRenditions = audio, hlsVariantsLoading = false, hlsVariantsError = error)
                     } else {
                         it
                     }

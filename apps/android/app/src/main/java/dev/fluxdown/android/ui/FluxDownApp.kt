@@ -188,6 +188,7 @@ internal fun FluxDownApp(model: NativeViewModel) {
             onDismiss = { model.clearNewTaskError(); showNewTask = false; pendingClipboardSource = null },
             credentialReferences = state.credentialReferences,
             hlsVariants = state.hlsVariants,
+            hlsAudioRenditions = state.hlsAudioRenditions,
             hlsVariantsSource = state.hlsVariantsSource,
             hlsVariantsLoading = state.hlsVariantsLoading,
             hlsVariantsError = state.hlsVariantsError,
@@ -197,7 +198,7 @@ internal fun FluxDownApp(model: NativeViewModel) {
             newTaskSubmitting = state.newTaskSubmitting,
             newTaskError = state.newTaskError,
             onSourceChanged = model::clearNewTaskError,
-            onConfirm = { source, fileName, outputPath, credentialRef, expectedSha256, hlsVariantIndex, hlsKeepTransportStream ->
+            onConfirm = { source, fileName, outputPath, credentialRef, expectedSha256, hlsVariantIndex, hlsAudioIndex, hlsKeepTransportStream ->
                 model.addTask(
                     source,
                     fileName,
@@ -205,6 +206,7 @@ internal fun FluxDownApp(model: NativeViewModel) {
                     credentialRef,
                     expectedSha256,
                     hlsVariantIndex,
+                    hlsAudioIndex,
                     hlsKeepTransportStream,
                     onQueued = { model.clearNewTaskError(); showNewTask = false; pendingClipboardSource = null },
                 )
